@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors } from '../../src/constants/theme';
 
 export default function TabLayout() {
@@ -9,11 +9,12 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: Colors.surface,
           borderTopColor: Colors.surfaceLight,
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 4,
+          height: 72,
+          paddingBottom: 20,
+          paddingTop: 8,
+          marginBottom: 12,
         },
-        tabBarActiveTintColor: Colors.primary,
+        tabBarActiveTintColor: Colors.textPrimary,
         tabBarInactiveTintColor: Colors.textMuted,
         tabBarLabelStyle: {
           fontSize: 12,
@@ -28,8 +29,12 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Workouts',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ fontSize: 22, color }}>🏃</Text>
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'fitness' : 'fitness-outline'}
+              size={22}
+              color={color}
+            />
           ),
         }}
       />
@@ -37,8 +42,12 @@ export default function TabLayout() {
         name="history"
         options={{
           title: 'History',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ fontSize: 22, color }}>📊</Text>
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'time' : 'time-outline'}
+              size={22}
+              color={color}
+            />
           ),
         }}
       />
@@ -46,8 +55,12 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: 'Settings',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ fontSize: 22, color }}>⚙️</Text>
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'settings' : 'settings-outline'}
+              size={22}
+              color={color}
+            />
           ),
         }}
       />
