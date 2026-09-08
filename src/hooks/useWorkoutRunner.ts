@@ -34,7 +34,7 @@ import {
   totalRemainingSeconds,
   nextInterval,
 } from '../workout/workoutEngine';
-import { playCue, configureAudio, speakTimeRemaining, type CueContext } from '../audio/audioManager';
+import { playCue, configureAudio, speakIntervalProgress, type CueContext } from '../audio/audioManager';
 import {
   hapticIntervalChange,
   hapticWarning,
@@ -168,23 +168,27 @@ export function useWorkoutRunner(
           lastLAIndex.current = next.currentIndex;
         }
       } else {
-        // Check for time remaining announcements, warning, and countdown cues
+        // Check for interval-progress announcements, warning, and countdown cues
         const secs = remainingSeconds(s);
         const ci = currentInterval(s);
         const warnSecs = settingsRef.current.countdownWarningSeconds;
         const announceEvery = settingsRef.current.timeRemainingInterval;
 
-        // Announce time remaining at regular intervals (voice only, no beep)
+        // Announce elapsed time at regular intervals (voice only, no beep)
         if (
           announceEvery > 0 &&
           ci &&
-          secs > warnSecs &&
-          secs < ci.durationSeconds &&
-          secs % announceEvery === 0 &&
-          !firedTimeAnnouncements.current.has(secs)
+          secs > warnSecs
         ) {
-          firedTimeAnnouncements.current.add(secs);
-          speakTimeRemaining(secs, settingsRef.current.audioCueMode);
+          const elapsed = ci.durationSeconds - secs;
+          if (
+            elapsed > 0 &&
+            elapsed % announceEvery === 0 &&
+            !firedTimeAnnouncements.current.has(elapsed)
+          ) {
+            firedTimeAnnouncements.current.add(elapsed);
+            speakIntervalProgress(elapsed, settingsRef.current.audioCueMode);
+          }
         }
 
         if (secs <= warnSecs && secs > 3 && !firedWarning.current) {

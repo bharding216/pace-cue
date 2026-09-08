@@ -10,12 +10,15 @@ import {
   Switch,
   TouchableOpacity,
   ScrollView,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { AppSettings, AudioCueMode, TimeRemainingInterval, DEFAULT_SETTINGS } from '../../src/workout/workoutTypes';
 import { loadSettings, saveSettings } from '../../src/workout/workoutStorage';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 import { hapticTap } from '../../src/audio/haptics';
+import { exportData, importData } from '../../src/workout/backupManager';
 
 const AUDIO_MODES: { value: AudioCueMode; label: string; icon: string }[] = [
   { value: 'beeps', label: 'Beeps', icon: '🔔' },
@@ -30,12 +33,15 @@ const TIME_REMAINING_OPTIONS: { value: TimeRemainingInterval; label: string }[] 
   { value: 0, label: 'Off' },
   { value: 15, label: '15s' },
   { value: 30, label: '30s' },
+  { value: 45, label: '45s' },
   { value: 60, label: '1 min' },
   { value: 120, label: '2 min' },
 ];
 
 export default function SettingsScreen() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -47,6 +53,36 @@ export default function SettingsScreen() {
     const next = { ...settings, ...partial };
     setSettings(next);
     await saveSettings(next);
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportData();
+    } catch (e: any) {
+      Alert.alert('Export Failed', e.message ?? 'Something went wrong.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImport = async () => {
+    setImporting(true);
+    try {
+      const result = await importData();
+      if (result) {
+        // Reload settings since they were just overwritten
+        loadSettings().then(setSettings);
+        Alert.alert(
+          'Import Complete',
+          `Restored ${result.workoutsCount} workout${result.workoutsCount !== 1 ? 's' : ''} and ${result.historyCount} history entr${result.historyCount !== 1 ? 'ies' : 'y'}.`
+        );
+      }
+    } catch (e: any) {
+      Alert.alert('Import Failed', e.message ?? 'Could not read backup file.');
+    } finally {
+      setImporting(false);
+    }
   };
 
   return (
@@ -138,10 +174,10 @@ export default function SettingsScreen() {
         ))}
       </View>
 
-      {/* Time remaining announcements */}
-      <Text style={styles.sectionTitle}>Time Remaining</Text>
+      {/* Interval progress announcements */}
+      <Text style={styles.sectionTitle}>Interval Progress</Text>
       <Text style={styles.sectionSub}>
-        Announce the time left in each interval (requires Voice or Both audio mode)
+        Announce elapsed time during each interval (requires Voice or Both audio mode)
       </Text>
       <View style={styles.row}>
         {TIME_REMAINING_OPTIONS.map((opt) => (
@@ -186,6 +222,40 @@ export default function SettingsScreen() {
           }
         />
       </View>
+
+      {/* Backup / Restore */}
+      <Text style={styles.sectionTitle}>Your Data</Text>
+      <Text style={styles.sectionSub}>
+        Export your workouts, history, and settings to a file so you can restore them later.
+      </Text>
+
+      <TouchableOpacity
+        style={styles.actionBtn}
+        onPress={handleExport}
+        disabled={exporting}
+        activeOpacity={0.7}
+      >
+        {exporting ? (
+          <ActivityIndicator color={Colors.primary} size="small" />
+        ) : (
+          <Text style={styles.actionBtnIcon}>📤</Text>
+        )}
+        <Text style={styles.actionBtnLabel}>Export Backup</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.actionBtn, { marginTop: Spacing.sm }]}
+        onPress={handleImport}
+        disabled={importing}
+        activeOpacity={0.7}
+      >
+        {importing ? (
+          <ActivityIndicator color={Colors.accent} size="small" />
+        ) : (
+          <Text style={styles.actionBtnIcon}>📥</Text>
+        )}
+        <Text style={styles.actionBtnLabel}>Import Backup</Text>
+      </TouchableOpacity>
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>PaceCue v1.0</Text>
@@ -264,6 +334,25 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     flex: 1,
     marginRight: Spacing.md,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.sm,
+    gap: Spacing.sm,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+  },
+  actionBtnIcon: {
+    fontSize: 20,
+  },
+  actionBtnLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '600',
+    color: Colors.textPrimary,
   },
   footer: {
     marginTop: Spacing.xxl * 2,
