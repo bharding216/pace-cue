@@ -11,8 +11,12 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.pacecue.app",
       "infoPlist": {
-        "UIBackgroundModes": ["audio"],
-        "NSMicrophoneUsageDescription": "PaceCue does not use the microphone."
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "NSMicrophoneUsageDescription": "PaceCue does not use the microphone.",
+        "NSSupportsLiveActivities": true,
+        "NSSupportsLiveActivitiesFrequentUpdates": true
       }
     },
     "android": {
@@ -31,9 +35,16 @@
       "expo-router",
       "expo-status-bar",
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "com.pacecue.app.widgets",
+          "groupIdentifier": "group.com.pacecue.app"
         }
       ]
     ],

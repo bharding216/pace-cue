@@ -5,7 +5,7 @@
  * and start/pause/resume/skip controls.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useKeepAwake } from 'expo-keep-awake';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { WorkoutDefinition, formatTime, AppSettings, DEFAULT_SETTINGS } from '../../../src/workout/workoutTypes';
 import { loadWorkouts, loadSettings } from '../../../src/workout/workoutStorage';
 import { useWorkoutRunner } from '../../../src/hooks/useWorkoutRunner';
@@ -70,9 +70,14 @@ function ActiveWorkoutInner({
   const runner = useWorkoutRunner(workout, settings);
 
   // Keep screen awake during workout
-  if (settings.keepScreenOn) {
-    useKeepAwake();
-  }
+  useEffect(() => {
+    if (settings.keepScreenOn) {
+      activateKeepAwakeAsync('workout');
+    }
+    return () => {
+      deactivateKeepAwake('workout');
+    };
+  }, [settings.keepScreenOn]);
 
   const { state } = runner;
   const color = intervalColor(runner.currentType);

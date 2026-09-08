@@ -1,12 +1,15 @@
 /**
  * Audio cue manager for PaceCue.
  *
- * Uses expo-av to generate beep tones programmatically.
- * Designed to work with the phone locked / app backgrounded by keeping
- * an audio session active in the "playback" category.
+ * Uses expo-audio to play beep tones for interval transitions.
+ * Configured for background playback so cues work with the phone locked.
  */
 
-import { Audio } from 'expo-av';
+import {
+  setAudioModeAsync,
+  createAudioPlayer,
+  type AudioPlayer,
+} from 'expo-audio';
 import { AudioCueMode } from '../workout/workoutTypes';
 
 let isAudioConfigured = false;
@@ -15,10 +18,10 @@ let isAudioConfigured = false;
 export async function configureAudio(): Promise<void> {
   if (isAudioConfigured) return;
   try {
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: true,
-      shouldDuckAndroid: true,
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: 'duckOthers',
     });
     isAudioConfigured = true;
   } catch (e) {
@@ -27,8 +30,8 @@ export async function configureAudio(): Promise<void> {
 }
 
 /**
- * Generate a WAV beep in memory.
- * This avoids needing bundled sound files — we create simple sine-wave tones.
+ * Generate a WAV beep in memory and return a data URI.
+ * Avoids needing bundled sound files — creates simple sine-wave tones.
  */
 function generateBeepWav(
   frequencyHz: number,
@@ -47,20 +50,18 @@ function generateBeepWav(
   view.setUint32(4, fileSize - 8, true);
   writeString(view, 8, 'WAVE');
   writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true); // chunk size
+  view.setUint32(16, 16, true);
   view.setUint16(20, 1, true); // PCM
   view.setUint16(22, 1, true); // mono
   view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); // byte rate
-  view.setUint16(32, 2, true); // block align
-  view.setUint16(34, 16, true); // bits per sample
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
   writeString(view, 36, 'data');
   view.setUint32(40, dataSize, true);
 
-  // Generate sine wave
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;
-    // Apply a short fade-in/fade-out envelope to avoid clicks
     const fadeSamples = Math.min(numSamples * 0.05, 200);
     let envelope = 1;
     if (i < fadeSamples) envelope = i / fadeSamples;
@@ -72,7 +73,6 @@ function generateBeepWav(
     view.setInt16(44 + i * 2, int16, true);
   }
 
-  // Convert to base64 data URI
   const bytes = new Uint8Array(buffer);
   let binary = '';
   for (let i = 0; i < bytes.length; i++) {
@@ -87,11 +87,11 @@ function writeString(view: DataView, offset: number, str: string) {
   }
 }
 
-// Pre-built beep URIs
-const BEEP_HIGH = generateBeepWav(880, 200); // A5 – interval start
-const BEEP_LOW = generateBeepWav(440, 200); // A4 – warning
-const BEEP_DOUBLE = generateBeepWav(1046, 150); // C6 – workout complete
-const BEEP_COUNTDOWN = generateBeepWav(660, 100); // E5 – 3-2-1 countdown
+// Pre-built beep data URIs
+const BEEP_HIGH = generateBeepWav(880, 200);
+const BEEP_LOW = generateBeepWav(440, 200);
+const BEEP_DOUBLE = generateBeepWav(1046, 150);
+const BEEP_COUNTDOWN = generateBeepWav(660, 100);
 
 type CueType = 'intervalStart' | 'warning' | 'countdown' | 'workoutComplete';
 
@@ -102,19 +102,26 @@ const CUE_URIS: Record<CueType, string> = {
   workoutComplete: BEEP_DOUBLE,
 };
 
-/** Play a beep cue. */
+// Keep a reference to the player so we can replace and replay
+let activePlayer: AudioPlayer | null = null;
+
+/** Play a beep cue using expo-audio's createAudioPlayer. */
 export async function playBeep(cue: CueType): Promise<void> {
   try {
-    const { sound } = await Audio.Sound.createAsync(
-      { uri: CUE_URIS[cue] },
-      { shouldPlay: true, volume: 1.0 }
-    );
-    // Unload after playback finishes to free memory
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (status.isLoaded && status.didJustFinish) {
-        sound.unloadAsync();
+    // Release previous player if any
+    if (activePlayer) {
+      try {
+        activePlayer.release();
+      } catch {
+        // ignore release errors
       }
-    });
+    }
+
+    activePlayer = createAudioPlayer(
+      { uri: CUE_URIS[cue] },
+      { keepAudioSessionActive: true }
+    );
+    activePlayer.play();
   } catch (e) {
     console.warn('Failed to play beep:', e);
   }
@@ -132,7 +139,6 @@ export async function playCue(
   mode: AudioCueMode
 ): Promise<void> {
   if (mode === 'silent') return;
-  // For now we only have beeps; voice cues would be added here later
   if (mode === 'beeps' || mode === 'both') {
     if (cue === 'workoutComplete') {
       await playDoubleBeep();

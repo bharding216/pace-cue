@@ -4,15 +4,19 @@
  * This is the bridge between the pure functional engine and the React UI.
  * It runs a high-frequency requestAnimationFrame loop while the workout is
  * active and fires cues at the right moments.
+ *
+ * On iOS, it also manages a Live Activity on the Lock Screen / Dynamic Island.
  */
 
 import { useRef, useState, useCallback, useEffect } from 'react';
+import { Platform } from 'react-native';
 import {
   EngineState,
   WorkoutDefinition,
   AppSettings,
   CompletedWorkout,
   generateId,
+  IntervalType,
 } from '../workout/workoutTypes';
 import {
   createEngineState,
@@ -38,6 +42,11 @@ import {
   hapticWorkoutComplete,
 } from '../audio/haptics';
 import { saveCompletedWorkout } from '../workout/workoutStorage';
+import {
+  startLiveActivity,
+  updateLiveActivity,
+  endLiveActivity,
+} from './useLiveActivity';
 
 export interface WorkoutRunnerControls {
   state: EngineState;
@@ -80,6 +89,35 @@ export function useWorkoutRunner(
   const [, setTick] = useState(0);
   const rafId = useRef<number | null>(null);
 
+  // Live Activity: throttle updates to ~1/sec to stay within the system budget
+  const lastLAUpdate = useRef(0);
+  const lastLAIndex = useRef(-1);
+
+  /** Build Live Activity props from the current engine state. */
+  const buildLAProps = useCallback(
+    (s: EngineState, isPaused: boolean) => {
+      const ci = currentInterval(s);
+      const ni = nextInterval(s);
+      const intervalNum =
+        s.intervals.length > 0
+          ? `${s.currentIndex + 1} / ${s.intervals.length}`
+          : '';
+      const durationMs = ci ? ci.durationSeconds * 1000 : 0;
+      return {
+        intervalLabel: ci?.label || '',
+        intervalType: (ci?.type || 'easy') as IntervalType,
+        intervalEndsAt: s.intervalEndsAt,
+        intervalStartedAt: s.intervalEndsAt - durationMs,
+        nextLabel: ni?.label || '',
+        intervalNumber: intervalNum,
+        workoutName: workout.name,
+        isPaused,
+        pausedRemainingMs: isPaused ? s.pausedRemaining : 0,
+      };
+    },
+    [workout.name]
+  );
+
   const tick = useCallback(() => {
     const s = engineRef.current;
 
@@ -94,6 +132,7 @@ export function useWorkoutRunner(
           // Workout complete
           playCue('workoutComplete', settingsRef.current.audioCueMode);
           if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
+          endLiveActivity();
 
           // Save to history
           const entry: CompletedWorkout = {
@@ -105,11 +144,15 @@ export function useWorkoutRunner(
           };
           saveCompletedWorkout(entry);
         } else {
-          // New interval started
+          // New interval started — update Live Activity immediately
           playCue('intervalStart', settingsRef.current.audioCueMode);
           if (settingsRef.current.hapticEnabled) hapticIntervalChange();
           firedWarning.current = false;
           firedCountdowns.current.clear();
+
+          updateLiveActivity(buildLAProps(next, false));
+          lastLAUpdate.current = Date.now();
+          lastLAIndex.current = next.currentIndex;
         }
       } else {
         // Check for warning / countdown cues
@@ -134,7 +177,7 @@ export function useWorkoutRunner(
     }
 
     rafId.current = requestAnimationFrame(tick);
-  }, [workout.id, workout.name]);
+  }, [workout.id, workout.name, buildLAProps]);
 
   // Start/stop the animation loop based on engine phase
   useEffect(() => {
@@ -154,6 +197,13 @@ export function useWorkoutRunner(
     configureAudio();
   }, []);
 
+  // Clean up Live Activity on unmount
+  useEffect(() => {
+    return () => {
+      endLiveActivity();
+    };
+  }, []);
+
   // Controls
   const start = useCallback(() => {
     const next = startWorkout(engineRef.current);
@@ -164,19 +214,31 @@ export function useWorkoutRunner(
     lastIndex.current = 0;
     playCue('intervalStart', settingsRef.current.audioCueMode);
     if (settingsRef.current.hapticEnabled) hapticIntervalChange();
-  }, []);
+
+    // Start Live Activity
+    startLiveActivity(buildLAProps(next, false));
+    lastLAUpdate.current = Date.now();
+    lastLAIndex.current = 0;
+  }, [buildLAProps]);
 
   const pause = useCallback(() => {
     const next = pauseWorkout(engineRef.current);
     engineRef.current = next;
     setEngine(next);
-  }, []);
+
+    // Update Live Activity to show paused state
+    updateLiveActivity(buildLAProps(next, true));
+  }, [buildLAProps]);
 
   const resume_ = useCallback(() => {
     const next = resumeWorkout(engineRef.current);
     engineRef.current = next;
     setEngine(next);
-  }, []);
+
+    // Update Live Activity with new timing
+    updateLiveActivity(buildLAProps(next, false));
+    lastLAUpdate.current = Date.now();
+  }, [buildLAProps]);
 
   const skip_ = useCallback(() => {
     const next = skipInterval(engineRef.current);
@@ -187,9 +249,15 @@ export function useWorkoutRunner(
       firedCountdowns.current.clear();
       playCue('intervalStart', settingsRef.current.audioCueMode);
       if (settingsRef.current.hapticEnabled) hapticIntervalChange();
+
+      // Update Live Activity immediately on skip
+      updateLiveActivity(buildLAProps(next, false));
+      lastLAUpdate.current = Date.now();
+      lastLAIndex.current = next.currentIndex;
     } else {
       playCue('workoutComplete', settingsRef.current.audioCueMode);
       if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
+      endLiveActivity();
       const entry: CompletedWorkout = {
         id: generateId(),
         workoutId: workout.id,
@@ -199,12 +267,13 @@ export function useWorkoutRunner(
       };
       saveCompletedWorkout(entry);
     }
-  }, [workout.id, workout.name]);
+  }, [workout.id, workout.name, buildLAProps]);
 
   const stop_ = useCallback(() => {
     const next = stopWorkout(engineRef.current);
     engineRef.current = next;
     setEngine(next);
+    endLiveActivity();
   }, []);
 
   // Derived display values
