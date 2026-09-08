@@ -1,8 +1,15 @@
+import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Colors } from '../src/constants/theme';
+import { cleanupStaleLiveActivities } from '../src/hooks/useLiveActivity';
 
 export default function RootLayout() {
+  // End any Live Activities orphaned by a force-kill during a workout.
+  useEffect(() => {
+    cleanupStaleLiveActivities();
+  }, []);
+
   return (
     <>
       <StatusBar style="light" />

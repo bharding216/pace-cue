@@ -73,3 +73,28 @@ export function endLiveActivity(): void {
   }
   liveActivityInstance = null;
 }
+
+/**
+ * End any Live Activities left over from a previous app session.
+ *
+ * When the app is force-killed mid-workout the in-memory singleton is lost,
+ * but the OS-level Live Activity persists.  Call this once on app startup to
+ * clean up orphans.
+ */
+export function cleanupStaleLiveActivities(): void {
+  const factory = getFactory();
+  if (!factory) return;
+
+  try {
+    const instances = factory.getInstances();
+    for (const activity of instances) {
+      try {
+        activity.end('immediate');
+      } catch {}
+    }
+  } catch (e) {
+    console.warn('Failed to clean up stale Live Activities:', e);
+  }
+  // Also clear the singleton in case it somehow survived
+  liveActivityInstance = null;
+}
