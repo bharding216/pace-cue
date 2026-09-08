@@ -6,6 +6,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   WorkoutDefinition,
+  WorkoutRepeatBlock,
   CompletedWorkout,
   AppSettings,
   DEFAULT_SETTINGS,
@@ -17,12 +18,43 @@ const STORAGE_KEYS = {
   SETTINGS: '@pacecue/settings',
 } as const;
 
+// ── Migration ────────────────────────────────────────────────────────
+
+/**
+ * Migrate old single-interval warmup/cooldown to the new block-based format.
+ * Old format: warmup: { type, durationSeconds, label? } | null
+ * New format: warmup: WorkoutRepeatBlock[]
+ */
+function migrateWorkout(raw: any): WorkoutDefinition {
+  if (raw.warmup && !Array.isArray(raw.warmup)) {
+    // Old single-interval format → wrap in a block
+    const interval = raw.warmup;
+    raw.warmup = [
+      { intervals: [interval], repeatCount: 1 },
+    ] as WorkoutRepeatBlock[];
+  } else if (!raw.warmup) {
+    raw.warmup = [];
+  }
+
+  if (raw.cooldown && !Array.isArray(raw.cooldown)) {
+    const interval = raw.cooldown;
+    raw.cooldown = [
+      { intervals: [interval], repeatCount: 1 },
+    ] as WorkoutRepeatBlock[];
+  } else if (!raw.cooldown) {
+    raw.cooldown = [];
+  }
+
+  return raw as WorkoutDefinition;
+}
+
 // ── Workouts (CRUD) ──────────────────────────────────────────────────
 
 export async function loadWorkouts(): Promise<WorkoutDefinition[]> {
   const raw = await AsyncStorage.getItem(STORAGE_KEYS.WORKOUTS);
   if (!raw) return [];
-  return JSON.parse(raw) as WorkoutDefinition[];
+  const parsed = JSON.parse(raw) as any[];
+  return parsed.map(migrateWorkout);
 }
 
 export async function saveWorkouts(

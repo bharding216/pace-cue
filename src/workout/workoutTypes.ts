@@ -21,9 +21,9 @@ export interface WorkoutRepeatBlock {
 export interface WorkoutDefinition {
   id: string;
   name: string;
-  warmup: WorkoutInterval | null;
+  warmup: WorkoutRepeatBlock[];
   blocks: WorkoutRepeatBlock[];
-  cooldown: WorkoutInterval | null;
+  cooldown: WorkoutRepeatBlock[];
   createdAt: number; // epoch ms
   updatedAt: number;
 }
@@ -80,45 +80,44 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keepScreenOn: true,
 };
 
-/** Flatten a WorkoutDefinition into an ordered list of FlatIntervals. */
-export function flattenWorkout(def: WorkoutDefinition): FlatInterval[] {
-  const result: FlatInterval[] = [];
-  let idx = 0;
-
-  if (def.warmup) {
-    result.push({
-      type: 'warmup',
-      durationSeconds: def.warmup.durationSeconds,
-      label: def.warmup.label || 'Warm Up',
-      index: idx++,
-    });
+/** Default label for an interval based on its type. */
+function defaultLabel(type: IntervalType): string {
+  switch (type) {
+    case 'warmup': return 'Warm Up';
+    case 'cooldown': return 'Cool Down';
+    case 'hard': return 'Hard';
+    case 'easy': return 'Easy';
   }
+}
 
-  for (const block of def.blocks) {
+/** Flatten a list of repeat blocks into sequential FlatIntervals. */
+function flattenBlocks(
+  blocks: WorkoutRepeatBlock[],
+  startIdx: number,
+): { items: FlatInterval[]; nextIdx: number } {
+  const items: FlatInterval[] = [];
+  let idx = startIdx;
+  for (const block of blocks) {
     for (let r = 0; r < block.repeatCount; r++) {
       for (const interval of block.intervals) {
-        result.push({
+        items.push({
           type: interval.type,
           durationSeconds: interval.durationSeconds,
-          label:
-            interval.label ||
-            (interval.type === 'hard' ? 'Hard' : 'Easy'),
+          label: interval.label || defaultLabel(interval.type),
           index: idx++,
         });
       }
     }
   }
+  return { items, nextIdx: idx };
+}
 
-  if (def.cooldown) {
-    result.push({
-      type: 'cooldown',
-      durationSeconds: def.cooldown.durationSeconds,
-      label: def.cooldown.label || 'Cool Down',
-      index: idx++,
-    });
-  }
-
-  return result;
+/** Flatten a WorkoutDefinition into an ordered list of FlatIntervals. */
+export function flattenWorkout(def: WorkoutDefinition): FlatInterval[] {
+  const warmup = flattenBlocks(def.warmup, 0);
+  const main = flattenBlocks(def.blocks, warmup.nextIdx);
+  const cooldown = flattenBlocks(def.cooldown, main.nextIdx);
+  return [...warmup.items, ...main.items, ...cooldown.items];
 }
 
 /** Calculate total duration of a workout in seconds. */

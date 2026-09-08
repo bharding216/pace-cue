@@ -15,7 +15,9 @@ export default function NewWorkoutScreen() {
   const blank: WorkoutDefinition = {
     id: generateId(),
     name: '',
-    warmup: { type: 'warmup', durationSeconds: 300 },
+    warmup: [
+      { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
+    ],
     blocks: [
       {
         intervals: [
@@ -25,7 +27,9 @@ export default function NewWorkoutScreen() {
         repeatCount: 4,
       },
     ],
-    cooldown: { type: 'cooldown', durationSeconds: 300 },
+    cooldown: [
+      { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+    ],
     createdAt: now,
     updatedAt: now,
   };

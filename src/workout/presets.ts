@@ -11,7 +11,9 @@ export function createPresets(): WorkoutDefinition[] {
     {
       id: generateId(),
       name: '5K Speed',
-      warmup: { type: 'warmup', durationSeconds: 600 },
+      warmup: [
+        { intervals: [{ type: 'warmup', durationSeconds: 600 }], repeatCount: 1 },
+      ],
       blocks: [
         {
           intervals: [
@@ -21,14 +23,25 @@ export function createPresets(): WorkoutDefinition[] {
           repeatCount: 6,
         },
       ],
-      cooldown: { type: 'cooldown', durationSeconds: 300 },
+      cooldown: [
+        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+      ],
       createdAt: now,
       updatedAt: now,
     },
     {
       id: generateId(),
       name: 'Tempo Run',
-      warmup: { type: 'warmup', durationSeconds: 600 },
+      warmup: [
+        { intervals: [{ type: 'warmup', durationSeconds: 480 }], repeatCount: 1 },
+        {
+          intervals: [
+            { type: 'hard', durationSeconds: 20, label: 'Stride' },
+            { type: 'easy', durationSeconds: 60, label: 'Easy Jog' },
+          ],
+          repeatCount: 3,
+        },
+      ],
       blocks: [
         {
           intervals: [
@@ -37,14 +50,18 @@ export function createPresets(): WorkoutDefinition[] {
           repeatCount: 1,
         },
       ],
-      cooldown: { type: 'cooldown', durationSeconds: 300 },
+      cooldown: [
+        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+      ],
       createdAt: now,
       updatedAt: now,
     },
     {
       id: generateId(),
       name: 'Short Intervals',
-      warmup: { type: 'warmup', durationSeconds: 300 },
+      warmup: [
+        { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
+      ],
       blocks: [
         {
           intervals: [
@@ -54,14 +71,18 @@ export function createPresets(): WorkoutDefinition[] {
           repeatCount: 8,
         },
       ],
-      cooldown: { type: 'cooldown', durationSeconds: 300 },
+      cooldown: [
+        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+      ],
       createdAt: now,
       updatedAt: now,
     },
     {
       id: generateId(),
       name: 'Pyramid',
-      warmup: { type: 'warmup', durationSeconds: 600 },
+      warmup: [
+        { intervals: [{ type: 'warmup', durationSeconds: 600 }], repeatCount: 1 },
+      ],
       blocks: [
         {
           intervals: [
@@ -99,14 +120,16 @@ export function createPresets(): WorkoutDefinition[] {
           repeatCount: 1,
         },
       ],
-      cooldown: { type: 'cooldown', durationSeconds: 300 },
+      cooldown: [
+        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+      ],
       createdAt: now,
       updatedAt: now,
     },
     {
       id: generateId(),
       name: 'Easy 30 Min',
-      warmup: null,
+      warmup: [],
       blocks: [
         {
           intervals: [
@@ -115,7 +138,7 @@ export function createPresets(): WorkoutDefinition[] {
           repeatCount: 1,
         },
       ],
-      cooldown: null,
+      cooldown: [],
       createdAt: now,
       updatedAt: now,
     },

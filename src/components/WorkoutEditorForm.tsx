@@ -57,8 +57,12 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
     onSave(current);
   };
 
-  const updateBlockRepeat = (blockIdx: number, count: number) => {
-    setBlocks((prev) => {
+  // ── Generic block helpers (reused for warmup, main, cooldown) ──────
+
+  type BlockSetter = React.Dispatch<React.SetStateAction<WorkoutRepeatBlock[]>>;
+
+  const updateBlockRepeat = (setter: BlockSetter, blockIdx: number, count: number) => {
+    setter((prev) => {
       const next = [...prev];
       next[blockIdx] = { ...next[blockIdx], repeatCount: Math.max(1, count) };
       return next;
@@ -66,11 +70,12 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
   };
 
   const updateInterval = (
+    setter: BlockSetter,
     blockIdx: number,
     intIdx: number,
-    partial: Partial<WorkoutInterval>
+    partial: Partial<WorkoutInterval>,
   ) => {
-    setBlocks((prev) => {
+    setter((prev) => {
       const next = [...prev];
       const intervals = [...next[blockIdx].intervals];
       intervals[intIdx] = { ...intervals[intIdx], ...partial };
@@ -79,13 +84,17 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
     });
   };
 
-  const addIntervalToBlock = (blockIdx: number) => {
-    setBlocks((prev) => {
+  const addIntervalToBlock = (
+    setter: BlockSetter,
+    blockIdx: number,
+    defaultType: IntervalType,
+  ) => {
+    setter((prev) => {
       const next = [...prev];
       const lastType =
         next[blockIdx].intervals[next[blockIdx].intervals.length - 1]?.type;
       const newType: IntervalType =
-        lastType === 'hard' ? 'easy' : 'hard';
+        lastType === 'hard' ? 'easy' : lastType === 'easy' ? 'hard' : defaultType;
       next[blockIdx] = {
         ...next[blockIdx],
         intervals: [
@@ -97,14 +106,13 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
     });
   };
 
-  const removeInterval = (blockIdx: number, intIdx: number) => {
-    setBlocks((prev) => {
+  const removeInterval = (setter: BlockSetter, blockIdx: number, intIdx: number) => {
+    setter((prev) => {
       const next = [...prev];
       const intervals = next[blockIdx].intervals.filter(
-        (_, i) => i !== intIdx
+        (_, i) => i !== intIdx,
       );
       if (intervals.length === 0) {
-        // Remove the whole block if empty
         return next.filter((_, i) => i !== blockIdx);
       }
       next[blockIdx] = { ...next[blockIdx], intervals };
@@ -112,16 +120,14 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
     });
   };
 
-  const addBlock = () => {
-    setBlocks((prev) => [
+  const addBlock = (
+    setter: BlockSetter,
+    defaultIntervals: WorkoutInterval[],
+    defaultRepeat: number,
+  ) => {
+    setter((prev) => [
       ...prev,
-      {
-        intervals: [
-          { type: 'hard' as IntervalType, durationSeconds: 180 },
-          { type: 'easy' as IntervalType, durationSeconds: 120 },
-        ],
-        repeatCount: 4,
-      },
+      { intervals: defaultIntervals, repeatCount: defaultRepeat },
     ]);
   };
 
@@ -143,148 +149,54 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
 
       {/* Warmup */}
       <Text style={styles.sectionTitle}>Warm Up</Text>
-      {warmup ? (
-        <View style={styles.intervalRow}>
-          <DurationPicker
-            seconds={warmup.durationSeconds}
-            onChange={(s) =>
-              setWarmup({ ...warmup, durationSeconds: s })
-            }
-            color={intervalColor('warmup')}
-          />
-          <TouchableOpacity
-            onPress={() => setWarmup(null)}
-            style={styles.removeBtn}
-          >
-            <Text style={styles.removeBtnText}>✕</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() =>
-            setWarmup({ type: 'warmup', durationSeconds: 300 })
-          }
-        >
-          <Text style={styles.addBtnText}>+ Add Warm Up</Text>
-        </TouchableOpacity>
-      )}
+      <BlockList
+        blocks={warmup}
+        setter={setWarmup}
+        defaultType="warmup"
+        allowedTypes={['warmup', 'easy', 'hard']}
+        sectionLabel="Warm Up"
+        addBlockLabel="+ Add Warm Up Block"
+        addIntervalLabel="+ Add Interval"
+        updateBlockRepeat={updateBlockRepeat}
+        updateInterval={updateInterval}
+        addIntervalToBlock={addIntervalToBlock}
+        removeInterval={removeInterval}
+        addBlock={addBlock}
+      />
 
-      {/* Blocks */}
-      {blocks.map((block, bi) => (
-        <View key={bi} style={styles.block}>
-          <View style={styles.blockHeader}>
-            <Text style={styles.sectionTitle}>Block {bi + 1}</Text>
-            <View style={styles.repeatRow}>
-              <Text style={styles.repeatLabel}>Repeat</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  hapticTap();
-                  updateBlockRepeat(bi, block.repeatCount - 1);
-                }}
-                style={styles.stepBtn}
-              >
-                <Text style={styles.stepBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.repeatCount}>{block.repeatCount}×</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  hapticTap();
-                  updateBlockRepeat(bi, block.repeatCount + 1);
-                }}
-                style={styles.stepBtn}
-              >
-                <Text style={styles.stepBtnText}>+</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {block.intervals.map((interval, ii) => (
-            <View key={ii} style={styles.intervalRow}>
-              <TouchableOpacity
-                style={[
-                  styles.typeChip,
-                  {
-                    backgroundColor:
-                      intervalColor(interval.type) + '22',
-                    borderColor: intervalColor(interval.type),
-                  },
-                ]}
-                onPress={() => {
-                  hapticTap();
-                  const nextType: IntervalType =
-                    interval.type === 'hard' ? 'easy' : 'hard';
-                  updateInterval(bi, ii, { type: nextType });
-                }}
-              >
-                <Text
-                  style={[
-                    styles.typeText,
-                    { color: intervalColor(interval.type) },
-                  ]}
-                >
-                  {interval.type.toUpperCase()}
-                </Text>
-              </TouchableOpacity>
-
-              <DurationPicker
-                seconds={interval.durationSeconds}
-                onChange={(s) =>
-                  updateInterval(bi, ii, { durationSeconds: s })
-                }
-                color={intervalColor(interval.type)}
-              />
-
-              <TouchableOpacity
-                onPress={() => removeInterval(bi, ii)}
-                style={styles.removeBtn}
-              >
-                <Text style={styles.removeBtnText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-
-          <TouchableOpacity
-            style={styles.addBtn}
-            onPress={() => addIntervalToBlock(bi)}
-          >
-            <Text style={styles.addBtnText}>+ Add Interval</Text>
-          </TouchableOpacity>
-        </View>
-      ))}
-
-      <TouchableOpacity style={styles.addBtn} onPress={addBlock}>
-        <Text style={styles.addBtnText}>+ Add Block</Text>
-      </TouchableOpacity>
+      {/* Main Blocks */}
+      <Text style={styles.sectionTitle}>Intervals</Text>
+      <BlockList
+        blocks={blocks}
+        setter={setBlocks}
+        defaultType="hard"
+        allowedTypes={['hard', 'easy']}
+        sectionLabel="Block"
+        addBlockLabel="+ Add Block"
+        addIntervalLabel="+ Add Interval"
+        updateBlockRepeat={updateBlockRepeat}
+        updateInterval={updateInterval}
+        addIntervalToBlock={addIntervalToBlock}
+        removeInterval={removeInterval}
+        addBlock={addBlock}
+      />
 
       {/* Cooldown */}
       <Text style={styles.sectionTitle}>Cool Down</Text>
-      {cooldown ? (
-        <View style={styles.intervalRow}>
-          <DurationPicker
-            seconds={cooldown.durationSeconds}
-            onChange={(s) =>
-              setCooldown({ ...cooldown, durationSeconds: s })
-            }
-            color={intervalColor('cooldown')}
-          />
-          <TouchableOpacity
-            onPress={() => setCooldown(null)}
-            style={styles.removeBtn}
-          >
-            <Text style={styles.removeBtnText}>✕</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() =>
-            setCooldown({ type: 'cooldown', durationSeconds: 300 })
-          }
-        >
-          <Text style={styles.addBtnText}>+ Add Cool Down</Text>
-        </TouchableOpacity>
-      )}
+      <BlockList
+        blocks={cooldown}
+        setter={setCooldown}
+        defaultType="cooldown"
+        allowedTypes={['cooldown', 'easy', 'hard']}
+        sectionLabel="Cool Down"
+        addBlockLabel="+ Add Cool Down Block"
+        addIntervalLabel="+ Add Interval"
+        updateBlockRepeat={updateBlockRepeat}
+        updateInterval={updateInterval}
+        addIntervalToBlock={addIntervalToBlock}
+        removeInterval={removeInterval}
+        addBlock={addBlock}
+      />
 
       {/* Total */}
       <View style={styles.totalRow}>
@@ -312,6 +224,143 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
         </TouchableOpacity>
       </View>
     </ScrollView>
+  );
+}
+
+// ── Block list sub-component ─────────────────────────────────────────
+
+type BlockSetter = React.Dispatch<React.SetStateAction<WorkoutRepeatBlock[]>>;
+
+interface BlockListProps {
+  blocks: WorkoutRepeatBlock[];
+  setter: BlockSetter;
+  defaultType: IntervalType;
+  allowedTypes: IntervalType[];
+  sectionLabel: string;
+  addBlockLabel: string;
+  addIntervalLabel: string;
+  updateBlockRepeat: (setter: BlockSetter, blockIdx: number, count: number) => void;
+  updateInterval: (setter: BlockSetter, blockIdx: number, intIdx: number, partial: Partial<WorkoutInterval>) => void;
+  addIntervalToBlock: (setter: BlockSetter, blockIdx: number, defaultType: IntervalType) => void;
+  removeInterval: (setter: BlockSetter, blockIdx: number, intIdx: number) => void;
+  addBlock: (setter: BlockSetter, defaultIntervals: WorkoutInterval[], defaultRepeat: number) => void;
+}
+
+function BlockList({
+  blocks,
+  setter,
+  defaultType,
+  allowedTypes,
+  sectionLabel,
+  addBlockLabel,
+  addIntervalLabel,
+  updateBlockRepeat: updateRepeat,
+  updateInterval: updateInt,
+  addIntervalToBlock: addInt,
+  removeInterval: removeInt,
+  addBlock: addBlk,
+}: BlockListProps) {
+  const cycleType = (current: IntervalType): IntervalType => {
+    const idx = allowedTypes.indexOf(current);
+    return allowedTypes[(idx + 1) % allowedTypes.length];
+  };
+
+  return (
+    <>
+      {blocks.map((block, bi) => (
+        <View key={bi} style={styles.block}>
+          <View style={styles.blockHeader}>
+            <Text style={styles.blockTitle}>
+              {sectionLabel} {blocks.length > 1 ? bi + 1 : ''}
+            </Text>
+            <View style={styles.repeatRow}>
+              <Text style={styles.repeatLabel}>Repeat</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  hapticTap();
+                  updateRepeat(setter, bi, block.repeatCount - 1);
+                }}
+                style={styles.stepBtn}
+              >
+                <Text style={styles.stepBtnText}>−</Text>
+              </TouchableOpacity>
+              <Text style={styles.repeatCount}>{block.repeatCount}×</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  hapticTap();
+                  updateRepeat(setter, bi, block.repeatCount + 1);
+                }}
+                style={styles.stepBtn}
+              >
+                <Text style={styles.stepBtnText}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {block.intervals.map((interval, ii) => (
+            <View key={ii} style={styles.intervalRow}>
+              <TouchableOpacity
+                style={[
+                  styles.typeChip,
+                  {
+                    backgroundColor: intervalColor(interval.type) + '22',
+                    borderColor: intervalColor(interval.type),
+                  },
+                ]}
+                onPress={() => {
+                  hapticTap();
+                  updateInt(setter, bi, ii, { type: cycleType(interval.type) });
+                }}
+              >
+                <Text
+                  style={[
+                    styles.typeText,
+                    { color: intervalColor(interval.type) },
+                  ]}
+                >
+                  {interval.type.toUpperCase()}
+                </Text>
+              </TouchableOpacity>
+
+              <DurationPicker
+                seconds={interval.durationSeconds}
+                onChange={(s) =>
+                  updateInt(setter, bi, ii, { durationSeconds: s })
+                }
+                color={intervalColor(interval.type)}
+              />
+
+              <TouchableOpacity
+                onPress={() => removeInt(setter, bi, ii)}
+                style={styles.removeBtn}
+              >
+                <Text style={styles.removeBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={() => addInt(setter, bi, defaultType)}
+          >
+            <Text style={styles.addBtnText}>{addIntervalLabel}</Text>
+          </TouchableOpacity>
+        </View>
+      ))}
+
+      <TouchableOpacity
+        style={styles.addBtn}
+        onPress={() =>
+          addBlk(
+            setter,
+            [{ type: defaultType, durationSeconds: defaultType === 'hard' ? 180 : 300 }],
+            1,
+          )
+        }
+      >
+        <Text style={styles.addBtnText}>{addBlockLabel}</Text>
+      </TouchableOpacity>
+    </>
   );
 }
 
@@ -417,6 +466,11 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     marginBottom: Spacing.md,
+  },
+  blockTitle: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
   },
   blockHeader: {
     flexDirection: 'row',
