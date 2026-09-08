@@ -1,7 +1,7 @@
 /**
  * Audio cue manager for PaceCue.
  *
- * Uses expo-audio to play beep tones for interval transitions.
+ * Uses expo-audio for beep tones and expo-speech for voice announcements.
  * Configured for background playback so cues work with the phone locked.
  */
 
@@ -10,6 +10,7 @@ import {
   createAudioPlayer,
   type AudioPlayer,
 } from 'expo-audio';
+import * as Speech from 'expo-speech';
 import { AudioCueMode } from '../workout/workoutTypes';
 
 let isAudioConfigured = false;
@@ -102,19 +103,15 @@ const CUE_URIS: Record<CueType, string> = {
   workoutComplete: BEEP_DOUBLE,
 };
 
-// Keep a reference to the player so we can replace and replay
 let activePlayer: AudioPlayer | null = null;
 
 /** Play a beep cue using expo-audio's createAudioPlayer. */
 export async function playBeep(cue: CueType): Promise<void> {
   try {
-    // Release previous player if any
     if (activePlayer) {
       try {
         activePlayer.release();
-      } catch {
-        // ignore release errors
-      }
+      } catch {}
     }
 
     activePlayer = createAudioPlayer(
@@ -133,17 +130,98 @@ export async function playDoubleBeep(): Promise<void> {
   setTimeout(() => playBeep('workoutComplete'), 250);
 }
 
-/** Play appropriate cue based on user's audio preference. */
+// ── Voice announcements ──────────────────────────────────────────────
+
+/** Speak a phrase using the device's text-to-speech engine. */
+export function speak(text: string): void {
+  try {
+    // Stop any in-progress speech first so announcements don't pile up
+    Speech.stop();
+    Speech.speak(text, {
+      language: 'en-US',
+      rate: 1.05,
+      pitch: 1.0,
+    });
+  } catch (e) {
+    console.warn('Failed to speak:', e);
+  }
+}
+
+/**
+ * Build the voice announcement for an interval transition.
+ *
+ * Examples:
+ *   "Beginning hard"
+ *   "Beginning warm up"
+ *   "Ending easy"
+ *   "Workout complete"
+ */
+function announceInterval(
+  cue: CueType,
+  currentLabel?: string,
+  previousLabel?: string
+): void {
+  switch (cue) {
+    case 'intervalStart':
+      if (currentLabel) {
+        speak(`Beginning ${currentLabel}`);
+      }
+      break;
+    case 'warning':
+      if (currentLabel) {
+        speak(`Ending ${currentLabel}`);
+      }
+      break;
+    case 'workoutComplete':
+      speak('Workout complete');
+      break;
+    // countdown ticks don't get voice — just beeps/haptics
+  }
+}
+
+// ── Unified cue dispatcher ───────────────────────────────────────────
+
+export interface CueContext {
+  /** The label of the interval that just started (e.g. "Hard", "Easy", "Warm Up"). */
+  currentLabel?: string;
+  /** The label of the interval that just ended. */
+  previousLabel?: string;
+}
+
+/**
+ * Play the appropriate cue(s) based on user's audio preference.
+ *
+ * @param cue        - Which type of cue event occurred.
+ * @param mode       - User's audio preference (beeps / voice / both / silent).
+ * @param context    - Optional labels for voice announcements.
+ */
 export async function playCue(
   cue: CueType,
-  mode: AudioCueMode
+  mode: AudioCueMode,
+  context?: CueContext
 ): Promise<void> {
   if (mode === 'silent') return;
+
+  // Beeps
   if (mode === 'beeps' || mode === 'both') {
     if (cue === 'workoutComplete') {
       await playDoubleBeep();
     } else {
       await playBeep(cue);
+    }
+  }
+
+  // Voice
+  if (mode === 'voice' || mode === 'both') {
+    // Small delay when in 'both' mode so the beep finishes before speech
+    const delay = mode === 'both' ? 300 : 0;
+    if (delay > 0) {
+      setTimeout(
+        () => announceInterval(cue, context?.currentLabel, context?.previousLabel),
+        delay
+      );
+    } else {
+      announceInterval(cue, context?.currentLabel, context?.previousLabel);
     }
   }
 }

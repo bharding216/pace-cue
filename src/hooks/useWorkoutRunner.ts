@@ -34,7 +34,7 @@ import {
   totalRemainingSeconds,
   nextInterval,
 } from '../workout/workoutEngine';
-import { playCue, configureAudio } from '../audio/audioManager';
+import { playCue, configureAudio, type CueContext } from '../audio/audioManager';
 import {
   hapticIntervalChange,
   hapticWarning,
@@ -130,7 +130,7 @@ export function useWorkoutRunner(
 
         if (next.phase === 'finished') {
           // Workout complete
-          playCue('workoutComplete', settingsRef.current.audioCueMode);
+          playCue('workoutComplete', settingsRef.current.audioCueMode, {});
           if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
           endLiveActivity();
 
@@ -145,7 +145,10 @@ export function useWorkoutRunner(
           saveCompletedWorkout(entry);
         } else {
           // New interval started — update Live Activity immediately
-          playCue('intervalStart', settingsRef.current.audioCueMode);
+          const newInterval = currentInterval(next);
+          playCue('intervalStart', settingsRef.current.audioCueMode, {
+            currentLabel: newInterval?.label,
+          });
           if (settingsRef.current.hapticEnabled) hapticIntervalChange();
           firedWarning.current = false;
           firedCountdowns.current.clear();
@@ -161,7 +164,10 @@ export function useWorkoutRunner(
 
         if (secs <= warnSecs && secs > 3 && !firedWarning.current) {
           firedWarning.current = true;
-          playCue('warning', settingsRef.current.audioCueMode);
+          const ci = currentInterval(s);
+          playCue('warning', settingsRef.current.audioCueMode, {
+            currentLabel: ci?.label,
+          });
           if (settingsRef.current.hapticEnabled) hapticWarning();
         }
 
@@ -212,7 +218,10 @@ export function useWorkoutRunner(
     firedWarning.current = false;
     firedCountdowns.current.clear();
     lastIndex.current = 0;
-    playCue('intervalStart', settingsRef.current.audioCueMode);
+    const firstInterval = currentInterval(next);
+    playCue('intervalStart', settingsRef.current.audioCueMode, {
+      currentLabel: firstInterval?.label,
+    });
     if (settingsRef.current.hapticEnabled) hapticIntervalChange();
 
     // Start Live Activity
@@ -247,7 +256,10 @@ export function useWorkoutRunner(
     if (next.phase !== 'finished') {
       firedWarning.current = false;
       firedCountdowns.current.clear();
-      playCue('intervalStart', settingsRef.current.audioCueMode);
+      const newInterval = currentInterval(next);
+      playCue('intervalStart', settingsRef.current.audioCueMode, {
+        currentLabel: newInterval?.label,
+      });
       if (settingsRef.current.hapticEnabled) hapticIntervalChange();
 
       // Update Live Activity immediately on skip
@@ -255,7 +267,7 @@ export function useWorkoutRunner(
       lastLAUpdate.current = Date.now();
       lastLAIndex.current = next.currentIndex;
     } else {
-      playCue('workoutComplete', settingsRef.current.audioCueMode);
+      playCue('workoutComplete', settingsRef.current.audioCueMode, {});
       if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
       endLiveActivity();
       const entry: CompletedWorkout = {
