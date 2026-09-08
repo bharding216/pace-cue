@@ -27,6 +27,7 @@ import {
   BorderRadius,
   intervalColor,
 } from '../constants/theme';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { hapticTap } from '../audio/haptics';
 
 interface Props {
@@ -120,6 +121,16 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
     });
   };
 
+  const swapIntervals = (setter: BlockSetter, blockIdx: number, a: number, b: number) => {
+    setter((prev) => {
+      const next = [...prev];
+      const intervals = [...next[blockIdx].intervals];
+      [intervals[a], intervals[b]] = [intervals[b], intervals[a]];
+      next[blockIdx] = { ...next[blockIdx], intervals };
+      return next;
+    });
+  };
+
   const addBlock = (
     setter: BlockSetter,
     defaultIntervals: WorkoutInterval[],
@@ -161,6 +172,7 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
         updateInterval={updateInterval}
         addIntervalToBlock={addIntervalToBlock}
         removeInterval={removeInterval}
+        swapIntervals={swapIntervals}
         addBlock={addBlock}
       />
 
@@ -178,6 +190,7 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
         updateInterval={updateInterval}
         addIntervalToBlock={addIntervalToBlock}
         removeInterval={removeInterval}
+        swapIntervals={swapIntervals}
         addBlock={addBlock}
       />
 
@@ -195,6 +208,7 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
         updateInterval={updateInterval}
         addIntervalToBlock={addIntervalToBlock}
         removeInterval={removeInterval}
+        swapIntervals={swapIntervals}
         addBlock={addBlock}
       />
 
@@ -243,6 +257,7 @@ interface BlockListProps {
   updateInterval: (setter: BlockSetter, blockIdx: number, intIdx: number, partial: Partial<WorkoutInterval>) => void;
   addIntervalToBlock: (setter: BlockSetter, blockIdx: number, defaultType: IntervalType) => void;
   removeInterval: (setter: BlockSetter, blockIdx: number, intIdx: number) => void;
+  swapIntervals: (setter: BlockSetter, blockIdx: number, a: number, b: number) => void;
   addBlock: (setter: BlockSetter, defaultIntervals: WorkoutInterval[], defaultRepeat: number) => void;
 }
 
@@ -258,6 +273,7 @@ function BlockList({
   updateInterval: updateInt,
   addIntervalToBlock: addInt,
   removeInterval: removeInt,
+  swapIntervals: swapInt,
   addBlock: addBlk,
 }: BlockListProps) {
   const cycleType = (current: IntervalType): IntervalType => {
@@ -299,6 +315,42 @@ function BlockList({
 
           {block.intervals.map((interval, ii) => (
             <View key={ii} style={styles.intervalRow}>
+              {/* Reorder arrows */}
+              <View style={styles.reorderCol}>
+                <TouchableOpacity
+                  onPress={() => {
+                    hapticTap();
+                    swapInt(setter, bi, ii, ii - 1);
+                  }}
+                  disabled={ii === 0}
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name="chevron-up"
+                    size={16}
+                    color={ii === 0 ? Colors.surfaceLight : Colors.textMuted}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    hapticTap();
+                    swapInt(setter, bi, ii, ii + 1);
+                  }}
+                  disabled={ii === block.intervals.length - 1}
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name="chevron-down"
+                    size={16}
+                    color={
+                      ii === block.intervals.length - 1
+                        ? Colors.surfaceLight
+                        : Colors.textMuted
+                    }
+                  />
+                </TouchableOpacity>
+              </View>
+
               <TouchableOpacity
                 style={[
                   styles.typeChip,
@@ -334,7 +386,7 @@ function BlockList({
                 onPress={() => removeInt(setter, bi, ii)}
                 style={styles.removeBtn}
               >
-                <Text style={styles.removeBtnText}>✕</Text>
+                <Ionicons name="close-outline" size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
           ))}
@@ -511,10 +563,15 @@ const styles = StyleSheet.create({
   intervalRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingVertical: Spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: Colors.surfaceLight,
+    gap: Spacing.sm,
+  },
+  reorderCol: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
   },
   typeChip: {
     paddingVertical: Spacing.xs,
