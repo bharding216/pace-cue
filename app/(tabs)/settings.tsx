@@ -12,7 +12,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { AppSettings, AudioCueMode, DEFAULT_SETTINGS } from '../../src/workout/workoutTypes';
+import { AppSettings, AudioCueMode, TimeRemainingInterval, DEFAULT_SETTINGS } from '../../src/workout/workoutTypes';
 import { loadSettings, saveSettings } from '../../src/workout/workoutStorage';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 import { hapticTap } from '../../src/audio/haptics';
@@ -25,6 +25,14 @@ const AUDIO_MODES: { value: AudioCueMode; label: string; icon: string }[] = [
 ];
 
 const WARNING_OPTIONS = [3, 5, 10, 15, 30];
+
+const TIME_REMAINING_OPTIONS: { value: TimeRemainingInterval; label: string }[] = [
+  { value: 0, label: 'Off' },
+  { value: 15, label: '15s' },
+  { value: 30, label: '30s' },
+  { value: 60, label: '1 min' },
+  { value: 120, label: '2 min' },
+];
 
 export default function SettingsScreen() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -125,6 +133,38 @@ export default function SettingsScreen() {
               ]}
             >
               {sec}s
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Time remaining announcements */}
+      <Text style={styles.sectionTitle}>Time Remaining</Text>
+      <Text style={styles.sectionSub}>
+        Announce the time left in each interval (requires Voice or Both audio mode)
+      </Text>
+      <View style={styles.row}>
+        {TIME_REMAINING_OPTIONS.map((opt) => (
+          <TouchableOpacity
+            key={opt.value}
+            style={[
+              styles.chip,
+              settings.timeRemainingInterval === opt.value && styles.chipActive,
+            ]}
+            onPress={() => {
+              hapticTap();
+              update({ timeRemainingInterval: opt.value });
+            }}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.chipLabel,
+                settings.timeRemainingInterval === opt.value &&
+                  styles.chipLabelActive,
+              ]}
+            >
+              {opt.label}
             </Text>
           </TouchableOpacity>
         ))}

@@ -36,46 +36,31 @@ export type WorkoutActivityProps = {
   pausedRemainingMs: number;
 };
 
-/** Map interval type to a display color. */
-function typeColor(type: string): string {
-  switch (type) {
-    case 'hard':
-      return '#F87171';
-    case 'easy':
-      return '#4ADE80';
-    case 'warmup':
-      return '#FBBF24';
-    case 'cooldown':
-      return '#60A5FA';
-    default:
-      return '#94A3B8';
-  }
-}
-
-/** Map interval type to an SF Symbol name. */
-function typeIcon(type: string): 'flame.fill' | 'leaf.fill' | 'sun.max.fill' | 'wind' {
-  switch (type) {
-    case 'hard':
-      return 'flame.fill';
-    case 'easy':
-      return 'leaf.fill';
-    case 'warmup':
-      return 'sun.max.fill';
-    case 'cooldown':
-      return 'wind';
-    default:
-      return 'flame.fill';
-  }
-}
-
 const WorkoutActivity = (
   props: WorkoutActivityProps,
   environment: LiveActivityEnvironment
 ) => {
   'widget';
 
-  const color = typeColor(props.intervalType);
-  const icon = typeIcon(props.intervalType);
+  const color =
+    props.intervalType === 'hard'
+      ? '#F87171'
+      : props.intervalType === 'easy'
+        ? '#4ADE80'
+        : props.intervalType === 'warmup'
+          ? '#FBBF24'
+          : props.intervalType === 'cooldown'
+            ? '#60A5FA'
+            : '#94A3B8';
+
+  const icon =
+    props.intervalType === 'hard'
+      ? 'flame.fill'
+      : props.intervalType === 'easy'
+        ? 'leaf.fill'
+        : props.intervalType === 'warmup'
+          ? 'sun.max.fill'
+          : 'wind';
 
   // Build the timer interval for SwiftUI's auto-updating Text.
   // When paused, we show a frozen time by setting pauseTime.

@@ -66,11 +66,15 @@ export interface CompletedWorkout {
 /** Audio cue preference. */
 export type AudioCueMode = 'voice' | 'beeps' | 'both' | 'silent';
 
+/** How often to announce time remaining during an interval (in seconds, 0 = off). */
+export type TimeRemainingInterval = 0 | 15 | 30 | 60 | 120;
+
 export interface AppSettings {
   audioCueMode: AudioCueMode;
   hapticEnabled: boolean;
   countdownWarningSeconds: number; // seconds before interval end to play warning
   keepScreenOn: boolean;
+  timeRemainingInterval: TimeRemainingInterval; // 0 = off
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -78,6 +82,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hapticEnabled: true,
   countdownWarningSeconds: 10,
   keepScreenOn: true,
+  timeRemainingInterval: 0,
 };
 
 /** Default label for an interval based on its type. */

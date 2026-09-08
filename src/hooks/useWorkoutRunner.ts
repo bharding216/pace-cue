@@ -34,7 +34,7 @@ import {
   totalRemainingSeconds,
   nextInterval,
 } from '../workout/workoutEngine';
-import { playCue, configureAudio, type CueContext } from '../audio/audioManager';
+import { playCue, configureAudio, speakTimeRemaining, type CueContext } from '../audio/audioManager';
 import {
   hapticIntervalChange,
   hapticWarning,
@@ -83,6 +83,7 @@ export function useWorkoutRunner(
   // Track which warnings we've already fired to avoid duplicates
   const firedWarning = useRef(false);
   const firedCountdowns = useRef(new Set<number>());
+  const firedTimeAnnouncements = useRef(new Set<number>());
   const lastIndex = useRef(-1);
 
   // Force re-render at ~15fps while running so the timer updates smoothly
@@ -160,19 +161,34 @@ export function useWorkoutRunner(
           if (settingsRef.current.hapticEnabled) hapticIntervalChange();
           firedWarning.current = false;
           firedCountdowns.current.clear();
+          firedTimeAnnouncements.current.clear();
 
           updateLiveActivity(buildLAProps(next, false));
           lastLAUpdate.current = Date.now();
           lastLAIndex.current = next.currentIndex;
         }
       } else {
-        // Check for warning / countdown cues
+        // Check for time remaining announcements, warning, and countdown cues
         const secs = remainingSeconds(s);
+        const ci = currentInterval(s);
         const warnSecs = settingsRef.current.countdownWarningSeconds;
+        const announceEvery = settingsRef.current.timeRemainingInterval;
+
+        // Announce time remaining at regular intervals (voice only, no beep)
+        if (
+          announceEvery > 0 &&
+          ci &&
+          secs > warnSecs &&
+          secs < ci.durationSeconds &&
+          secs % announceEvery === 0 &&
+          !firedTimeAnnouncements.current.has(secs)
+        ) {
+          firedTimeAnnouncements.current.add(secs);
+          speakTimeRemaining(secs, settingsRef.current.audioCueMode);
+        }
 
         if (secs <= warnSecs && secs > 3 && !firedWarning.current) {
           firedWarning.current = true;
-          const ci = currentInterval(s);
           playCue('warning', settingsRef.current.audioCueMode, {
             currentLabel: ci?.label,
           });
@@ -229,6 +245,7 @@ export function useWorkoutRunner(
     historySaved.current = false;
     firedWarning.current = false;
     firedCountdowns.current.clear();
+    firedTimeAnnouncements.current.clear();
     lastIndex.current = 0;
     const firstInterval = currentInterval(next);
     playCue('intervalStart', settingsRef.current.audioCueMode, {
@@ -268,6 +285,7 @@ export function useWorkoutRunner(
     if (next.phase !== 'finished') {
       firedWarning.current = false;
       firedCountdowns.current.clear();
+      firedTimeAnnouncements.current.clear();
       const newInterval = currentInterval(next);
       playCue('intervalStart', settingsRef.current.audioCueMode, {
         currentLabel: newInterval?.label,

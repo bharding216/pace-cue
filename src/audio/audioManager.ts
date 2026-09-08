@@ -179,6 +179,38 @@ function announceInterval(
   }
 }
 
+// ── Time remaining announcements ─────────────────────────────────────
+
+/**
+ * Speak the time remaining in natural language.
+ * Only fires when audio mode includes voice.
+ *
+ * Examples: "2 minutes remaining", "1 minute 30 seconds remaining",
+ *           "30 seconds remaining"
+ */
+export function speakTimeRemaining(
+  seconds: number,
+  mode: AudioCueMode
+): void {
+  if (mode !== 'voice' && mode !== 'both') return;
+
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+
+  let phrase: string;
+  if (mins > 0 && secs > 0) {
+    const minWord = mins === 1 ? 'minute' : 'minutes';
+    phrase = `${mins} ${minWord} ${secs} seconds remaining`;
+  } else if (mins > 0) {
+    const minWord = mins === 1 ? 'minute' : 'minutes';
+    phrase = `${mins} ${minWord} remaining`;
+  } else {
+    phrase = `${secs} seconds remaining`;
+  }
+
+  speak(phrase);
+}
+
 // ── Unified cue dispatcher ───────────────────────────────────────────
 
 export interface CueContext {

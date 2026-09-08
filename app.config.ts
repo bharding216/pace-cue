@@ -1,0 +1,101 @@
+import type { ExpoConfig, ConfigContext } from 'expo/config';
+
+const IS_DEV = process.env.APP_VARIANT === 'development';
+
+export default ({ config }: ConfigContext): ExpoConfig => ({
+  name: IS_DEV ? 'PaceCue Dev Build' : 'PaceCue',
+  slug: 'pace-cue',
+  version: '1.0.0',
+  orientation: 'portrait',
+  icon: './assets/icon.png',
+  userInterfaceStyle: 'dark',
+  scheme: 'pacecue',
+  ios: {
+    supportsTablet: false,
+    bundleIdentifier: 'com.toddly.runningintervals',
+    entitlements: {
+      'com.apple.security.application-groups': [
+        'group.com.toddly.runningintervals',
+      ],
+    },
+    infoPlist: {
+      UIBackgroundModes: ['audio'],
+      NSMicrophoneUsageDescription: 'PaceCue does not use the microphone.',
+      NSSupportsLiveActivities: true,
+      NSSupportsLiveActivitiesFrequentUpdates: true,
+      ITSAppUsesNonExemptEncryption: false,
+    },
+  },
+  android: {
+    adaptiveIcon: {
+      backgroundColor: '#2ECC61',
+      foregroundImage: './assets/android-icon-foreground.png',
+      monochromeImage: './assets/android-icon-monochrome.png',
+    },
+    package: 'com.toddly.runningintervals',
+    permissions: [
+      'android.permission.RECORD_AUDIO',
+      'android.permission.MODIFY_AUDIO_SETTINGS',
+      'android.permission.FOREGROUND_SERVICE',
+      'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
+    ],
+  },
+  web: {
+    favicon: './assets/favicon.png',
+  },
+  plugins: [
+    'expo-router',
+    'expo-status-bar',
+    [
+      'expo-splash-screen',
+      {
+        image: './assets/splash-icon.png',
+        imageWidth: 200,
+        backgroundColor: '#00bf63',
+        dark: {
+          image: './assets/splash-icon.png',
+          backgroundColor: '#00bf63',
+        },
+      },
+    ],
+    [
+      'expo-audio',
+      {
+        microphonePermission: false,
+      },
+    ],
+    [
+      'expo-widgets',
+      {
+        bundleIdentifier: 'com.toddly.runningintervals.widgets',
+        groupIdentifier: 'group.com.toddly.runningintervals',
+      },
+    ],
+  ],
+  experiments: {
+    typedRoutes: true,
+  },
+  extra: {
+    router: {},
+    eas: {
+      build: {
+        experimental: {
+          ios: {
+            appExtensions: [
+              {
+                targetName: 'ExpoWidgetsTarget',
+                bundleIdentifier: 'com.toddly.runningintervals.widgets',
+                entitlements: {
+                  'com.apple.security.application-groups': [
+                    'group.com.toddly.runningintervals',
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+      projectId: '15ab975c-acf7-482d-8059-edfe8218ef58',
+    },
+  },
+});
