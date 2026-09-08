@@ -9,14 +9,16 @@
     "scheme": "pacecue",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.pacecue.app",
+      "bundleIdentifier": "com.toddly.runningintervals",
       "infoPlist": {
         "UIBackgroundModes": [
+          "audio",
           "audio"
         ],
         "NSMicrophoneUsageDescription": "PaceCue does not use the microphone.",
         "NSSupportsLiveActivities": true,
-        "NSSupportsLiveActivitiesFrequentUpdates": true
+        "NSSupportsLiveActivitiesFrequentUpdates": true,
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -25,7 +27,13 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.pacecue.app"
+      "package": "com.toddly.runningintervals",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -54,13 +62,36 @@
       [
         "expo-widgets",
         {
-          "bundleIdentifier": "com.pacecue.app.widgets",
-          "groupIdentifier": "group.com.pacecue.app"
+          "bundleIdentifier": "com.toddly.runningintervals.widgets",
+          "groupIdentifier": "group.com.toddly.runningintervals"
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "ExpoWidgetsTarget",
+                  "bundleIdentifier": "com.toddly.runningintervals.widgets",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.toddly.runningintervals"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "15ab975c-acf7-482d-8059-edfe8218ef58"
+      }
     }
   }
 }
