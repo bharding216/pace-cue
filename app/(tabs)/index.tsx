@@ -6,6 +6,7 @@ import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
+  Image,
   FlatList,
   TouchableOpacity,
   StyleSheet,
@@ -60,6 +61,10 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <View style={styles.hero}>
+            <Image
+              source={require('../../assets/icon.png')}
+              style={styles.heroLogo}
+            />
             <Text style={styles.heroTitle}>PaceCue</Text>
             <Text style={styles.heroSub}>Interval running, your way.</Text>
           </View>
@@ -108,6 +113,13 @@ const styles = StyleSheet.create({
   hero: {
     marginBottom: Spacing.lg,
     paddingTop: Spacing.md,
+    alignItems: 'center',
+  },
+  heroLogo: {
+    width: 80,
+    height: 80,
+    borderRadius: 20,
+    marginBottom: Spacing.sm,
   },
   heroTitle: {
     fontSize: 36,
@@ -119,6 +131,7 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Colors.textSecondary,
     marginTop: Spacing.xs,
+    textAlign: 'center',
   },
   emptyText: {
     color: Colors.textMuted,
