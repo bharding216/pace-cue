@@ -10,6 +10,11 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.toddly.runningintervals",
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.toddly.runningintervals"
+        ]
+      },
       "infoPlist": {
         "UIBackgroundModes": [
           "audio",
