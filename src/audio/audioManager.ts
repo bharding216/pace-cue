@@ -94,6 +94,11 @@ const BEEP_LOW = generateBeepWav(440, 200);
 const BEEP_DOUBLE = generateBeepWav(1046, 150);
 const BEEP_COUNTDOWN = generateBeepWav(660, 100);
 
+// A short silent WAV that loops to keep the iOS audio session alive in
+// the background. Without this, iOS suspends the JS thread between beeps
+// and timers stop firing.
+const SILENT_WAV = generateBeepWav(1, 1000); // 1 Hz at near-zero amplitude = silence
+
 type CueType = 'intervalStart' | 'warning' | 'countdown' | 'workoutComplete';
 
 const CUE_URIS: Record<CueType, string> = {
@@ -104,6 +109,35 @@ const CUE_URIS: Record<CueType, string> = {
 };
 
 let activePlayer: AudioPlayer | null = null;
+
+// Silent looping player that keeps the audio session alive in the background.
+let silentPlayer: AudioPlayer | null = null;
+
+/** Start a silent audio loop to prevent iOS from suspending the app. */
+export function startBackgroundLoop(): void {
+  stopBackgroundLoop();
+  try {
+    silentPlayer = createAudioPlayer(
+      { uri: SILENT_WAV },
+      { keepAudioSessionActive: true }
+    );
+    silentPlayer.loop = true;
+    silentPlayer.volume = 0;
+    silentPlayer.play();
+  } catch (e) {
+    console.warn('Failed to start background audio loop:', e);
+  }
+}
+
+/** Stop the silent background loop (call when workout ends). */
+export function stopBackgroundLoop(): void {
+  if (silentPlayer) {
+    try {
+      silentPlayer.release();
+    } catch {}
+    silentPlayer = null;
+  }
+}
 
 /** Play a beep cue using expo-audio's createAudioPlayer. */
 export async function playBeep(cue: CueType): Promise<void> {

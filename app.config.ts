@@ -62,6 +62,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-audio',
       {
         microphonePermission: false,
+        enableBackgroundPlayback: true,
       },
     ],
     [

@@ -34,7 +34,7 @@ import {
   totalRemainingSeconds,
   nextInterval,
 } from '../workout/workoutEngine';
-import { playCue, configureAudio, speakIntervalProgress, type CueContext } from '../audio/audioManager';
+import { playCue, configureAudio, speakIntervalProgress, startBackgroundLoop, stopBackgroundLoop, type CueContext } from '../audio/audioManager';
 import {
   hapticIntervalChange,
   hapticWarning,
@@ -86,9 +86,9 @@ export function useWorkoutRunner(
   const firedTimeAnnouncements = useRef(new Set<number>());
   const lastIndex = useRef(-1);
 
-  // Force re-render at ~15fps while running so the timer updates smoothly
+  // Force re-render while running so the timer updates smoothly
   const [, setTick] = useState(0);
-  const rafId = useRef<number | null>(null);
+  const intervalId = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Prevent saving history more than once per workout
   const historySaved = useRef(false);
@@ -136,6 +136,7 @@ export function useWorkoutRunner(
           // Workout complete
           playCue('workoutComplete', settingsRef.current.audioCueMode, {});
           if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
+          stopBackgroundLoop();
           endLiveActivity();
 
           // Save to history (guard against duplicate saves)
@@ -209,22 +210,19 @@ export function useWorkoutRunner(
 
       setTick((t) => t + 1);
     }
-
-    // Only keep looping while running
-    if (engineRef.current.phase === 'running') {
-      rafId.current = requestAnimationFrame(tick);
-    }
   }, [workout.id, workout.name, buildLAProps]);
 
-  // Start/stop the animation loop based on engine phase
+  // Start/stop the tick loop based on engine phase.
+  // Uses setInterval instead of requestAnimationFrame so ticks continue
+  // when the app is backgrounded or the screen is locked.
   useEffect(() => {
     if (engine.phase === 'running') {
-      rafId.current = requestAnimationFrame(tick);
+      intervalId.current = setInterval(tick, 200);
     }
     return () => {
-      if (rafId.current !== null) {
-        cancelAnimationFrame(rafId.current);
-        rafId.current = null;
+      if (intervalId.current !== null) {
+        clearInterval(intervalId.current);
+        intervalId.current = null;
       }
     };
   }, [engine.phase, tick]);
@@ -234,9 +232,10 @@ export function useWorkoutRunner(
     configureAudio();
   }, []);
 
-  // Clean up Live Activity on unmount
+  // Clean up Live Activity and background loop on unmount
   useEffect(() => {
     return () => {
+      stopBackgroundLoop();
       endLiveActivity();
     };
   }, []);
@@ -257,8 +256,9 @@ export function useWorkoutRunner(
     });
     if (settingsRef.current.hapticEnabled) hapticIntervalChange();
 
-    // Start Live Activity
-    startLiveActivity(buildLAProps(next, false));
+    // Start silent background loop and Live Activity
+    startBackgroundLoop();
+    startLiveActivity(buildLAProps(next, false), workout.id);
     lastLAUpdate.current = Date.now();
     lastLAIndex.current = 0;
   }, [buildLAProps]);
@@ -303,6 +303,7 @@ export function useWorkoutRunner(
     } else {
       playCue('workoutComplete', settingsRef.current.audioCueMode, {});
       if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
+      stopBackgroundLoop();
       endLiveActivity();
       if (!historySaved.current) {
         historySaved.current = true;
@@ -324,6 +325,7 @@ export function useWorkoutRunner(
     const next = stopWorkout(engineRef.current);
     engineRef.current = next;
     setEngine(next);
+    stopBackgroundLoop();
     endLiveActivity();
 
     // Save partial workout to history

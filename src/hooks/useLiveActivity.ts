@@ -32,7 +32,7 @@ function getFactory() {
 }
 
 /** Start a new Live Activity for the current workout. */
-export function startLiveActivity(props: WorkoutActivityProps): void {
+export function startLiveActivity(props: WorkoutActivityProps, workoutId: string): void {
   const factory = getFactory();
   if (!factory) return;
 
@@ -45,7 +45,7 @@ export function startLiveActivity(props: WorkoutActivityProps): void {
       liveActivityInstance = null;
     }
 
-    liveActivityInstance = factory.start(props, 'pacecue://workout');
+    liveActivityInstance = factory.start(props, `pacecue:///workout/run/${workoutId}`);
   } catch (e) {
     console.warn('Failed to start Live Activity:', e);
   }

@@ -100,7 +100,7 @@ export async function importData(): Promise<ImportResult | null> {
 
   if (!isValidBackup(parsed)) {
     throw new Error(
-      'This file doesn't look like a PaceCue backup. Make sure you selected the right file.'
+      "This file doesn't look like a PaceCue backup. Make sure you selected the right file."
     );
   }
 
