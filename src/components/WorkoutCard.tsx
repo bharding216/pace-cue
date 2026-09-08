@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   WorkoutDefinition,
   totalWorkoutSeconds,
@@ -89,10 +90,10 @@ export function WorkoutCard({
 
         <View style={styles.secondaryActions}>
           <TouchableOpacity onPress={onEdit} style={styles.iconButton}>
-            <Text style={styles.iconText}>✏️</Text>
+            <Ionicons name="pencil-outline" size={20} color={Colors.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleDelete} style={styles.iconButton}>
-            <Text style={styles.iconText}>🗑️</Text>
+            <Ionicons name="trash-outline" size={20} color={Colors.textMuted} />
           </TouchableOpacity>
         </View>
       </View>
@@ -168,8 +169,5 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     padding: Spacing.sm,
-  },
-  iconText: {
-    fontSize: 20,
   },
 });

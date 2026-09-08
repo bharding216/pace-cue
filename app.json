@@ -19,12 +19,6 @@
         "NSSupportsLiveActivitiesFrequentUpdates": true
       }
     },
-
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0A0A0F"
-    },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#2ECC61",
@@ -39,6 +33,18 @@
     "plugins": [
       "expo-router",
       "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "backgroundColor": "#0A0A0F",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#0A0A0F"
+          }
+        }
+      ],
       [
         "expo-audio",
         {
