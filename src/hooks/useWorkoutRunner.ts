@@ -89,6 +89,9 @@ export function useWorkoutRunner(
   const [, setTick] = useState(0);
   const rafId = useRef<number | null>(null);
 
+  // Prevent saving history more than once per workout
+  const historySaved = useRef(false);
+
   // Live Activity: throttle updates to ~1/sec to stay within the system budget
   const lastLAUpdate = useRef(0);
   const lastLAIndex = useRef(-1);
@@ -134,15 +137,20 @@ export function useWorkoutRunner(
           if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
           endLiveActivity();
 
-          // Save to history
-          const entry: CompletedWorkout = {
-            id: generateId(),
-            workoutId: workout.id,
-            workoutName: workout.name,
-            completedAt: Date.now(),
-            totalDurationMs: next.totalElapsedMs,
-          };
-          saveCompletedWorkout(entry);
+          // Save to history (guard against duplicate saves)
+          if (!historySaved.current) {
+            historySaved.current = true;
+            const entry: CompletedWorkout = {
+              id: generateId(),
+              workoutId: workout.id,
+              workoutName: workout.name,
+              completedAt: Date.now(),
+              totalDurationMs: next.totalElapsedMs,
+            };
+            saveCompletedWorkout(entry).catch((e) =>
+              console.warn('Failed to save workout history:', e)
+            );
+          }
         } else {
           // New interval started — update Live Activity immediately
           const newInterval = currentInterval(next);
@@ -182,7 +190,10 @@ export function useWorkoutRunner(
       setTick((t) => t + 1);
     }
 
-    rafId.current = requestAnimationFrame(tick);
+    // Only keep looping while running
+    if (engineRef.current.phase === 'running') {
+      rafId.current = requestAnimationFrame(tick);
+    }
   }, [workout.id, workout.name, buildLAProps]);
 
   // Start/stop the animation loop based on engine phase
@@ -215,6 +226,7 @@ export function useWorkoutRunner(
     const next = startWorkout(engineRef.current);
     engineRef.current = next;
     setEngine(next);
+    historySaved.current = false;
     firedWarning.current = false;
     firedCountdowns.current.clear();
     lastIndex.current = 0;
@@ -270,14 +282,19 @@ export function useWorkoutRunner(
       playCue('workoutComplete', settingsRef.current.audioCueMode, {});
       if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
       endLiveActivity();
-      const entry: CompletedWorkout = {
-        id: generateId(),
-        workoutId: workout.id,
-        workoutName: workout.name,
-        completedAt: Date.now(),
-        totalDurationMs: next.totalElapsedMs,
-      };
-      saveCompletedWorkout(entry);
+      if (!historySaved.current) {
+        historySaved.current = true;
+        const entry: CompletedWorkout = {
+          id: generateId(),
+          workoutId: workout.id,
+          workoutName: workout.name,
+          completedAt: Date.now(),
+          totalDurationMs: next.totalElapsedMs,
+        };
+        saveCompletedWorkout(entry).catch((e) =>
+          console.warn('Failed to save workout history:', e)
+        );
+      }
     }
   }, [workout.id, workout.name, buildLAProps]);
 
@@ -286,7 +303,22 @@ export function useWorkoutRunner(
     engineRef.current = next;
     setEngine(next);
     endLiveActivity();
-  }, []);
+
+    // Save partial workout to history
+    if (next.totalElapsedMs > 0 && !historySaved.current) {
+      historySaved.current = true;
+      const entry: CompletedWorkout = {
+        id: generateId(),
+        workoutId: workout.id,
+        workoutName: workout.name,
+        completedAt: Date.now(),
+        totalDurationMs: next.totalElapsedMs,
+      };
+      saveCompletedWorkout(entry).catch((e) =>
+        console.warn('Failed to save workout history:', e)
+      );
+    }
+  }, [workout.id, workout.name]);
 
   // Derived display values
   const ci = currentInterval(engine);
