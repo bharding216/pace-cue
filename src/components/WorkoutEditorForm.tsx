@@ -19,6 +19,7 @@ import {
   IntervalType,
   formatTime,
   totalWorkoutSeconds,
+  BLOCK_NAME_OPTIONS,
 } from '../workout/workoutTypes';
 import {
   Colors,
@@ -131,6 +132,14 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
     });
   };
 
+  const updateBlockName = (setter: BlockSetter, blockIdx: number, name: string | undefined) => {
+    setter((prev) => {
+      const next = [...prev];
+      next[blockIdx] = { ...next[blockIdx], name };
+      return next;
+    });
+  };
+
   const addBlock = (
     setter: BlockSetter,
     defaultIntervals: WorkoutInterval[],
@@ -174,6 +183,7 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
         removeInterval={removeInterval}
         swapIntervals={swapIntervals}
         addBlock={addBlock}
+        updateBlockName={updateBlockName}
       />
 
       {/* Main Blocks */}
@@ -192,6 +202,7 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
         removeInterval={removeInterval}
         swapIntervals={swapIntervals}
         addBlock={addBlock}
+        updateBlockName={updateBlockName}
       />
 
       {/* Cooldown */}
@@ -210,6 +221,7 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
         removeInterval={removeInterval}
         swapIntervals={swapIntervals}
         addBlock={addBlock}
+        updateBlockName={updateBlockName}
       />
 
       {/* Total */}
@@ -259,6 +271,7 @@ interface BlockListProps {
   removeInterval: (setter: BlockSetter, blockIdx: number, intIdx: number) => void;
   swapIntervals: (setter: BlockSetter, blockIdx: number, a: number, b: number) => void;
   addBlock: (setter: BlockSetter, defaultIntervals: WorkoutInterval[], defaultRepeat: number) => void;
+  updateBlockName: (setter: BlockSetter, blockIdx: number, name: string | undefined) => void;
 }
 
 function BlockList({
@@ -275,6 +288,7 @@ function BlockList({
   removeInterval: removeInt,
   swapIntervals: swapInt,
   addBlock: addBlk,
+  updateBlockName: updateName,
 }: BlockListProps) {
   const cycleType = (current: IntervalType): IntervalType => {
     const idx = allowedTypes.indexOf(current);
@@ -312,6 +326,12 @@ function BlockList({
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Block name picker */}
+          <BlockNamePicker
+            selected={block.name}
+            onSelect={(name) => updateName(setter, bi, name)}
+          />
 
           {block.intervals.map((interval, ii) => (
             <View key={ii} style={styles.intervalRow}>
@@ -416,6 +436,114 @@ function BlockList({
   );
 }
 
+// ── Block name picker sub-component ──────────────────────────────────
+
+function BlockNamePicker({
+  selected,
+  onSelect,
+}: {
+  selected?: string;
+  onSelect: (name: string | undefined) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <View style={bnStyles.container}>
+      <TouchableOpacity
+        style={bnStyles.toggle}
+        onPress={() => setExpanded(!expanded)}
+      >
+        <Text style={bnStyles.toggleLabel}>
+          {selected ? `Name: ${selected}` : 'Add Name (optional)'}
+        </Text>
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={14}
+          color={Colors.textMuted}
+        />
+      </TouchableOpacity>
+      {expanded && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={bnStyles.chipScroll}
+          contentContainerStyle={bnStyles.chipRow}
+        >
+          {BLOCK_NAME_OPTIONS.map((name) => {
+            const isActive = selected === name;
+            return (
+              <TouchableOpacity
+                key={name}
+                style={[
+                  bnStyles.chip,
+                  isActive && bnStyles.chipActive,
+                ]}
+                onPress={() => {
+                  hapticTap();
+                  onSelect(isActive ? undefined : name);
+                }}
+              >
+                <Text
+                  style={[
+                    bnStyles.chipText,
+                    isActive && bnStyles.chipTextActive,
+                  ]}
+                >
+                  {name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+const bnStyles = StyleSheet.create({
+  container: {
+    marginBottom: Spacing.sm,
+  },
+  toggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.xs,
+  },
+  toggleLabel: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  chipScroll: {
+    marginTop: Spacing.xs,
+  },
+  chipRow: {
+    gap: Spacing.sm,
+    paddingRight: Spacing.md,
+  },
+  chip: {
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    backgroundColor: Colors.surfaceLight,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  chipActive: {
+    backgroundColor: Colors.accent + '22',
+    borderColor: Colors.accent,
+  },
+  chipText: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
+  chipTextActive: {
+    color: Colors.accent,
+  },
+});
+
 // ── Duration picker sub-component ────────────────────────────────────
 
 function DurationPicker({
@@ -427,6 +555,10 @@ function DurationPicker({
   onChange: (s: number) => void;
   color: string;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [editMins, setEditMins] = useState('');
+  const [editSecs, setEditSecs] = useState('');
+
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
 
@@ -435,14 +567,62 @@ function DurationPicker({
     onChange(Math.max(5, seconds + delta));
   };
 
+  const startEdit = () => {
+    setEditMins(mins.toString());
+    setEditSecs(secs.toString().padStart(2, '0'));
+    setEditing(true);
+  };
+
+  const confirmEdit = () => {
+    const m = parseInt(editMins, 10) || 0;
+    const s = parseInt(editSecs, 10) || 0;
+    const total = Math.max(5, m * 60 + Math.min(59, s));
+    onChange(total);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <View style={dpStyles.editContainer}>
+        <TextInput
+          style={dpStyles.editInput}
+          value={editMins}
+          onChangeText={setEditMins}
+          keyboardType="number-pad"
+          maxLength={2}
+          selectTextOnFocus
+          autoFocus
+          placeholder="M"
+          placeholderTextColor={Colors.textMuted}
+        />
+        <Text style={dpStyles.editColon}>:</Text>
+        <TextInput
+          style={dpStyles.editInput}
+          value={editSecs}
+          onChangeText={setEditSecs}
+          keyboardType="number-pad"
+          maxLength={2}
+          selectTextOnFocus
+          placeholder="SS"
+          placeholderTextColor={Colors.textMuted}
+        />
+        <TouchableOpacity onPress={confirmEdit} style={dpStyles.doneBtn}>
+          <Ionicons name="checkmark" size={18} color={Colors.primary} />
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={dpStyles.container}>
       <TouchableOpacity onPress={() => step(-15)} style={dpStyles.btn}>
         <Text style={dpStyles.btnText}>−</Text>
       </TouchableOpacity>
-      <Text style={[dpStyles.value, { color }]}>
-        {mins}:{secs.toString().padStart(2, '0')}
-      </Text>
+      <TouchableOpacity onPress={startEdit} activeOpacity={0.7}>
+        <Text style={[dpStyles.value, { color }]}>
+          {mins}:{secs.toString().padStart(2, '0')}
+        </Text>
+      </TouchableOpacity>
       <TouchableOpacity onPress={() => step(15)} style={dpStyles.btn}>
         <Text style={dpStyles.btnText}>+</Text>
       </TouchableOpacity>
@@ -476,6 +656,39 @@ const dpStyles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     minWidth: 56,
     textAlign: 'center',
+  },
+  editContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  editInput: {
+    backgroundColor: Colors.surfaceLight,
+    color: Colors.textPrimary,
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.sm,
+    textAlign: 'center',
+    padding: 0,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+  },
+  editColon: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+  },
+  doneBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.primary + '22',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 2,
   },
 });
 

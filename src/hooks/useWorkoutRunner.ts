@@ -34,7 +34,14 @@ import {
   totalRemainingSeconds,
   nextInterval,
 } from '../workout/workoutEngine';
-import { playCue, configureAudio, speakIntervalProgress, startBackgroundLoop, stopBackgroundLoop, type CueContext } from '../audio/audioManager';
+import {
+  playCue,
+  configureAudio,
+  speakIntervalProgress,
+  startBackgroundLoop,
+  stopBackgroundLoop,
+  type CueContext,
+} from '../audio/audioManager';
 import {
   hapticIntervalChange,
   hapticWarning,
@@ -47,6 +54,32 @@ import {
   updateLiveActivity,
   endLiveActivity,
 } from './useLiveActivity';
+
+/** Build a verbose CueContext from the engine state for rich voice announcements. */
+function buildVerboseCueContext(
+  state: EngineState,
+  cueType: 'intervalStart' | 'warning',
+): CueContext {
+  const ci = currentInterval(state);
+  const ni = nextInterval(state);
+  if (!ci) return {};
+  return {
+    currentLabel: ci.label,
+    currentDuration: ci.durationSeconds,
+    blockName: ci.blockName,
+    blockNumber: ci.blockNumber,
+    setNumber: ci.setNumber,
+    totalSets: ci.totalSets,
+    isFirstInBlock: ci.isFirstInBlock,
+    isFirstInSet: ci.isFirstInSet,
+    blockSummary: ci.blockSummary,
+    blockIntervalCount: ci.blockIntervalCount,
+    nextLabel: ni?.label,
+    nextDuration: ni?.durationSeconds,
+    warningSeconds:
+      cueType === 'warning' ? remainingSeconds(state) : undefined,
+  };
+}
 
 export interface WorkoutRunnerControls {
   state: EngineState;
@@ -154,11 +187,9 @@ export function useWorkoutRunner(
             );
           }
         } else {
-          // New interval started — update Live Activity immediately
-          const newInterval = currentInterval(next);
-          playCue('intervalStart', settingsRef.current.audioCueMode, {
-            currentLabel: newInterval?.label,
-          });
+          // New interval started — verbose voice cue
+          const cueCtx = buildVerboseCueContext(next, 'intervalStart');
+          playCue('intervalStart', settingsRef.current.audioCueMode, cueCtx);
           if (settingsRef.current.hapticEnabled) hapticIntervalChange();
           firedWarning.current = false;
           firedCountdowns.current.clear();
@@ -194,9 +225,8 @@ export function useWorkoutRunner(
 
         if (secs <= warnSecs && secs > 3 && !firedWarning.current) {
           firedWarning.current = true;
-          playCue('warning', settingsRef.current.audioCueMode, {
-            currentLabel: ci?.label,
-          });
+          const warnCtx = buildVerboseCueContext(s, 'warning');
+          playCue('warning', settingsRef.current.audioCueMode, warnCtx);
           if (settingsRef.current.hapticEnabled) hapticWarning();
         }
 
@@ -205,6 +235,13 @@ export function useWorkoutRunner(
           firedCountdowns.current.add(secs);
           playCue('countdown', settingsRef.current.audioCueMode);
           if (settingsRef.current.hapticEnabled) hapticCountdown();
+        }
+
+        // Periodic Live Activity refresh to prevent stale 0:00 display
+        const now = Date.now();
+        if (now - lastLAUpdate.current >= 10000) {
+          updateLiveActivity(buildLAProps(s, false));
+          lastLAUpdate.current = now;
         }
       }
 
@@ -250,10 +287,8 @@ export function useWorkoutRunner(
     firedCountdowns.current.clear();
     firedTimeAnnouncements.current.clear();
     lastIndex.current = 0;
-    const firstInterval = currentInterval(next);
-    playCue('intervalStart', settingsRef.current.audioCueMode, {
-      currentLabel: firstInterval?.label,
-    });
+    const startCueCtx = buildVerboseCueContext(next, 'intervalStart');
+    playCue('intervalStart', settingsRef.current.audioCueMode, startCueCtx);
     if (settingsRef.current.hapticEnabled) hapticIntervalChange();
 
     // Start silent background loop and Live Activity
@@ -290,10 +325,8 @@ export function useWorkoutRunner(
       firedWarning.current = false;
       firedCountdowns.current.clear();
       firedTimeAnnouncements.current.clear();
-      const newInterval = currentInterval(next);
-      playCue('intervalStart', settingsRef.current.audioCueMode, {
-        currentLabel: newInterval?.label,
-      });
+      const skipCueCtx = buildVerboseCueContext(next, 'intervalStart');
+      playCue('intervalStart', settingsRef.current.audioCueMode, skipCueCtx);
       if (settingsRef.current.hapticEnabled) hapticIntervalChange();
 
       // Update Live Activity immediately on skip

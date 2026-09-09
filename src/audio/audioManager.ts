@@ -11,7 +11,7 @@ import {
   type AudioPlayer,
 } from 'expo-audio';
 import * as Speech from 'expo-speech';
-import { AudioCueMode } from '../workout/workoutTypes';
+import { AudioCueMode, formatDurationForSpeech } from '../workout/workoutTypes';
 
 let isAudioConfigured = false;
 
@@ -182,34 +182,69 @@ export function speak(text: string): void {
 }
 
 /**
- * Build the voice announcement for an interval transition.
+ * Build verbose voice announcements for interval transitions.
  *
  * Examples:
- *   "Beginning hard"
- *   "Beginning warm up"
- *   "Ending easy"
- *   "Workout complete"
+ *   Block start: "Beginning Sprint. 3 minutes hard, 2 minutes easy. 4 sets. Starting hard for 3 minutes."
+ *   Set start:   "Beginning set 2 of 4. Starting hard for 3 minutes."
+ *   Interval:    "Starting easy for 2 minutes."
+ *   Warning:     "10 seconds. Next up, easy for 2 minutes."
+ *   Complete:    "Workout complete. Great job."
  */
 function announceInterval(
   cue: CueType,
   currentLabel?: string,
-  previousLabel?: string
+  _previousLabel?: string,
+  ctx?: CueContext,
 ): void {
   switch (cue) {
-    case 'intervalStart':
-      if (currentLabel) {
-        speak(`Beginning ${currentLabel}`);
+    case 'intervalStart': {
+      if (!ctx?.currentDuration) {
+        if (currentLabel) speak(`Beginning ${currentLabel}`);
+        return;
+      }
+      const parts: string[] = [];
+      const duration = formatDurationForSpeech(ctx.currentDuration);
+
+      if (ctx.isFirstInBlock && ctx.totalSets && ctx.totalSets > 1) {
+        const name = ctx.blockName || `interval ${ctx.blockNumber}`;
+        parts.push(`Beginning ${name}`);
+        if (ctx.blockSummary) parts.push(ctx.blockSummary);
+        parts.push(`${ctx.totalSets} sets`);
+      } else if (ctx.isFirstInBlock && (ctx.blockIntervalCount ?? 0) > 1) {
+        const name = ctx.blockName || `interval ${ctx.blockNumber}`;
+        parts.push(`Beginning ${name}`);
+      } else if (ctx.isFirstInSet && ctx.totalSets && ctx.totalSets > 1) {
+        parts.push(
+          `Beginning set ${ctx.setNumber} of ${ctx.totalSets}`,
+        );
+      }
+
+      parts.push(`Starting ${currentLabel} for ${duration}`);
+      speak(parts.join('. ') + '.');
+      break;
+    }
+    case 'warning': {
+      const parts: string[] = [];
+      if (ctx?.warningSeconds) {
+        parts.push(`${ctx.warningSeconds} seconds`);
+      }
+      if (ctx?.nextLabel && ctx?.nextDuration) {
+        const nextDur = formatDurationForSpeech(ctx.nextDuration);
+        parts.push(`Next up, ${ctx.nextLabel} for ${nextDur}`);
+      } else if (!ctx?.nextLabel) {
+        parts.push('almost done');
+      } else if (currentLabel) {
+        parts.push(`Ending ${currentLabel}`);
+      }
+      if (parts.length > 0) {
+        speak(parts.join('. ') + '.');
       }
       break;
-    case 'warning':
-      if (currentLabel) {
-        speak(`Ending ${currentLabel}`);
-      }
-      break;
+    }
     case 'workoutComplete':
-      speak('Workout complete');
+      speak('Workout complete. Great job.');
       break;
-    // countdown ticks don't get voice — just beeps/haptics
   }
 }
 
@@ -252,6 +287,19 @@ export interface CueContext {
   currentLabel?: string;
   /** The label of the interval that just ended. */
   previousLabel?: string;
+  // Verbose cue fields
+  currentDuration?: number; // seconds
+  blockName?: string;
+  blockNumber?: number;
+  setNumber?: number;
+  totalSets?: number;
+  isFirstInBlock?: boolean;
+  isFirstInSet?: boolean;
+  blockSummary?: string;
+  blockIntervalCount?: number;
+  nextLabel?: string;
+  nextDuration?: number;
+  warningSeconds?: number;
 }
 
 /**
@@ -283,11 +331,22 @@ export async function playCue(
     const delay = mode === 'both' ? 300 : 0;
     if (delay > 0) {
       setTimeout(
-        () => announceInterval(cue, context?.currentLabel, context?.previousLabel),
-        delay
+        () =>
+          announceInterval(
+            cue,
+            context?.currentLabel,
+            context?.previousLabel,
+            context,
+          ),
+        delay,
       );
     } else {
-      announceInterval(cue, context?.currentLabel, context?.previousLabel);
+      announceInterval(
+        cue,
+        context?.currentLabel,
+        context?.previousLabel,
+        context,
+      );
     }
   }
 }

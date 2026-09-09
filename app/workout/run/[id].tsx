@@ -13,10 +13,11 @@ import {
   TouchableOpacity,
   Alert,
   Dimensions,
+  FlatList,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { WorkoutDefinition, formatTime, AppSettings, DEFAULT_SETTINGS } from '../../../src/workout/workoutTypes';
+import { WorkoutDefinition, FlatInterval, formatTime, AppSettings, DEFAULT_SETTINGS } from '../../../src/workout/workoutTypes';
 import { loadWorkouts, loadSettings } from '../../../src/workout/workoutStorage';
 import { useWorkoutRunner } from '../../../src/hooks/useWorkoutRunner';
 import { Timer } from '../../../src/components/Timer';
@@ -204,13 +205,11 @@ function ActiveWorkoutInner({
         />
       </View>
 
-      {/* Up next */}
-      {runner.nextLabel && (
-        <View style={styles.upNext}>
-          <Text style={styles.upNextLabel}>UP NEXT</Text>
-          <Text style={styles.upNextValue}>{runner.nextLabel}</Text>
-        </View>
-      )}
+      {/* Workout timeline */}
+      <WorkoutTimeline
+        intervals={state.intervals}
+        currentIndex={state.currentIndex}
+      />
 
       {/* Total remaining */}
       <Text style={styles.totalRemaining}>
@@ -267,6 +266,178 @@ function ActiveWorkoutInner({
     </View>
   );
 }
+
+// ── Workout Timeline ─────────────────────────────────────────────────
+
+function WorkoutTimeline({
+  intervals,
+  currentIndex,
+}: {
+  intervals: FlatInterval[];
+  currentIndex: number;
+}) {
+  const flatListRef = useRef<FlatList<FlatInterval>>(null);
+
+  useEffect(() => {
+    if (flatListRef.current && currentIndex >= 0 && currentIndex < intervals.length) {
+      try {
+        flatListRef.current.scrollToIndex({
+          index: Math.max(0, currentIndex - 1),
+          animated: true,
+          viewPosition: 0.3,
+        });
+      } catch {}
+    }
+  }, [currentIndex, intervals.length]);
+
+  const renderItem = useCallback(
+    ({ item, index }: { item: FlatInterval; index: number }) => {
+      const isCompleted = index < currentIndex;
+      const isCurrent = index === currentIndex;
+
+      return (
+        <View
+          style={[
+            tlStyles.row,
+            isCurrent && tlStyles.currentRow,
+          ]}
+        >
+          {/* Status indicator */}
+          {isCompleted ? (
+            <Text style={tlStyles.checkIcon}>✓</Text>
+          ) : isCurrent ? (
+            <Text style={tlStyles.playIcon}>▶</Text>
+          ) : (
+            <View
+              style={[
+                tlStyles.dot,
+                { backgroundColor: intervalColor(item.type) + '66' },
+              ]}
+            />
+          )}
+
+          {/* Label with optional block name */}
+          <Text
+            style={[
+              tlStyles.label,
+              isCompleted && tlStyles.completedText,
+              isCurrent && { color: intervalColor(item.type) },
+            ]}
+            numberOfLines={1}
+          >
+            {item.blockName && item.isFirstInSet
+              ? `${item.blockName} · ${item.label}`
+              : item.label}
+          </Text>
+
+          {/* Set indicator */}
+          {item.totalSets > 1 && item.isFirstInSet && (
+            <Text
+              style={[
+                tlStyles.setTag,
+                isCompleted && tlStyles.completedText,
+                isCurrent && { color: intervalColor(item.type) },
+              ]}
+            >
+              {item.setNumber}/{item.totalSets}
+            </Text>
+          )}
+
+          {/* Duration */}
+          <Text
+            style={[
+              tlStyles.time,
+              isCompleted && tlStyles.completedText,
+              isCurrent && { color: intervalColor(item.type) },
+            ]}
+          >
+            {formatTime(item.durationSeconds)}
+          </Text>
+        </View>
+      );
+    },
+    [currentIndex],
+  );
+
+  return (
+    <View style={tlStyles.container}>
+      <FlatList
+        ref={flatListRef}
+        data={intervals}
+        renderItem={renderItem}
+        keyExtractor={(item) => item.index.toString()}
+        showsVerticalScrollIndicator={false}
+        getItemLayout={(_, index) => ({
+          length: 32,
+          offset: 32 * index,
+          index,
+        })}
+        onScrollToIndexFailed={() => {}}
+        initialScrollIndex={Math.max(0, currentIndex - 1)}
+      />
+    </View>
+  );
+}
+
+const tlStyles = StyleSheet.create({
+  container: {
+    maxHeight: 160,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.xs,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 32,
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.sm,
+  },
+  currentRow: {
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.sm,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  checkIcon: {
+    fontSize: 12,
+    color: Colors.primary,
+    width: 14,
+    textAlign: 'center',
+  },
+  playIcon: {
+    fontSize: 10,
+    color: Colors.primary,
+    width: 14,
+    textAlign: 'center',
+  },
+  label: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  setTag: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  time: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontVariant: ['tabular-nums'],
+    minWidth: 40,
+    textAlign: 'right',
+  },
+  completedText: {
+    color: Colors.textMuted,
+    opacity: 0.5,
+  },
+});
 
 const styles = StyleSheet.create({
   loading: {
@@ -376,24 +547,6 @@ const styles = StyleSheet.create({
   progressArea: {
     paddingHorizontal: Spacing.lg,
     marginBottom: Spacing.md,
-  },
-  upNext: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
-  upNextLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  upNextValue: {
-    fontSize: FontSize.md,
-    color: Colors.textSecondary,
-    fontWeight: '600',
   },
   totalRemaining: {
     fontSize: FontSize.sm,
