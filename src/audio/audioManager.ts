@@ -15,6 +15,61 @@ import { AudioCueMode, formatDurationForSpeech } from '../workout/workoutTypes';
 
 let isAudioConfigured = false;
 
+// ── Voice selection ──────────────────────────────────────────────────
+
+/** Cached voice identifier for the current session. */
+let selectedVoiceId: string | null = null;
+
+/** Set the voice identifier used by all subsequent speak() calls. */
+export function setVoiceIdentifier(id: string | null): void {
+  selectedVoiceId = id;
+}
+
+/**
+ * Return available voices filtered to a language prefix (default "en").
+ * Sorted so Enhanced/Premium voices appear first, then alphabetical.
+ */
+export async function getAvailableVoices(
+  languagePrefix = 'en'
+): Promise<Speech.Voice[]> {
+  const all = await Speech.getAvailableVoicesAsync();
+  return all
+    .filter((v) => v.language.toLowerCase().startsWith(languagePrefix))
+    .sort((a, b) => {
+      // Enhanced > Default
+      const qA = a.quality === Speech.VoiceQuality.Enhanced ? 0 : 1;
+      const qB = b.quality === Speech.VoiceQuality.Enhanced ? 0 : 1;
+      if (qA !== qB) return qA - qB;
+      return a.name.localeCompare(b.name);
+    });
+}
+
+/**
+ * Auto-select the best available English voice on this device.
+ * Prefers Enhanced quality, then falls back to any en-US Default voice.
+ * Returns the identifier, or null if nothing suitable was found.
+ */
+export async function pickBestVoice(): Promise<string | null> {
+  const voices = await getAvailableVoices('en');
+  // Prefer Enhanced en-US
+  const enhanced = voices.find(
+    (v) =>
+      v.quality === Speech.VoiceQuality.Enhanced &&
+      v.language.toLowerCase().startsWith('en-us')
+  );
+  if (enhanced) return enhanced.identifier;
+  // Fallback: any Enhanced English
+  const anyEnhanced = voices.find(
+    (v) => v.quality === Speech.VoiceQuality.Enhanced
+  );
+  if (anyEnhanced) return anyEnhanced.identifier;
+  // Fallback: default en-US
+  const defaultUs = voices.find((v) =>
+    v.language.toLowerCase().startsWith('en-us')
+  );
+  return defaultUs?.identifier ?? null;
+}
+
 /** Configure the audio session for background playback (call once at app start). */
 export async function configureAudio(): Promise<void> {
   if (isAudioConfigured) return;
@@ -171,11 +226,15 @@ export function speak(text: string): void {
   try {
     // Stop any in-progress speech first so announcements don't pile up
     Speech.stop();
-    Speech.speak(text, {
+    const opts: Speech.SpeechOptions = {
       language: 'en-US',
       rate: 1.05,
       pitch: 1.0,
-    });
+    };
+    if (selectedVoiceId) {
+      opts.voice = selectedVoiceId;
+    }
+    Speech.speak(text, opts);
   } catch (e) {
     console.warn('Failed to speak:', e);
   }

@@ -145,6 +145,7 @@ export interface AppSettings {
   countdownWarningSeconds: number; // seconds before interval end to play warning
   keepScreenOn: boolean;
   timeRemainingInterval: TimeRemainingInterval; // 0 = off, seconds between elapsed-time announcements
+  voiceIdentifier: string | null; // selected TTS voice identifier, null = auto-select best
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -153,6 +154,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   countdownWarningSeconds: 10,
   keepScreenOn: true,
   timeRemainingInterval: 0,
+  voiceIdentifier: null,
 };
 
 /** Default label for an interval based on its type. */

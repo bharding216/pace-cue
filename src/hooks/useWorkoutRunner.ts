@@ -40,6 +40,8 @@ import {
   speakIntervalProgress,
   startBackgroundLoop,
   stopBackgroundLoop,
+  setVoiceIdentifier,
+  pickBestVoice,
   type CueContext,
 } from '../audio/audioManager';
 import {
@@ -266,10 +268,18 @@ export function useWorkoutRunner(
     };
   }, [engine.phase, tick]);
 
-  // Ensure audio is configured
+  // Ensure audio is configured and voice is set
   useEffect(() => {
     configureAudio();
-  }, []);
+    if (settings.voiceIdentifier) {
+      setVoiceIdentifier(settings.voiceIdentifier);
+    } else {
+      // Auto-select the best available voice when no preference is saved
+      pickBestVoice().then((id) => {
+        if (id) setVoiceIdentifier(id);
+      });
+    }
+  }, [settings.voiceIdentifier]);
 
   // Clean up Live Activity and background loop on unmount
   useEffect(() => {
