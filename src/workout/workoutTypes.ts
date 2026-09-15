@@ -29,6 +29,44 @@ export const BLOCK_NAME_OPTIONS = [
 
 export type BlockName = (typeof BLOCK_NAME_OPTIONS)[number];
 
+/**
+ * Interval-level label presets, grouped by IntervalType.
+ * Shown as quick-tap chips in the editor; users can also type a custom label.
+ */
+export const INTERVAL_LABEL_OPTIONS: Record<IntervalType, readonly string[]> = {
+  hard: [
+    'Sprint',
+    'Run',
+    'Stride',
+    'Tempo',
+    'Race Pace',
+    'Threshold',
+    'Hill',
+    'Speed',
+    'Build Up',
+    'Fartlek',
+  ],
+  easy: [
+    'Walk',
+    'Jog',
+    'Recovery',
+    'Easy Run',
+    'Rest',
+    'Float',
+  ],
+  warmup: [
+    'Warm Up',
+    'Easy Jog',
+    'Walk',
+    'Stride',
+  ],
+  cooldown: [
+    'Cool Down',
+    'Easy Jog',
+    'Walk',
+  ],
+} as const;
+
 export interface WorkoutInterval {
   type: IntervalType;
   durationSeconds: number;

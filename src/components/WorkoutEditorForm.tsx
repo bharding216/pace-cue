@@ -20,6 +20,7 @@ import {
   formatTime,
   totalWorkoutSeconds,
   BLOCK_NAME_OPTIONS,
+  INTERVAL_LABEL_OPTIONS,
 } from '../workout/workoutTypes';
 import {
   Colors,
@@ -334,80 +335,91 @@ function BlockList({
           />
 
           {block.intervals.map((interval, ii) => (
-            <View key={ii} style={styles.intervalRow}>
-              {/* Reorder arrows */}
-              <View style={styles.reorderCol}>
+            <View key={ii} style={styles.intervalContainer}>
+              <View style={styles.intervalRow}>
+                {/* Reorder arrows */}
+                <View style={styles.reorderCol}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      hapticTap();
+                      swapInt(setter, bi, ii, ii - 1);
+                    }}
+                    disabled={ii === 0}
+                    hitSlop={8}
+                  >
+                    <Ionicons
+                      name="chevron-up"
+                      size={16}
+                      color={ii === 0 ? Colors.surfaceLight : Colors.textMuted}
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      hapticTap();
+                      swapInt(setter, bi, ii, ii + 1);
+                    }}
+                    disabled={ii === block.intervals.length - 1}
+                    hitSlop={8}
+                  >
+                    <Ionicons
+                      name="chevron-down"
+                      size={16}
+                      color={
+                        ii === block.intervals.length - 1
+                          ? Colors.surfaceLight
+                          : Colors.textMuted
+                      }
+                    />
+                  </TouchableOpacity>
+                </View>
+
                 <TouchableOpacity
+                  style={[
+                    styles.typeChip,
+                    {
+                      backgroundColor: intervalColor(interval.type) + '22',
+                      borderColor: intervalColor(interval.type),
+                    },
+                  ]}
                   onPress={() => {
                     hapticTap();
-                    swapInt(setter, bi, ii, ii - 1);
+                    updateInt(setter, bi, ii, { type: cycleType(interval.type) });
                   }}
-                  disabled={ii === 0}
-                  hitSlop={8}
                 >
-                  <Ionicons
-                    name="chevron-up"
-                    size={16}
-                    color={ii === 0 ? Colors.surfaceLight : Colors.textMuted}
-                  />
+                  <Text
+                    style={[
+                      styles.typeText,
+                      { color: intervalColor(interval.type) },
+                    ]}
+                  >
+                    {interval.type.toUpperCase()}
+                  </Text>
                 </TouchableOpacity>
+
+                <DurationPicker
+                  seconds={interval.durationSeconds}
+                  onChange={(s) =>
+                    updateInt(setter, bi, ii, { durationSeconds: s })
+                  }
+                  color={intervalColor(interval.type)}
+                />
+
                 <TouchableOpacity
-                  onPress={() => {
-                    hapticTap();
-                    swapInt(setter, bi, ii, ii + 1);
-                  }}
-                  disabled={ii === block.intervals.length - 1}
-                  hitSlop={8}
+                  onPress={() => removeInt(setter, bi, ii)}
+                  style={styles.removeBtn}
                 >
-                  <Ionicons
-                    name="chevron-down"
-                    size={16}
-                    color={
-                      ii === block.intervals.length - 1
-                        ? Colors.surfaceLight
-                        : Colors.textMuted
-                    }
-                  />
+                  <Ionicons name="close-outline" size={18} color={Colors.textMuted} />
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity
-                style={[
-                  styles.typeChip,
-                  {
-                    backgroundColor: intervalColor(interval.type) + '22',
-                    borderColor: intervalColor(interval.type),
-                  },
-                ]}
-                onPress={() => {
-                  hapticTap();
-                  updateInt(setter, bi, ii, { type: cycleType(interval.type) });
-                }}
-              >
-                <Text
-                  style={[
-                    styles.typeText,
-                    { color: intervalColor(interval.type) },
-                  ]}
-                >
-                  {interval.type.toUpperCase()}
-                </Text>
-              </TouchableOpacity>
-
-              <DurationPicker
-                seconds={interval.durationSeconds}
-                onChange={(s) =>
-                  updateInt(setter, bi, ii, { durationSeconds: s })
+              {/* Interval label picker */}
+              <IntervalLabelPicker
+                type={interval.type}
+                selected={interval.label}
+                onSelect={(label) =>
+                  updateInt(setter, bi, ii, { label })
                 }
-                color={intervalColor(interval.type)}
               />
-
-              <TouchableOpacity
-                onPress={() => removeInt(setter, bi, ii)}
-                style={styles.removeBtn}
-              >
-                <Ionicons name="close-outline" size={18} color={Colors.textMuted} />
-              </TouchableOpacity>
             </View>
           ))}
 
@@ -499,6 +511,230 @@ function BlockNamePicker({
     </View>
   );
 }
+
+// ── Interval label picker sub-component ──────────────────────────────
+
+function IntervalLabelPicker({
+  type,
+  selected,
+  onSelect,
+}: {
+  type: IntervalType;
+  selected?: string;
+  onSelect: (label: string | undefined) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [customMode, setCustomMode] = useState(false);
+  const [customText, setCustomText] = useState('');
+
+  const presets = INTERVAL_LABEL_OPTIONS[type];
+  const isPreset = selected != null && presets.includes(selected);
+  const isCustom = selected != null && !isPreset;
+
+  const handlePresetTap = (label: string) => {
+    hapticTap();
+    if (selected === label) {
+      onSelect(undefined);
+    } else {
+      onSelect(label);
+    }
+    setCustomMode(false);
+  };
+
+  const handleCustomConfirm = () => {
+    const trimmed = customText.trim();
+    if (trimmed) {
+      onSelect(trimmed);
+    } else {
+      onSelect(undefined);
+    }
+    setCustomMode(false);
+  };
+
+  const handleCustomTap = () => {
+    hapticTap();
+    if (customMode) {
+      setCustomMode(false);
+    } else {
+      setCustomText(isCustom ? (selected ?? '') : '');
+      setCustomMode(true);
+    }
+  };
+
+  return (
+    <View style={ilStyles.container}>
+      <TouchableOpacity
+        style={ilStyles.toggle}
+        onPress={() => {
+          setExpanded(!expanded);
+          if (expanded) setCustomMode(false);
+        }}
+      >
+        <Ionicons name="pricetag-outline" size={12} color={Colors.textMuted} />
+        <Text style={ilStyles.toggleLabel}>
+          {selected ? selected : 'Label (optional)'}
+        </Text>
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={12}
+          color={Colors.textMuted}
+        />
+      </TouchableOpacity>
+      {expanded && (
+        <View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={ilStyles.chipScroll}
+            contentContainerStyle={ilStyles.chipRow}
+          >
+            {presets.map((label) => {
+              const isActive = selected === label;
+              return (
+                <TouchableOpacity
+                  key={label}
+                  style={[
+                    ilStyles.chip,
+                    isActive && ilStyles.chipActive,
+                  ]}
+                  onPress={() => handlePresetTap(label)}
+                >
+                  <Text
+                    style={[
+                      ilStyles.chipText,
+                      isActive && ilStyles.chipTextActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              style={[
+                ilStyles.chip,
+                ilStyles.customChip,
+                (customMode || isCustom) && ilStyles.chipActive,
+              ]}
+              onPress={handleCustomTap}
+            >
+              <Ionicons
+                name="create-outline"
+                size={12}
+                color={customMode || isCustom ? Colors.accent : Colors.textSecondary}
+              />
+              <Text
+                style={[
+                  ilStyles.chipText,
+                  (customMode || isCustom) && ilStyles.chipTextActive,
+                ]}
+              >
+                {isCustom ? selected : 'Custom'}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+          {customMode && (
+            <View style={ilStyles.customRow}>
+              <TextInput
+                style={ilStyles.customInput}
+                value={customText}
+                onChangeText={setCustomText}
+                placeholder="Type a label…"
+                placeholderTextColor={Colors.textMuted}
+                maxLength={24}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={handleCustomConfirm}
+              />
+              <TouchableOpacity
+                onPress={handleCustomConfirm}
+                style={ilStyles.customDoneBtn}
+              >
+                <Ionicons name="checkmark" size={16} color={Colors.primary} />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const ilStyles = StyleSheet.create({
+  container: {
+    marginLeft: Spacing.lg + Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  toggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingVertical: 2,
+  },
+  toggleLabel: {
+    fontSize: FontSize.xs - 1,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  chipScroll: {
+    marginTop: Spacing.xs,
+  },
+  chipRow: {
+    gap: Spacing.xs,
+    paddingRight: Spacing.md,
+  },
+  chip: {
+    paddingVertical: 3,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    backgroundColor: Colors.surfaceLight,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  chipActive: {
+    backgroundColor: Colors.accent + '22',
+    borderColor: Colors.accent,
+  },
+  customChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  chipText: {
+    fontSize: FontSize.xs - 1,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
+  chipTextActive: {
+    color: Colors.accent,
+  },
+  customRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginTop: Spacing.xs,
+  },
+  customInput: {
+    flex: 1,
+    backgroundColor: Colors.surfaceLight,
+    color: Colors.textPrimary,
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    paddingVertical: 4,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+  },
+  customDoneBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.primary + '22',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});
 
 const bnStyles = StyleSheet.create({
   container: {
@@ -773,12 +1009,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 20,
   },
+  intervalContainer: {
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceLight,
+    paddingBottom: Spacing.xs,
+  },
   intervalRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceLight,
     gap: Spacing.sm,
   },
   reorderCol: {

@@ -84,6 +84,25 @@ export async function deleteWorkout(id: string): Promise<void> {
   await saveWorkouts(existing.filter((w) => w.id !== id));
 }
 
+export async function reorderWorkouts(
+  fromIndex: number,
+  toIndex: number,
+): Promise<WorkoutDefinition[]> {
+  const workouts = await loadWorkouts();
+  if (
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= workouts.length ||
+    toIndex >= workouts.length
+  ) {
+    return workouts;
+  }
+  const [moved] = workouts.splice(fromIndex, 1);
+  workouts.splice(toIndex, 0, moved);
+  await saveWorkouts(workouts);
+  return workouts;
+}
+
 // ── History ──────────────────────────────────────────────────────────
 
 export async function loadHistory(): Promise<CompletedWorkout[]> {
