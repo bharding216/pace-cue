@@ -49,6 +49,7 @@ import {
   hapticWorkoutComplete,
 } from '../audio/haptics';
 import { saveCompletedWorkout } from '../workout/workoutStorage';
+import { onWorkoutCompleted } from '../review/storeReview';
 import {
   startLiveActivity,
   updateLiveActivity,
@@ -185,6 +186,7 @@ export function useWorkoutRunner(
             saveCompletedWorkout(entry).catch((e) =>
               console.warn('Failed to save workout history:', e)
             );
+            onWorkoutCompleted();
           }
         } else {
           // New interval started — verbose voice cue
@@ -350,6 +352,7 @@ export function useWorkoutRunner(
         saveCompletedWorkout(entry).catch((e) =>
           console.warn('Failed to save workout history:', e)
         );
+        onWorkoutCompleted();
       }
     }
   }, [workout.id, workout.name, buildLAProps]);
