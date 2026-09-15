@@ -22,7 +22,7 @@ export async function configureAudio(): Promise<void> {
     await setAudioModeAsync({
       playsInSilentMode: true,
       shouldPlayInBackground: true,
-      interruptionMode: 'duckOthers',
+      interruptionMode: 'mixWithOthers',
     });
     isAudioConfigured = true;
   } catch (e) {

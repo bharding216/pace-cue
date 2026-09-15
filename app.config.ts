@@ -73,6 +73,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
   ],
+  updates: {
+    url: 'https://u.expo.dev/15ab975c-acf7-482d-8059-edfe8218ef58',
+  },
+  runtimeVersion: {
+    policy: 'appVersion',
+  },
   experiments: {
     typedRoutes: true,
   },
