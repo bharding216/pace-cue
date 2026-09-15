@@ -16,6 +16,7 @@ import {
 import { useFocusEffect } from 'expo-router';
 import { AppSettings, AudioCueMode, TimeRemainingInterval, DEFAULT_SETTINGS } from '../../src/workout/workoutTypes';
 import { loadSettings, saveSettings } from '../../src/workout/workoutStorage';
+import Constants from 'expo-constants';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 import { hapticTap } from '../../src/audio/haptics';
 import { exportData, importData } from '../../src/workout/backupManager';
@@ -258,7 +259,7 @@ export default function SettingsScreen() {
       </TouchableOpacity>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>PaceCue v1.0</Text>
+        <Text style={styles.footerText}>PaceCue v{Constants.expoConfig?.version ?? '?'}</Text>
         <Text style={styles.footerText}>
           Built with ❤️ for runners who don't want subscriptions
         </Text>
