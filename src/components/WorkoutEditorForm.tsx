@@ -11,6 +11,8 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Modal,
+  Pressable,
 } from 'react-native';
 import {
   WorkoutDefinition,
@@ -19,7 +21,6 @@ import {
   IntervalType,
   formatTime,
   totalWorkoutSeconds,
-  BLOCK_NAME_OPTIONS,
   INTERVAL_LABEL_OPTIONS,
 } from '../workout/workoutTypes';
 import {
@@ -133,14 +134,6 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
     });
   };
 
-  const updateBlockName = (setter: BlockSetter, blockIdx: number, name: string | undefined) => {
-    setter((prev) => {
-      const next = [...prev];
-      next[blockIdx] = { ...next[blockIdx], name };
-      return next;
-    });
-  };
-
   const addBlock = (
     setter: BlockSetter,
     defaultIntervals: WorkoutInterval[],
@@ -184,7 +177,6 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
         removeInterval={removeInterval}
         swapIntervals={swapIntervals}
         addBlock={addBlock}
-        updateBlockName={updateBlockName}
       />
 
       {/* Main Blocks */}
@@ -203,7 +195,6 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
         removeInterval={removeInterval}
         swapIntervals={swapIntervals}
         addBlock={addBlock}
-        updateBlockName={updateBlockName}
       />
 
       {/* Cooldown */}
@@ -222,7 +213,6 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
         removeInterval={removeInterval}
         swapIntervals={swapIntervals}
         addBlock={addBlock}
-        updateBlockName={updateBlockName}
       />
 
       {/* Total */}
@@ -258,6 +248,28 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
 
 type BlockSetter = React.Dispatch<React.SetStateAction<WorkoutRepeatBlock[]>>;
 
+/** Display text for the badge: use the custom label if set, otherwise the type name. */
+function badgeLabel(interval: WorkoutInterval): string {
+  return interval.label ?? defaultLabelForType(interval.type);
+}
+
+function defaultLabelForType(type: IntervalType): string {
+  switch (type) {
+    case 'warmup': return 'Warm Up';
+    case 'cooldown': return 'Cool Down';
+    case 'hard': return 'Hard';
+    case 'easy': return 'Easy';
+  }
+}
+
+/** Build grouped label options for the picker from allowed interval types. */
+function buildLabelOptions(allowedTypes: IntervalType[]) {
+  const allTypes: IntervalType[] = ['hard', 'easy', 'warmup', 'cooldown'];
+  return allTypes
+    .filter((t) => allowedTypes.includes(t))
+    .map((type) => ({ type, labels: [...INTERVAL_LABEL_OPTIONS[type]] }));
+}
+
 interface BlockListProps {
   blocks: WorkoutRepeatBlock[];
   setter: BlockSetter;
@@ -272,7 +284,6 @@ interface BlockListProps {
   removeInterval: (setter: BlockSetter, blockIdx: number, intIdx: number) => void;
   swapIntervals: (setter: BlockSetter, blockIdx: number, a: number, b: number) => void;
   addBlock: (setter: BlockSetter, defaultIntervals: WorkoutInterval[], defaultRepeat: number) => void;
-  updateBlockName: (setter: BlockSetter, blockIdx: number, name: string | undefined) => void;
 }
 
 function BlockList({
@@ -289,11 +300,28 @@ function BlockList({
   removeInterval: removeInt,
   swapIntervals: swapInt,
   addBlock: addBlk,
-  updateBlockName: updateName,
 }: BlockListProps) {
-  const cycleType = (current: IntervalType): IntervalType => {
-    const idx = allowedTypes.indexOf(current);
-    return allowedTypes[(idx + 1) % allowedTypes.length];
+  const [pickerTarget, setPickerTarget] = useState<{
+    blockIdx: number;
+    intIdx: number;
+  } | null>(null);
+
+  const pickerInterval =
+    pickerTarget != null
+      ? blocks[pickerTarget.blockIdx]?.intervals[pickerTarget.intIdx]
+      : null;
+
+  const allOptions = buildLabelOptions(allowedTypes);
+
+  const handlePickLabel = (type: IntervalType, label: string) => {
+    if (pickerTarget) {
+      hapticTap();
+      updateInt(setter, pickerTarget.blockIdx, pickerTarget.intIdx, {
+        type,
+        label,
+      });
+      setPickerTarget(null);
+    }
   };
 
   return (
@@ -328,98 +356,81 @@ function BlockList({
             </View>
           </View>
 
-          {/* Block name picker */}
-          <BlockNamePicker
-            selected={block.name}
-            onSelect={(name) => updateName(setter, bi, name)}
-          />
-
           {block.intervals.map((interval, ii) => (
-            <View key={ii} style={styles.intervalContainer}>
-              <View style={styles.intervalRow}>
-                {/* Reorder arrows */}
-                <View style={styles.reorderCol}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      hapticTap();
-                      swapInt(setter, bi, ii, ii - 1);
-                    }}
-                    disabled={ii === 0}
-                    hitSlop={8}
-                  >
-                    <Ionicons
-                      name="chevron-up"
-                      size={16}
-                      color={ii === 0 ? Colors.surfaceLight : Colors.textMuted}
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => {
-                      hapticTap();
-                      swapInt(setter, bi, ii, ii + 1);
-                    }}
-                    disabled={ii === block.intervals.length - 1}
-                    hitSlop={8}
-                  >
-                    <Ionicons
-                      name="chevron-down"
-                      size={16}
-                      color={
-                        ii === block.intervals.length - 1
-                          ? Colors.surfaceLight
-                          : Colors.textMuted
-                      }
-                    />
-                  </TouchableOpacity>
-                </View>
-
+            <View key={ii} style={styles.intervalRow}>
+              {/* Reorder arrows */}
+              <View style={styles.reorderCol}>
                 <TouchableOpacity
-                  style={[
-                    styles.typeChip,
-                    {
-                      backgroundColor: intervalColor(interval.type) + '22',
-                      borderColor: intervalColor(interval.type),
-                    },
-                  ]}
                   onPress={() => {
                     hapticTap();
-                    updateInt(setter, bi, ii, { type: cycleType(interval.type) });
+                    swapInt(setter, bi, ii, ii - 1);
                   }}
+                  disabled={ii === 0}
+                  hitSlop={8}
                 >
-                  <Text
-                    style={[
-                      styles.typeText,
-                      { color: intervalColor(interval.type) },
-                    ]}
-                  >
-                    {interval.type.toUpperCase()}
-                  </Text>
+                  <Ionicons
+                    name="chevron-up"
+                    size={16}
+                    color={ii === 0 ? Colors.surfaceLight : Colors.textMuted}
+                  />
                 </TouchableOpacity>
-
-                <DurationPicker
-                  seconds={interval.durationSeconds}
-                  onChange={(s) =>
-                    updateInt(setter, bi, ii, { durationSeconds: s })
-                  }
-                  color={intervalColor(interval.type)}
-                />
-
                 <TouchableOpacity
-                  onPress={() => removeInt(setter, bi, ii)}
-                  style={styles.removeBtn}
+                  onPress={() => {
+                    hapticTap();
+                    swapInt(setter, bi, ii, ii + 1);
+                  }}
+                  disabled={ii === block.intervals.length - 1}
+                  hitSlop={8}
                 >
-                  <Ionicons name="close-outline" size={18} color={Colors.textMuted} />
+                  <Ionicons
+                    name="chevron-down"
+                    size={16}
+                    color={
+                      ii === block.intervals.length - 1
+                        ? Colors.surfaceLight
+                        : Colors.textMuted
+                    }
+                  />
                 </TouchableOpacity>
               </View>
 
-              {/* Interval label picker */}
-              <IntervalLabelPicker
-                type={interval.type}
-                selected={interval.label}
-                onSelect={(label) =>
-                  updateInt(setter, bi, ii, { label })
+              <TouchableOpacity
+                style={[
+                  styles.typeChip,
+                  {
+                    backgroundColor: intervalColor(interval.type) + '22',
+                    borderColor: intervalColor(interval.type),
+                  },
+                ]}
+                onPress={() => {
+                  hapticTap();
+                  setPickerTarget({ blockIdx: bi, intIdx: ii });
+                }}
+              >
+                <Text
+                  style={[
+                    styles.typeText,
+                    { color: intervalColor(interval.type) },
+                  ]}
+                >
+                  {badgeLabel(interval)}
+                </Text>
+              </TouchableOpacity>
+
+              <DurationPicker
+                seconds={interval.durationSeconds}
+                onChange={(s) =>
+                  updateInt(setter, bi, ii, { durationSeconds: s })
                 }
+                color={intervalColor(interval.type)}
               />
+
+              <TouchableOpacity
+                onPress={() => removeInt(setter, bi, ii)}
+                style={styles.removeBtn}
+              >
+                <Ionicons name="close-outline" size={18} color={Colors.textMuted} />
+              </TouchableOpacity>
             </View>
           ))}
 
@@ -444,339 +455,127 @@ function BlockList({
       >
         <Text style={styles.addBtnText}>{addBlockLabel}</Text>
       </TouchableOpacity>
+
+      {/* Label picker modal */}
+      <Modal
+        visible={pickerTarget != null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPickerTarget(null)}
+      >
+        <Pressable
+          style={pickerStyles.backdrop}
+          onPress={() => setPickerTarget(null)}
+        />
+        <View style={pickerStyles.sheet}>
+          <View style={pickerStyles.handle} />
+          <Text style={pickerStyles.title}>Choose Label</Text>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {allOptions.map((group) => (
+              <View key={group.type}>
+                <Text
+                  style={[
+                    pickerStyles.groupTitle,
+                    { color: intervalColor(group.type) },
+                  ]}
+                >
+                  {group.type.toUpperCase()}
+                </Text>
+                <View style={pickerStyles.optionGrid}>
+                  {group.labels.map((label) => {
+                    const isActive =
+                      pickerInterval?.type === group.type &&
+                      badgeLabel(pickerInterval) === label;
+                    return (
+                      <TouchableOpacity
+                        key={label}
+                        style={[
+                          pickerStyles.option,
+                          {
+                            borderColor: isActive
+                              ? intervalColor(group.type)
+                              : Colors.surfaceLight,
+                            backgroundColor: isActive
+                              ? intervalColor(group.type) + '33'
+                              : Colors.surfaceLight,
+                          },
+                        ]}
+                        onPress={() => handlePickLabel(group.type, label)}
+                      >
+                        <Text
+                          style={[
+                            pickerStyles.optionText,
+                            {
+                              color: isActive
+                                ? intervalColor(group.type)
+                                : Colors.textSecondary,
+                            },
+                          ]}
+                        >
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
     </>
   );
 }
 
-// ── Block name picker sub-component ──────────────────────────────────
-
-function BlockNamePicker({
-  selected,
-  onSelect,
-}: {
-  selected?: string;
-  onSelect: (name: string | undefined) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <View style={bnStyles.container}>
-      <TouchableOpacity
-        style={bnStyles.toggle}
-        onPress={() => setExpanded(!expanded)}
-      >
-        <Text style={bnStyles.toggleLabel}>
-          {selected ? `Name: ${selected}` : 'Add Name (optional)'}
-        </Text>
-        <Ionicons
-          name={expanded ? 'chevron-up' : 'chevron-down'}
-          size={14}
-          color={Colors.textMuted}
-        />
-      </TouchableOpacity>
-      {expanded && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={bnStyles.chipScroll}
-          contentContainerStyle={bnStyles.chipRow}
-        >
-          {BLOCK_NAME_OPTIONS.map((name) => {
-            const isActive = selected === name;
-            return (
-              <TouchableOpacity
-                key={name}
-                style={[
-                  bnStyles.chip,
-                  isActive && bnStyles.chipActive,
-                ]}
-                onPress={() => {
-                  hapticTap();
-                  onSelect(isActive ? undefined : name);
-                }}
-              >
-                <Text
-                  style={[
-                    bnStyles.chipText,
-                    isActive && bnStyles.chipTextActive,
-                  ]}
-                >
-                  {name}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      )}
-    </View>
-  );
-}
-
-// ── Interval label picker sub-component ──────────────────────────────
-
-function IntervalLabelPicker({
-  type,
-  selected,
-  onSelect,
-}: {
-  type: IntervalType;
-  selected?: string;
-  onSelect: (label: string | undefined) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [customMode, setCustomMode] = useState(false);
-  const [customText, setCustomText] = useState('');
-
-  const presets = INTERVAL_LABEL_OPTIONS[type];
-  const isPreset = selected != null && presets.includes(selected);
-  const isCustom = selected != null && !isPreset;
-
-  const handlePresetTap = (label: string) => {
-    hapticTap();
-    if (selected === label) {
-      onSelect(undefined);
-    } else {
-      onSelect(label);
-    }
-    setCustomMode(false);
-  };
-
-  const handleCustomConfirm = () => {
-    const trimmed = customText.trim();
-    if (trimmed) {
-      onSelect(trimmed);
-    } else {
-      onSelect(undefined);
-    }
-    setCustomMode(false);
-  };
-
-  const handleCustomTap = () => {
-    hapticTap();
-    if (customMode) {
-      setCustomMode(false);
-    } else {
-      setCustomText(isCustom ? (selected ?? '') : '');
-      setCustomMode(true);
-    }
-  };
-
-  return (
-    <View style={ilStyles.container}>
-      <TouchableOpacity
-        style={ilStyles.toggle}
-        onPress={() => {
-          setExpanded(!expanded);
-          if (expanded) setCustomMode(false);
-        }}
-      >
-        <Ionicons name="pricetag-outline" size={12} color={Colors.textMuted} />
-        <Text style={ilStyles.toggleLabel}>
-          {selected ? selected : 'Label (optional)'}
-        </Text>
-        <Ionicons
-          name={expanded ? 'chevron-up' : 'chevron-down'}
-          size={12}
-          color={Colors.textMuted}
-        />
-      </TouchableOpacity>
-      {expanded && (
-        <View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={ilStyles.chipScroll}
-            contentContainerStyle={ilStyles.chipRow}
-          >
-            {presets.map((label) => {
-              const isActive = selected === label;
-              return (
-                <TouchableOpacity
-                  key={label}
-                  style={[
-                    ilStyles.chip,
-                    isActive && ilStyles.chipActive,
-                  ]}
-                  onPress={() => handlePresetTap(label)}
-                >
-                  <Text
-                    style={[
-                      ilStyles.chipText,
-                      isActive && ilStyles.chipTextActive,
-                    ]}
-                  >
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              style={[
-                ilStyles.chip,
-                ilStyles.customChip,
-                (customMode || isCustom) && ilStyles.chipActive,
-              ]}
-              onPress={handleCustomTap}
-            >
-              <Ionicons
-                name="create-outline"
-                size={12}
-                color={customMode || isCustom ? Colors.accent : Colors.textSecondary}
-              />
-              <Text
-                style={[
-                  ilStyles.chipText,
-                  (customMode || isCustom) && ilStyles.chipTextActive,
-                ]}
-              >
-                {isCustom ? selected : 'Custom'}
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-          {customMode && (
-            <View style={ilStyles.customRow}>
-              <TextInput
-                style={ilStyles.customInput}
-                value={customText}
-                onChangeText={setCustomText}
-                placeholder="Type a label…"
-                placeholderTextColor={Colors.textMuted}
-                maxLength={24}
-                autoFocus
-                returnKeyType="done"
-                onSubmitEditing={handleCustomConfirm}
-              />
-              <TouchableOpacity
-                onPress={handleCustomConfirm}
-                style={ilStyles.customDoneBtn}
-              >
-                <Ionicons name="checkmark" size={16} color={Colors.primary} />
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      )}
-    </View>
-  );
-}
-
-const ilStyles = StyleSheet.create({
-  container: {
-    marginLeft: Spacing.lg + Spacing.sm,
-    marginBottom: Spacing.xs,
-  },
-  toggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    paddingVertical: 2,
-  },
-  toggleLabel: {
-    fontSize: FontSize.xs - 1,
-    color: Colors.textMuted,
-    fontWeight: '600',
-  },
-  chipScroll: {
-    marginTop: Spacing.xs,
-  },
-  chipRow: {
-    gap: Spacing.xs,
-    paddingRight: Spacing.md,
-  },
-  chip: {
-    paddingVertical: 3,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-    backgroundColor: Colors.surfaceLight,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  chipActive: {
-    backgroundColor: Colors.accent + '22',
-    borderColor: Colors.accent,
-  },
-  customChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  chipText: {
-    fontSize: FontSize.xs - 1,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-  chipTextActive: {
-    color: Colors.accent,
-  },
-  customRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginTop: Spacing.xs,
-  },
-  customInput: {
+const pickerStyles = StyleSheet.create({
+  backdrop: {
     flex: 1,
-    backgroundColor: Colors.surfaceLight,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  sheet: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    paddingBottom: Spacing.xxl,
+    maxHeight: '60%',
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.textMuted,
+    alignSelf: 'center',
+    marginBottom: Spacing.md,
+  },
+  title: {
+    fontSize: FontSize.lg,
+    fontWeight: '700',
     color: Colors.textPrimary,
+    marginBottom: Spacing.lg,
+  },
+  groupTitle: {
     fontSize: FontSize.xs,
-    fontWeight: '600',
-    paddingVertical: 4,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    borderColor: Colors.accent,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: Spacing.sm,
+    marginTop: Spacing.sm,
   },
-  customDoneBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.primary + '22',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});
-
-const bnStyles = StyleSheet.create({
-  container: {
+  optionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
     marginBottom: Spacing.sm,
   },
-  toggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    paddingVertical: Spacing.xs,
-  },
-  toggleLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontWeight: '600',
-  },
-  chipScroll: {
-    marginTop: Spacing.xs,
-  },
-  chipRow: {
-    gap: Spacing.sm,
-    paddingRight: Spacing.md,
-  },
-  chip: {
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-    backgroundColor: Colors.surfaceLight,
+  option: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
     borderWidth: 1,
-    borderColor: 'transparent',
   },
-  chipActive: {
-    backgroundColor: Colors.accent + '22',
-    borderColor: Colors.accent,
-  },
-  chipText: {
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
+  optionText: {
+    fontSize: FontSize.sm,
     fontWeight: '600',
-  },
-  chipTextActive: {
-    color: Colors.accent,
   },
 });
 
@@ -1008,11 +807,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     lineHeight: 20,
-  },
-  intervalContainer: {
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceLight,
-    paddingBottom: Spacing.xs,
   },
   intervalRow: {
     flexDirection: 'row',
