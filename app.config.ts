@@ -5,7 +5,7 @@ const IS_DEV = process.env.APP_VARIANT === 'development';
 export default ({ config }: ConfigContext): ExpoConfig => ({
   name: IS_DEV ? 'PaceCue Dev Build' : 'PaceCue',
   slug: 'pace-cue',
-  version: '1.2.0',
+  version: '1.3.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
