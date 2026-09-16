@@ -66,8 +66,10 @@ export default function SettingsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      configureAudio();
-      loadSettings().then(setSettings);
+      loadSettings().then((s) => {
+        setSettings(s);
+        configureAudio(s.duckOtherAudio);
+      });
       // Load available voices each time the screen is focused, since
       // the user may have downloaded new voices in system settings.
       setVoicesLoading(true);
@@ -82,6 +84,10 @@ export default function SettingsScreen() {
     const next = { ...settings, ...partial };
     setSettings(next);
     await saveSettings(next);
+    // Reconfigure audio session immediately when ducking preference changes
+    if ('duckOtherAudio' in partial) {
+      configureAudio(next.duckOtherAudio);
+    }
   };
 
   const handleExport = async () => {
@@ -148,6 +154,34 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* Duck other audio */}
+      {settings.audioCueMode !== 'silent' && (
+        <>
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1, marginRight: Spacing.md }}>
+              <Text style={styles.settingLabel}>Lower music during cues</Text>
+              <Text style={styles.settingHint}>
+                Automatically dips Spotify and other audio so cues stand out
+              </Text>
+            </View>
+            <Switch
+              value={settings.duckOtherAudio}
+              onValueChange={(v) => {
+                hapticTap();
+                update({ duckOtherAudio: v });
+              }}
+              trackColor={{
+                false: Colors.surfaceLight,
+                true: Colors.primaryDim,
+              }}
+              thumbColor={
+                settings.duckOtherAudio ? Colors.primary : Colors.textMuted
+              }
+            />
+          </View>
+        </>
+      )}
 
       {/* Voice Selection */}
       {(settings.audioCueMode === 'voice' || settings.audioCueMode === 'both') && (
@@ -453,6 +487,11 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     flex: 1,
     marginRight: Spacing.md,
+  },
+  settingHint: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
   },
   actionBtn: {
     flexDirection: 'row',

@@ -50,13 +50,12 @@ export async function getAvailableVoices(
 }
 
 /** Configure the audio session for background playback (call once at app start). */
-export async function configureAudio(): Promise<void> {
-  if (isAudioConfigured) return;
+export async function configureAudio(duck = false): Promise<void> {
   try {
     await setAudioModeAsync({
       playsInSilentMode: true,
       shouldPlayInBackground: true,
-      interruptionMode: 'mixWithOthers',
+      interruptionMode: duck ? 'duckOthers' : 'mixWithOthers',
     });
     isAudioConfigured = true;
   } catch (e) {

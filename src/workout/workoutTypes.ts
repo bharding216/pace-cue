@@ -146,6 +146,7 @@ export interface AppSettings {
   keepScreenOn: boolean;
   timeRemainingInterval: TimeRemainingInterval; // 0 = off, seconds between elapsed-time announcements
   voiceIdentifier: string | null; // selected TTS voice identifier, null = system default
+  duckOtherAudio: boolean; // lower other apps' volume when cues play
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -155,6 +156,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keepScreenOn: true,
   timeRemainingInterval: 0,
   voiceIdentifier: null,
+  duckOtherAudio: false,
 };
 
 /** Default label for an interval based on its type. */

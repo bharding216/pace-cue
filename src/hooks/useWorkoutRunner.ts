@@ -269,9 +269,9 @@ export function useWorkoutRunner(
 
   // Ensure audio is configured and voice is set
   useEffect(() => {
-    configureAudio();
+    configureAudio(settings.duckOtherAudio);
     setVoiceIdentifier(settings.voiceIdentifier);
-  }, [settings.voiceIdentifier]);
+  }, [settings.voiceIdentifier, settings.duckOtherAudio]);
 
   // Clean up Live Activity and background loop on unmount
   useEffect(() => {
