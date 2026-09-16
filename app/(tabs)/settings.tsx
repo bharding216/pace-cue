@@ -23,7 +23,7 @@ import Constants from 'expo-constants';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 import { hapticTap } from '../../src/audio/haptics';
 import { exportData, importData } from '../../src/workout/backupManager';
-import { getAvailableVoices, setVoiceIdentifier, speak } from '../../src/audio/audioManager';
+import { configureAudio, getAvailableVoices, setVoiceIdentifier, speak } from '../../src/audio/audioManager';
 import VoicePickerSheet from '../../src/components/VoicePickerSheet';
 
 const AUDIO_MODES: { value: AudioCueMode; label: string; icon: string }[] = [
@@ -66,6 +66,7 @@ export default function SettingsScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      configureAudio();
       loadSettings().then(setSettings);
       // Load available voices each time the screen is focused, since
       // the user may have downloaded new voices in system settings.
@@ -179,7 +180,7 @@ export default function SettingsScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.voiceSelectorName}>
                     {settings.voiceIdentifier === null
-                      ? 'Auto (best available)'
+                      ? 'System Default'
                       : (() => {
                           const v = voices.find(
                             (v) => v.identifier === settings.voiceIdentifier,
@@ -204,20 +205,18 @@ export default function SettingsScreen() {
                   update({ voiceIdentifier: id });
                 }}
                 onPreview={(id) => {
-                  if (id !== null) {
-                    setVoiceIdentifier(id);
-                    speak('Starting hard for 3 minutes.');
-                  }
+                  setVoiceIdentifier(id);
+                  speak('Starting warmup.');
                 }}
                 onClose={() => setVoicePickerVisible(false)}
               />
 
-              {/* Deep-link to iOS voice downloads */}
+              {/* Deep-link to iOS Settings for voice downloads */}
               {Platform.OS === 'ios' && (
                 <TouchableOpacity
                   style={styles.downloadVoicesRow}
                   onPress={() => {
-                    Linking.openURL('App-prefs:ACCESSIBILITY&path=SPEECH').catch(() =>
+                    Linking.openURL('App-prefs:').catch(() =>
                       Linking.openURL('app-settings:').catch(() => {})
                     );
                   }}
@@ -229,7 +228,7 @@ export default function SettingsScreen() {
                       Download Premium Voices
                     </Text>
                     <Text style={styles.downloadVoicesSub}>
-                      Opens Read & Speak settings — tap Voices › English to download enhanced voices
+                      Opens Settings — go to Accessibility › Read & Speak › Voices › English to download enhanced voices
                     </Text>
                   </View>
                   <Text style={styles.voiceSelectorChevron}>›</Text>

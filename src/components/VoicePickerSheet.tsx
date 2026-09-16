@@ -1,11 +1,11 @@
 /**
- * Bottom-sheet voice picker with search and quality filter.
+ * Bottom-sheet voice picker with quality filter.
  *
  * Opens as a modal overlay that slides up from the bottom.
  * Voices are rendered in a FlatList (virtualised) so even 50+ items stay smooth.
  */
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -13,17 +13,13 @@ import {
   Modal,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  TextInput,
   FlatList,
   Dimensions,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  runOnJS,
   Easing,
 } from 'react-native-reanimated';
 import * as Speech from 'expo-speech';
@@ -63,9 +59,7 @@ export default function VoicePickerSheet({
   onPreview,
   onClose,
 }: Props) {
-  const [search, setSearch] = useState('');
   const [enhancedOnly, setEnhancedOnly] = useState(false);
-  const searchRef = useRef<TextInput>(null);
 
   // Slide animation
   const translateY = useSharedValue(SHEET_HEIGHT);
@@ -94,33 +88,34 @@ export default function VoicePickerSheet({
     });
     backdropOpacity.value = withTiming(0, { duration: ANIM_MS });
     setTimeout(() => {
-      setSearch('');
       setEnhancedOnly(false);
       onClose();
     }, ANIM_MS);
   }, [translateY, backdropOpacity, onClose]);
 
-  // Filter voices
+  const isHighQuality = useCallback((v: Speech.Voice) => {
+    if (v.quality === Speech.VoiceQuality.Enhanced) return true;
+    const n = v.name.toLowerCase();
+    return n.includes('premium') || n.includes('enhanced');
+  }, []);
+
+  // Filter & sort voices — Enhanced/Premium always at the top
   const filtered = useMemo(() => {
     let list = voices;
     if (enhancedOnly) {
-      list = list.filter((v) => v.quality === Speech.VoiceQuality.Enhanced);
+      list = list.filter(isHighQuality);
     }
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (v) =>
-          v.name.toLowerCase().includes(q) ||
-          v.language.toLowerCase().includes(q) ||
-          formatVoiceName(v).toLowerCase().includes(q),
-      );
-    }
-    return list;
-  }, [voices, enhancedOnly, search]);
+    return [...list].sort((a, b) => {
+      const qA = isHighQuality(a) ? 0 : 1;
+      const qB = isHighQuality(b) ? 0 : 1;
+      if (qA !== qB) return qA - qB;
+      return a.name.localeCompare(b.name);
+    });
+  }, [voices, enhancedOnly, isHighQuality]);
 
   const hasEnhanced = useMemo(
-    () => voices.some((v) => v.quality === Speech.VoiceQuality.Enhanced),
-    [voices],
+    () => voices.some(isHighQuality),
+    [voices, isHighQuality],
   );
 
   const handleSelect = useCallback(
@@ -147,16 +142,18 @@ export default function VoicePickerSheet({
             </Text>
             <Text style={styles.voiceSub}>{item.language}</Text>
           </View>
-          {item.quality === Speech.VoiceQuality.Enhanced && (
+          {isHighQuality(item) && (
             <View style={styles.enhancedBadge}>
-              <Text style={styles.enhancedBadgeText}>Enhanced</Text>
+              <Text style={styles.enhancedBadgeText}>
+                {item.name.toLowerCase().includes('premium') ? 'Premium' : 'Enhanced'}
+              </Text>
             </View>
           )}
           {active && <Text style={styles.checkmark}>✓</Text>}
         </TouchableOpacity>
       );
     },
-    [selectedId, handleSelect],
+    [selectedId, handleSelect, isHighQuality],
   );
 
   const keyExtractor = useCallback((v: Speech.Voice) => v.identifier, []);
@@ -175,10 +172,10 @@ export default function VoicePickerSheet({
               selectedId === null && styles.voiceNameActive,
             ]}
           >
-            Auto (best available)
+            System Default
           </Text>
           <Text style={styles.voiceSub}>
-            Picks the highest-quality voice on your device
+            Uses your device's default voice
           </Text>
         </View>
         {selectedId === null && <Text style={styles.checkmark}>✓</Text>}
@@ -196,10 +193,7 @@ export default function VoicePickerSheet({
       onShow={open}
       onRequestClose={close}
     >
-      <KeyboardAvoidingView
-        style={styles.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <View style={styles.overlay}>
         {/* Backdrop */}
         <TouchableWithoutFeedback onPress={close}>
           <Animated.View style={[styles.backdrop, animatedBackdrop]} />
@@ -220,33 +214,9 @@ export default function VoicePickerSheet({
             </TouchableOpacity>
           </View>
 
-          {/* Search bar */}
-          <View style={styles.searchRow}>
-            <View style={styles.searchContainer}>
-              <Text style={styles.searchIcon}>🔍</Text>
-              <TextInput
-                ref={searchRef}
-                style={styles.searchInput}
-                placeholder="Search voices…"
-                placeholderTextColor={Colors.textMuted}
-                value={search}
-                onChangeText={setSearch}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="done"
-              />
-              {search.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => setSearch('')}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={styles.clearBtn}>✕</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Enhanced filter chip (only show if enhanced voices exist) */}
-            {hasEnhanced && (
+          {/* Enhanced filter chip (only show if enhanced voices exist) */}
+          {hasEnhanced && (
+            <View style={styles.filterRow}>
               <TouchableOpacity
                 style={[
                   styles.filterChip,
@@ -267,8 +237,8 @@ export default function VoicePickerSheet({
                   ✨ Enhanced
                 </Text>
               </TouchableOpacity>
-            )}
-          </View>
+            </View>
+          )}
 
           {/* Voice count */}
           <Text style={styles.countLabel}>
@@ -281,18 +251,18 @@ export default function VoicePickerSheet({
             data={filtered}
             keyExtractor={keyExtractor}
             renderItem={renderVoice}
-            ListHeaderComponent={!search.trim() && !enhancedOnly ? ListHeader : null}
+            ListHeaderComponent={!enhancedOnly ? ListHeader : null}
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
               <Text style={styles.emptyText}>
-                No voices match your search.
+                No enhanced voices found.
               </Text>
             }
           />
         </Animated.View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -341,41 +311,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.primary,
   },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  filterRow: {
     paddingHorizontal: Spacing.lg,
-    gap: Spacing.sm,
-  },
-  searchContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.sm,
-    height: 42,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-  },
-  searchIcon: {
-    fontSize: 14,
-    marginRight: Spacing.xs,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: FontSize.md,
-    color: Colors.textPrimary,
-    paddingVertical: 0,
-  },
-  clearBtn: {
-    fontSize: 14,
-    color: Colors.textMuted,
-    paddingLeft: Spacing.xs,
   },
   filterChip: {
+    alignSelf: 'flex-start',
     paddingHorizontal: Spacing.sm + 2,
-    height: 42,
+    height: 36,
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: BorderRadius.md,

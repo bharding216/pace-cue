@@ -41,7 +41,6 @@ import {
   startBackgroundLoop,
   stopBackgroundLoop,
   setVoiceIdentifier,
-  pickBestVoice,
   type CueContext,
 } from '../audio/audioManager';
 import {
@@ -271,14 +270,7 @@ export function useWorkoutRunner(
   // Ensure audio is configured and voice is set
   useEffect(() => {
     configureAudio();
-    if (settings.voiceIdentifier) {
-      setVoiceIdentifier(settings.voiceIdentifier);
-    } else {
-      // Auto-select the best available voice when no preference is saved
-      pickBestVoice().then((id) => {
-        if (id) setVoiceIdentifier(id);
-      });
-    }
+    setVoiceIdentifier(settings.voiceIdentifier);
   }, [settings.voiceIdentifier]);
 
   // Clean up Live Activity and background loop on unmount
