@@ -1,6 +1,10 @@
 import type { ExpoConfig, ConfigContext } from 'expo/config';
 
 const IS_DEV = process.env.APP_VARIANT === 'development';
+const BUNDLE_ID = IS_DEV
+  ? 'com.toddly.runningintervals.dev'
+  : 'com.toddly.runningintervals';
+const APP_GROUP = `group.${BUNDLE_ID}`;
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   name: IS_DEV ? 'PaceCue Dev Build' : 'PaceCue',
@@ -9,14 +13,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
-  scheme: 'pacecue',
+  scheme: IS_DEV ? 'pacecue-dev' : 'pacecue',
   ios: {
     supportsTablet: false,
-    bundleIdentifier: 'com.toddly.runningintervals',
+    bundleIdentifier: BUNDLE_ID,
     entitlements: {
-      'com.apple.security.application-groups': [
-        'group.com.toddly.runningintervals',
-      ],
+      'com.apple.security.application-groups': [APP_GROUP],
     },
     infoPlist: {
       UIBackgroundModes: ['audio'],
@@ -32,7 +34,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: './assets/android-icon-foreground.png',
       monochromeImage: './assets/android-icon-monochrome.png',
     },
-    package: 'com.toddly.runningintervals',
+    package: BUNDLE_ID,
     permissions: [
       'android.permission.RECORD_AUDIO',
       'android.permission.MODIFY_AUDIO_SETTINGS',
@@ -68,8 +70,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       'expo-widgets',
       {
-        bundleIdentifier: 'com.toddly.runningintervals.widgets',
-        groupIdentifier: 'group.com.toddly.runningintervals',
+        bundleIdentifier: `${BUNDLE_ID}.widgets`,
+        groupIdentifier: APP_GROUP,
       },
     ],
   ],
@@ -91,11 +93,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
             appExtensions: [
               {
                 targetName: 'ExpoWidgetsTarget',
-                bundleIdentifier: 'com.toddly.runningintervals.widgets',
+                bundleIdentifier: `${BUNDLE_ID}.widgets`,
                 entitlements: {
-                  'com.apple.security.application-groups': [
-                    'group.com.toddly.runningintervals',
-                  ],
+                  'com.apple.security.application-groups': [APP_GROUP],
                 },
               },
             ],

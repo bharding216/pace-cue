@@ -12,6 +12,8 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Linking,
+  Platform,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import * as Speech from 'expo-speech';
@@ -209,6 +211,30 @@ export default function SettingsScreen() {
                 }}
                 onClose={() => setVoicePickerVisible(false)}
               />
+
+              {/* Deep-link to iOS voice downloads */}
+              {Platform.OS === 'ios' && (
+                <TouchableOpacity
+                  style={styles.downloadVoicesRow}
+                  onPress={() => {
+                    Linking.openURL('App-prefs:ACCESSIBILITY&path=SPEECH').catch(() =>
+                      Linking.openURL('app-settings:').catch(() => {})
+                    );
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.downloadVoicesIcon}>⬇️</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.downloadVoicesLabel}>
+                      Download Premium Voices
+                    </Text>
+                    <Text style={styles.downloadVoicesSub}>
+                      Opens Read & Speak settings — tap Voices › English to download enhanced voices
+                    </Text>
+                  </View>
+                  <Text style={styles.voiceSelectorChevron}>›</Text>
+                </TouchableOpacity>
+              )}
             </>
           )}
         </>
@@ -473,6 +499,30 @@ const styles = StyleSheet.create({
     fontWeight: '300',
     color: Colors.textMuted,
     marginLeft: Spacing.sm,
+  },
+  downloadVoicesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.sm,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+    gap: Spacing.sm,
+  },
+  downloadVoicesIcon: {
+    fontSize: 18,
+  },
+  downloadVoicesLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  downloadVoicesSub: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
   },
   footer: {
     marginTop: Spacing.xxl * 2,

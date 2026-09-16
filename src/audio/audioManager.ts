@@ -20,6 +20,9 @@ let isAudioConfigured = false;
 /** Cached voice identifier for the current session. */
 let selectedVoiceId: string | null = null;
 
+/** Cached "best available" voice so Auto mode doesn't fall back to the OS default. */
+let cachedBestVoiceId: string | null = null;
+
 /** Set the voice identifier used by all subsequent speak() calls. */
 export function setVoiceIdentifier(id: string | null): void {
   selectedVoiceId = id;
@@ -33,7 +36,7 @@ export async function getAvailableVoices(
   languagePrefix = 'en'
 ): Promise<Speech.Voice[]> {
   const all = await Speech.getAvailableVoicesAsync();
-  return all
+  const filtered = all
     .filter((v) => v.language.toLowerCase().startsWith(languagePrefix))
     .sort((a, b) => {
       // Enhanced > Default
@@ -42,6 +45,19 @@ export async function getAvailableVoices(
       if (qA !== qB) return qA - qB;
       return a.name.localeCompare(b.name);
     });
+
+  // Cache the best voice so "Auto" mode can use it immediately in speak()
+  const best =
+    filtered.find(
+      (v) =>
+        v.quality === Speech.VoiceQuality.Enhanced &&
+        v.language.toLowerCase().startsWith('en-us'),
+    ) ??
+    filtered.find((v) => v.quality === Speech.VoiceQuality.Enhanced) ??
+    filtered.find((v) => v.language.toLowerCase().startsWith('en-us'));
+  cachedBestVoiceId = best?.identifier ?? null;
+
+  return filtered;
 }
 
 /**
@@ -231,8 +247,10 @@ export function speak(text: string): void {
       rate: 1.05,
       pitch: 1.0,
     };
-    if (selectedVoiceId) {
-      opts.voice = selectedVoiceId;
+    // Use explicitly selected voice, or fall back to cached best voice
+    const voiceToUse = selectedVoiceId ?? cachedBestVoiceId;
+    if (voiceToUse) {
+      opts.voice = voiceToUse;
     }
     Speech.speak(text, opts);
   } catch (e) {
