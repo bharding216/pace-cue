@@ -1,5 +1,6 @@
 /**
  * Home screen — list of saved workouts with a big "New Workout" button.
+ * Workouts can be reordered by long-pressing and dragging.
  */
 
 import React, { useCallback, useState } from 'react';
@@ -7,15 +8,17 @@ import {
   View,
   Text,
   Image,
-  FlatList,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import DraggableFlatList, {
+  ScaleDecorator,
+  RenderItemParams,
+} from 'react-native-draggable-flatlist';
 import { WorkoutDefinition } from '../../src/workout/workoutTypes';
-import { loadWorkouts, deleteWorkout, saveWorkouts, reorderWorkouts } from '../../src/workout/workoutStorage';
+import { loadWorkouts, deleteWorkout, saveWorkouts } from '../../src/workout/workoutStorage';
 import { createPresets } from '../../src/workout/presets';
 import { WorkoutCard } from '../../src/components/WorkoutCard';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
@@ -24,14 +27,12 @@ export default function HomeScreen() {
   const router = useRouter();
   const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
   const [loading, setLoading] = useState(true);
-  const [reordering, setReordering] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       (async () => {
         let data = await loadWorkouts();
         if (data.length === 0) {
-          // First launch — seed with presets
           data = createPresets();
           await saveWorkouts(data);
         }
@@ -46,11 +47,26 @@ export default function HomeScreen() {
     setWorkouts((prev) => prev.filter((w) => w.id !== id));
   };
 
-  const handleMove = async (fromIndex: number, direction: 'up' | 'down') => {
-    const toIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1;
-    const updated = await reorderWorkouts(fromIndex, toIndex);
-    setWorkouts(updated);
+  const handleDragEnd = async ({ data }: { data: WorkoutDefinition[] }) => {
+    setWorkouts(data);
+    await saveWorkouts(data);
   };
+
+  const renderItem = useCallback(
+    ({ item, drag, isActive }: RenderItemParams<WorkoutDefinition>) => (
+      <ScaleDecorator>
+        <WorkoutCard
+          workout={item}
+          onStart={() => router.push(`/workout/run/${item.id}`)}
+          onEdit={() => router.push(`/workout/${item.id}`)}
+          onDelete={() => handleDelete(item.id)}
+          drag={drag}
+          isActive={isActive}
+        />
+      </ScaleDecorator>
+    ),
+    [router]
+  );
 
   if (loading) {
     return (
@@ -62,11 +78,14 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <FlatList
+      <DraggableFlatList
         data={workouts}
         keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        onDragEnd={handleDragEnd}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        activationDistance={0}
         ListHeaderComponent={
           <View style={styles.hero}>
             <Image
@@ -75,39 +94,8 @@ export default function HomeScreen() {
             />
             <Text style={styles.heroTitle}>PaceCue</Text>
             <Text style={styles.heroSub}>Interval running, your way.</Text>
-            {workouts.length > 1 && (
-              <TouchableOpacity
-                style={[styles.reorderToggle, reordering && styles.reorderToggleActive]}
-                onPress={() => setReordering((v) => !v)}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={reordering ? 'checkmark-circle' : 'reorder-three-outline'}
-                  size={18}
-                  color={reordering ? Colors.black : Colors.textSecondary}
-                />
-                <Text
-                  style={[styles.reorderToggleText, reordering && styles.reorderToggleTextActive]}
-                >
-                  {reordering ? 'Done' : 'Reorder'}
-                </Text>
-              </TouchableOpacity>
-            )}
           </View>
         }
-        renderItem={({ item, index }) => (
-          <WorkoutCard
-            workout={item}
-            onStart={() => router.push(`/workout/run/${item.id}`)}
-            onEdit={() => router.push(`/workout/${item.id}`)}
-            onDelete={() => handleDelete(item.id)}
-            reordering={reordering}
-            isFirst={index === 0}
-            isLast={index === workouts.length - 1}
-            onMoveUp={() => handleMove(index, 'up')}
-            onMoveDown={() => handleMove(index, 'down')}
-          />
-        )}
         ListEmptyComponent={
           <Text style={styles.emptyText}>
             No workouts yet. Create one to get started!
@@ -115,15 +103,13 @@ export default function HomeScreen() {
         }
       />
 
-      {!reordering && (
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={() => router.push('/workout/new')}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.fabText}>+ New Workout</Text>
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => router.push('/workout/new')}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.fabText}>+ New Workout</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -165,29 +151,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: Spacing.xs,
     textAlign: 'center',
-  },
-  reorderToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginTop: Spacing.md,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    borderColor: Colors.textMuted,
-  },
-  reorderToggleActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  reorderToggleText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-  reorderToggleTextActive: {
-    color: Colors.black,
   },
   emptyText: {
     color: Colors.textMuted,

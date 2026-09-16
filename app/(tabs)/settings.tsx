@@ -12,8 +12,6 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-  Platform,
-  Linking,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import * as Speech from 'expo-speech';
@@ -24,6 +22,7 @@ import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/the
 import { hapticTap } from '../../src/audio/haptics';
 import { exportData, importData } from '../../src/workout/backupManager';
 import { getAvailableVoices, setVoiceIdentifier, speak } from '../../src/audio/audioManager';
+import VoicePickerSheet from '../../src/components/VoicePickerSheet';
 
 const AUDIO_MODES: { value: AudioCueMode; label: string; icon: string }[] = [
   { value: 'beeps', label: 'Beeps', icon: '🔔' },
@@ -45,15 +44,12 @@ const TIME_REMAINING_OPTIONS: { value: TimeRemainingInterval; label: string }[] 
 
 /** Pretty-print a voice name for display (strip Apple identifier prefixes). */
 function formatVoiceName(voice: Speech.Voice): string {
-  // iOS names look like "Samantha" or "Zoe (Enhanced)"; Android like "en-us-x-sfg#male_1-local"
   let name = voice.name;
-  // Remove common Android prefixes
   if (name.startsWith('en-') && name.includes('#')) {
     name = name.split('#').pop() ?? name;
   }
   const quality =
     voice.quality === Speech.VoiceQuality.Enhanced ? ' (Enhanced)' : '';
-  // Avoid duplicating "(Enhanced)" if the name already contains it
   if (name.includes('Enhanced') || name.includes('Premium')) return name;
   return `${name}${quality}`;
 }
@@ -64,6 +60,7 @@ export default function SettingsScreen() {
   const [importing, setImporting] = useState(false);
   const [voices, setVoices] = useState<Speech.Voice[]>([]);
   const [voicesLoading, setVoicesLoading] = useState(false);
+  const [voicePickerVisible, setVoicePickerVisible] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -168,93 +165,50 @@ export default function SettingsScreen() {
             </Text>
           ) : (
             <>
-              {/* Auto / default option */}
+              {/* Compact selector row — tap to open the voice picker sheet */}
               <TouchableOpacity
-                style={[
-                  styles.voiceRow,
-                  settings.voiceIdentifier === null && styles.voiceRowActive,
-                ]}
+                style={[styles.voiceSelector]}
                 onPress={() => {
                   hapticTap();
-                  setVoiceIdentifier(null);
-                  update({ voiceIdentifier: null });
+                  setVoicePickerVisible(true);
                 }}
                 activeOpacity={0.7}
               >
                 <View style={{ flex: 1 }}>
-                  <Text
-                    style={[
-                      styles.voiceName,
-                      settings.voiceIdentifier === null && styles.voiceNameActive,
-                    ]}
-                  >
-                    Auto (best available)
+                  <Text style={styles.voiceSelectorName}>
+                    {settings.voiceIdentifier === null
+                      ? 'Auto (best available)'
+                      : (() => {
+                          const v = voices.find(
+                            (v) => v.identifier === settings.voiceIdentifier,
+                          );
+                          return v ? formatVoiceName(v) : 'Selected voice';
+                        })()}
                   </Text>
-                  <Text style={styles.voiceSub}>
-                    Automatically picks the highest-quality voice on your device
+                  <Text style={styles.voiceSelectorSub}>
+                    {voices.length} voice{voices.length !== 1 ? 's' : ''} available · Tap to change
                   </Text>
                 </View>
+                <Text style={styles.voiceSelectorChevron}>›</Text>
               </TouchableOpacity>
 
-              {voices.map((voice) => (
-                <TouchableOpacity
-                  key={voice.identifier}
-                  style={[
-                    styles.voiceRow,
-                    settings.voiceIdentifier === voice.identifier &&
-                      styles.voiceRowActive,
-                  ]}
-                  onPress={() => {
-                    hapticTap();
-                    setVoiceIdentifier(voice.identifier);
-                    update({ voiceIdentifier: voice.identifier });
-                    // Preview the voice
+              {/* Voice picker bottom sheet */}
+              <VoicePickerSheet
+                visible={voicePickerVisible}
+                voices={voices}
+                selectedId={settings.voiceIdentifier}
+                onSelect={(id) => {
+                  setVoiceIdentifier(id);
+                  update({ voiceIdentifier: id });
+                }}
+                onPreview={(id) => {
+                  if (id !== null) {
+                    setVoiceIdentifier(id);
                     speak('Starting hard for 3 minutes.');
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={[
-                        styles.voiceName,
-                        settings.voiceIdentifier === voice.identifier &&
-                          styles.voiceNameActive,
-                      ]}
-                    >
-                      {formatVoiceName(voice)}
-                    </Text>
-                    <Text style={styles.voiceSub}>{voice.language}</Text>
-                  </View>
-                  {voice.quality === Speech.VoiceQuality.Enhanced && (
-                    <View style={styles.enhancedBadge}>
-                      <Text style={styles.enhancedBadgeText}>Enhanced</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))}
-
-              {/* Nudge if no enhanced voices are available */}
-              {!voices.some(
-                (v) => v.quality === Speech.VoiceQuality.Enhanced
-              ) && (
-                <TouchableOpacity
-                  style={styles.nudgeBanner}
-                  onPress={() => {
-                    if (Platform.OS === 'ios') {
-                      Linking.openURL('App-prefs:ACCESSIBILITY&path=SPEECH');
-                    } else {
-                      Linking.openSettings();
-                    }
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.nudgeText}>
-                    Want better-sounding voices? Download an Enhanced voice in
-                    your device's Accessibility settings.
-                  </Text>
-                  <Text style={styles.nudgeLink}>Open Settings →</Text>
-                </TouchableOpacity>
-              )}
+                  }
+                }}
+                onClose={() => setVoicePickerVisible(false)}
+              />
             </>
           )}
         </>
@@ -494,7 +448,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
   },
-  voiceRow: {
+  voiceSelector: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
@@ -502,55 +456,23 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     marginTop: Spacing.sm,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceLight,
+    borderColor: Colors.primary + '44',
   },
-  voiceRowActive: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '18',
-  },
-  voiceName: {
+  voiceSelectorName: {
     fontSize: FontSize.md,
     fontWeight: '600',
-    color: Colors.textPrimary,
-  },
-  voiceNameActive: {
     color: Colors.primary,
   },
-  voiceSub: {
+  voiceSelectorSub: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
     marginTop: 2,
   },
-  enhancedBadge: {
-    backgroundColor: Colors.primary + '22',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 3,
-    borderRadius: BorderRadius.sm,
+  voiceSelectorChevron: {
+    fontSize: 24,
+    fontWeight: '300',
+    color: Colors.textMuted,
     marginLeft: Spacing.sm,
-  },
-  enhancedBadgeText: {
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  nudgeBanner: {
-    backgroundColor: Colors.surface,
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-    marginTop: Spacing.md,
-    borderWidth: 1.5,
-    borderColor: Colors.accent + '44',
-  },
-  nudgeText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-  nudgeLink: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.accent,
-    marginTop: Spacing.xs,
   },
   footer: {
     marginTop: Spacing.xxl * 2,
