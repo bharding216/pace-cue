@@ -9,7 +9,7 @@ const APP_GROUP = `group.${BUNDLE_ID}`;
 export default ({ config }: ConfigContext): ExpoConfig => ({
   name: IS_DEV ? 'PaceCue Dev Build' : 'PaceCue',
   slug: 'pace-cue',
-  version: '1.3.0',
+  version: '1.4.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
