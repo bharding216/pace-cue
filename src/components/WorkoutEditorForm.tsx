@@ -394,43 +394,52 @@ function BlockList({
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity
-                style={[
-                  styles.typeChip,
-                  {
-                    backgroundColor: intervalColor(interval.type) + '22',
-                    borderColor: intervalColor(interval.type),
-                  },
-                ]}
-                onPress={() => {
-                  hapticTap();
-                  setPickerTarget({ blockIdx: bi, intIdx: ii });
-                }}
-              >
-                <Text
-                  style={[
-                    styles.typeText,
-                    { color: intervalColor(interval.type) },
-                  ]}
-                >
-                  {badgeLabel(interval)}
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.intervalContent}>
+                <View style={styles.intervalTopRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.typeChip,
+                      {
+                        backgroundColor: intervalColor(interval.type) + '22',
+                        borderColor: intervalColor(interval.type),
+                      },
+                    ]}
+                    onPress={() => {
+                      hapticTap();
+                      setPickerTarget({ blockIdx: bi, intIdx: ii });
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.typeText,
+                        { color: intervalColor(interval.type) },
+                      ]}
+                    >
+                      {badgeLabel(interval)}
+                    </Text>
+                  </TouchableOpacity>
 
-              <DurationPicker
-                seconds={interval.durationSeconds}
-                onChange={(s) =>
-                  updateInt(setter, bi, ii, { durationSeconds: s })
-                }
-                color={intervalColor(interval.type)}
-              />
+                  <DurationPicker
+                    seconds={interval.durationSeconds}
+                    onChange={(s) =>
+                      updateInt(setter, bi, ii, { durationSeconds: s })
+                    }
+                    color={intervalColor(interval.type)}
+                  />
 
-              <TouchableOpacity
-                onPress={() => removeInt(setter, bi, ii)}
-                style={styles.removeBtn}
-              >
-                <Ionicons name="close-outline" size={18} color={Colors.textMuted} />
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => removeInt(setter, bi, ii)}
+                    style={styles.removeBtn}
+                  >
+                    <Ionicons name="close-outline" size={18} color={Colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+
+                <EffortPicker
+                  effort={interval.effort}
+                  onChange={(e) => updateInt(setter, bi, ii, { effort: e })}
+                />
+              </View>
             </View>
           ))}
 
@@ -576,6 +585,154 @@ const pickerStyles = StyleSheet.create({
   optionText: {
     fontSize: FontSize.sm,
     fontWeight: '600',
+  },
+});
+
+// ── Effort picker sub-component ───────────────────────────────────────
+
+const EFFORT_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+
+function effortColor(effort: number): string {
+  if (effort <= 3) return Colors.accent;
+  if (effort <= 6) return '#F59E0B';
+  if (effort <= 8) return '#F97316';
+  return Colors.danger;
+}
+
+function EffortPicker({
+  effort,
+  onChange,
+}: {
+  effort?: number;
+  onChange: (e: number | undefined) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!expanded && effort == null) {
+    return (
+      <TouchableOpacity
+        style={effortStyles.addBtn}
+        onPress={() => {
+          hapticTap();
+          setExpanded(true);
+        }}
+        activeOpacity={0.7}
+      >
+        <Text style={effortStyles.addBtnText}>+ Effort</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <View style={effortStyles.container}>
+      <View style={effortStyles.row}>
+        <Text style={effortStyles.label}>Effort</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={effortStyles.chips}
+        >
+          {EFFORT_VALUES.map((val) => {
+            const isActive = effort === val;
+            const color = effortColor(val);
+            return (
+              <TouchableOpacity
+                key={val}
+                style={[
+                  effortStyles.chip,
+                  isActive && { borderColor: color, backgroundColor: color + '22' },
+                ]}
+                onPress={() => {
+                  hapticTap();
+                  onChange(isActive ? undefined : val);
+                  if (isActive) setExpanded(false);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    effortStyles.chipText,
+                    isActive && { color },
+                  ]}
+                >
+                  {val}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+        {effort != null && (
+          <TouchableOpacity
+            onPress={() => {
+              hapticTap();
+              onChange(undefined);
+              setExpanded(false);
+            }}
+            style={effortStyles.clearBtn}
+            hitSlop={8}
+          >
+            <Ionicons name="close-circle" size={16} color={Colors.textMuted} />
+          </TouchableOpacity>
+        )}
+      </View>
+      {effort != null && (
+        <Text style={[effortStyles.summary, { color: effortColor(effort) }]}>
+          {effort}/10 effort
+        </Text>
+      )}
+    </View>
+  );
+}
+
+const effortStyles = StyleSheet.create({
+  container: {
+    marginTop: 4,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  label: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  chips: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  chip: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+    backgroundColor: Colors.surfaceLight,
+  },
+  chipText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  clearBtn: {
+    marginLeft: 2,
+  },
+  addBtn: {
+    marginTop: 4,
+    paddingVertical: 4,
+  },
+  addBtnText: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  summary: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    marginTop: 2,
   },
 });
 
@@ -810,8 +967,16 @@ const styles = StyleSheet.create({
   },
   intervalRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  intervalContent: {
+    flex: 1,
+  },
+  intervalTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.sm,
   },
   reorderCol: {

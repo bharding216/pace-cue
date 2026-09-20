@@ -71,6 +71,7 @@ export interface WorkoutInterval {
   type: IntervalType;
   durationSeconds: number;
   label?: string; // optional user-facing label override
+  effort?: number; // optional perceived effort 1-10 (e.g. 7 = "7/10 effort")
 }
 
 export interface WorkoutRepeatBlock {
@@ -94,6 +95,7 @@ export interface FlatInterval {
   type: IntervalType;
   durationSeconds: number;
   label: string;
+  effort?: number; // 1-10 perceived effort rating
   index: number; // position in the flattened list
   // Block/set context for verbose voice cues and progress display
   blockName?: string; // user-assigned block name (e.g. "Sprint")
@@ -196,8 +198,10 @@ function flattenBlocks(
   for (const block of blocks) {
     const summary = block.intervals
       .map(
-        (i) =>
-          `${formatDurationForSpeech(i.durationSeconds)} ${i.label || defaultLabel(i.type)}`,
+        (i) => {
+          const base = `${formatDurationForSpeech(i.durationSeconds)} ${i.label || defaultLabel(i.type)}`;
+          return i.effort ? `${base} at ${i.effort} out of 10` : base;
+        },
       )
       .join(', ');
     for (let r = 0; r < block.repeatCount; r++) {
@@ -207,6 +211,7 @@ function flattenBlocks(
           type: interval.type,
           durationSeconds: interval.durationSeconds,
           label: interval.label || defaultLabel(interval.type),
+          effort: interval.effort,
           index: idx++,
           blockName: block.name,
           blockNumber: blockNum,

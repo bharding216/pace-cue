@@ -246,6 +246,7 @@ function announceInterval(
       }
       const parts: string[] = [];
       const duration = formatDurationForSpeech(ctx.currentDuration);
+      const effortSuffix = ctx.effort ? `, ${ctx.effort} out of 10 effort` : '';
 
       if (ctx.isFirstInBlock && ctx.totalSets && ctx.totalSets > 1) {
         const name = ctx.blockName || `interval ${ctx.blockNumber}`;
@@ -261,7 +262,7 @@ function announceInterval(
         );
       }
 
-      parts.push(`Starting ${currentLabel} for ${duration}`);
+      parts.push(`Starting ${currentLabel} for ${duration}${effortSuffix}`);
       speak(parts.join('. ') + '.');
       break;
     }
@@ -272,7 +273,8 @@ function announceInterval(
       }
       if (ctx?.nextLabel && ctx?.nextDuration) {
         const nextDur = formatDurationForSpeech(ctx.nextDuration);
-        parts.push(`Next up, ${ctx.nextLabel} for ${nextDur}`);
+        const nextEffort = ctx?.nextEffort ? `, ${ctx.nextEffort} out of 10` : '';
+        parts.push(`Next up, ${ctx.nextLabel} for ${nextDur}${nextEffort}`);
       } else if (!ctx?.nextLabel) {
         parts.push('almost done');
       } else if (currentLabel) {
@@ -330,6 +332,7 @@ export interface CueContext {
   previousLabel?: string;
   // Verbose cue fields
   currentDuration?: number; // seconds
+  effort?: number; // 1-10 perceived effort rating
   blockName?: string;
   blockNumber?: number;
   setNumber?: number;
@@ -340,6 +343,7 @@ export interface CueContext {
   blockIntervalCount?: number;
   nextLabel?: string;
   nextDuration?: number;
+  nextEffort?: number; // effort for the next interval
   warningSeconds?: number;
 }
 

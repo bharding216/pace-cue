@@ -68,6 +68,7 @@ function buildVerboseCueContext(
   return {
     currentLabel: ci.label,
     currentDuration: ci.durationSeconds,
+    effort: ci.effort,
     blockName: ci.blockName,
     blockNumber: ci.blockNumber,
     setNumber: ci.setNumber,
@@ -78,6 +79,7 @@ function buildVerboseCueContext(
     blockIntervalCount: ci.blockIntervalCount,
     nextLabel: ni?.label,
     nextDuration: ni?.durationSeconds,
+    nextEffort: ni?.effort,
     warningSeconds:
       cueType === 'warning' ? remainingSeconds(state) : undefined,
   };
