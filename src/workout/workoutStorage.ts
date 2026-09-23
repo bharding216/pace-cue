@@ -74,7 +74,7 @@ export async function saveWorkout(
   if (idx >= 0) {
     existing[idx] = workout;
   } else {
-    existing.push(workout);
+    existing.unshift(workout);
   }
   await saveWorkouts(existing);
 }

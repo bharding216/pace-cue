@@ -52,6 +52,7 @@ export const INTERVAL_LABEL_OPTIONS: Record<IntervalType, readonly string[]> = {
     'Recovery',
     'Easy Run',
     'Rest',
+    'Reset',
     'Float',
   ],
   warmup: [
@@ -59,6 +60,9 @@ export const INTERVAL_LABEL_OPTIONS: Record<IntervalType, readonly string[]> = {
     'Easy Jog',
     'Walk',
     'Stride',
+    'Drills',
+    'Rest',
+    'Reset',
   ],
   cooldown: [
     'Cool Down',
