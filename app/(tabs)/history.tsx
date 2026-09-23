@@ -33,18 +33,23 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-function DeleteAction(
-  _prog: SharedValue<number>,
-  drag: SharedValue<number>,
-) {
+function DeleteAction({
+  drag,
+  onPress,
+}: {
+  drag: SharedValue<number>;
+  onPress: () => void;
+}) {
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: drag.value + 80 }],
   }));
 
   return (
-    <Reanimated.View style={[styles.deleteAction, animStyle]}>
-      <Ionicons name="trash-outline" size={24} color={Colors.white} />
-    </Reanimated.View>
+    <TouchableOpacity activeOpacity={0.7} onPress={onPress}>
+      <Reanimated.View style={[styles.deleteAction, animStyle]}>
+        <Ionicons name="trash-outline" size={24} color={Colors.white} />
+      </Reanimated.View>
+    </TouchableOpacity>
   );
 }
 
@@ -227,10 +232,9 @@ export default function HistoryScreen() {
               }}
               friction={2}
               rightThreshold={40}
-              renderRightActions={(prog, drag) => DeleteAction(prog, drag)}
-              onSwipeableOpen={(direction) => {
-                if (direction === 'right') handleDelete(item);
-              }}
+              renderRightActions={(_prog, drag) => (
+                <DeleteAction drag={drag} onPress={() => handleDelete(item)} />
+              )}
               overshootRight={false}
               containerStyle={styles.swipeableContainer}
             >

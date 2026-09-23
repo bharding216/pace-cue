@@ -14,7 +14,7 @@ interface SettingsCard {
   icon: React.ComponentProps<typeof Ionicons>['name'];
   title: string;
   description: string;
-  route: './audio' | './general' | './data' | './about';
+  route: '/(tabs)/settings/audio' | '/(tabs)/settings/general' | '/(tabs)/settings/data' | '/(tabs)/settings/about';
 }
 
 const CARDS: SettingsCard[] = [
@@ -22,25 +22,25 @@ const CARDS: SettingsCard[] = [
     icon: 'volume-high-outline',
     title: 'Audio & Cues',
     description: 'Cue mode, voice, countdown warning, progress updates',
-    route: './audio',
+    route: '/(tabs)/settings/audio',
   },
   {
     icon: 'options-outline',
     title: 'General',
     description: 'Haptic feedback, screen behavior',
-    route: './general',
+    route: '/(tabs)/settings/general',
   },
   {
     icon: 'cloud-outline',
     title: 'Backup & Restore',
     description: 'Export or import your workouts and history',
-    route: './data',
+    route: '/(tabs)/settings/data',
   },
   {
     icon: 'chatbubble-ellipses-outline',
     title: 'About & Feedback',
     description: 'Rate, share, send feedback',
-    route: './about',
+    route: '/(tabs)/settings/about',
   },
 ];
 
