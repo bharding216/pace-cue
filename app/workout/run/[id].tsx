@@ -22,6 +22,7 @@ import { loadWorkouts, loadSettings } from '../../../src/workout/workoutStorage'
 import { useWorkoutRunner } from '../../../src/hooks/useWorkoutRunner';
 import { Timer } from '../../../src/components/Timer';
 import { IntervalProgress } from '../../../src/components/IntervalProgress';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   Colors,
   Spacing,
@@ -143,14 +144,20 @@ function ActiveWorkoutInner({
           }}
           activeOpacity={0.8}
         >
-          <Text style={styles.bigStartText}>▶  START RUN</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Ionicons name="play" size={22} color={Colors.black} />
+            <Text style={styles.bigStartText}>START RUN</Text>
+          </View>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.backBtn}
           onPress={() => router.back()}
         >
-          <Text style={styles.backBtnText}>← Back</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Ionicons name="arrow-back" size={16} color={Colors.textMuted} />
+            <Text style={styles.backBtnText}>Back</Text>
+          </View>
         </TouchableOpacity>
       </View>
     );
@@ -160,7 +167,7 @@ function ActiveWorkoutInner({
   if (state.phase === 'finished') {
     return (
       <View style={[styles.container, styles.centered]}>
-        <Text style={styles.doneIcon}>🎉</Text>
+        <Ionicons name="trophy" size={64} color={Colors.primary} style={styles.doneIcon} />
         <Text style={styles.doneTitle}>Workout Complete!</Text>
         <Text style={styles.doneWorkoutName}>{workout.name}</Text>
         <Text style={styles.doneDuration}>
@@ -226,7 +233,7 @@ function ActiveWorkoutInner({
             handleStop();
           }}
         >
-          <Text style={styles.controlBtnText}>■</Text>
+          <Ionicons name="stop" size={22} color={Colors.textPrimary} />
         </TouchableOpacity>
 
         {/* Play / Pause */}
@@ -238,7 +245,7 @@ function ActiveWorkoutInner({
               runner.pause();
             }}
           >
-            <Text style={styles.mainBtnText}>❚❚</Text>
+            <Ionicons name="pause" size={32} color={Colors.textPrimary} />
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -248,7 +255,7 @@ function ActiveWorkoutInner({
               runner.resume();
             }}
           >
-            <Text style={[styles.mainBtnText, { color: Colors.black }]}>▶</Text>
+            <Ionicons name="play" size={32} color={Colors.black} />
           </TouchableOpacity>
         )}
 
@@ -260,7 +267,7 @@ function ActiveWorkoutInner({
             runner.skip();
           }}
         >
-          <Text style={styles.controlBtnText}>⏭</Text>
+          <Ionicons name="play-skip-forward" size={22} color={Colors.textPrimary} />
         </TouchableOpacity>
       </View>
     </View>
@@ -304,9 +311,9 @@ function WorkoutTimeline({
         >
           {/* Status indicator */}
           {isCompleted ? (
-            <Text style={tlStyles.checkIcon}>✓</Text>
+            <Ionicons name="checkmark" size={14} color={Colors.primary} style={tlStyles.statusIcon} />
           ) : isCurrent ? (
-            <Text style={tlStyles.playIcon}>▶</Text>
+            <Ionicons name="play" size={12} color={Colors.primary} style={tlStyles.statusIcon} />
           ) : (
             <View
               style={[
@@ -404,15 +411,7 @@ const tlStyles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
-  checkIcon: {
-    fontSize: 12,
-    color: Colors.primary,
-    width: 14,
-    textAlign: 'center',
-  },
-  playIcon: {
-    fontSize: 10,
-    color: Colors.primary,
+  statusIcon: {
     width: 14,
     textAlign: 'center',
   },
@@ -593,7 +592,6 @@ const styles = StyleSheet.create({
 
   // ── Finished ──
   doneIcon: {
-    fontSize: 64,
     marginBottom: Spacing.lg,
   },
   doneTitle: {

@@ -22,6 +22,7 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Speech from 'expo-speech';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import { hapticTap } from '../audio/haptics';
@@ -149,7 +150,7 @@ export default function VoicePickerSheet({
               </Text>
             </View>
           )}
-          {active && <Text style={styles.checkmark}>✓</Text>}
+          {active && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} style={styles.checkmark} />}
         </TouchableOpacity>
       );
     },
@@ -178,7 +179,7 @@ export default function VoicePickerSheet({
             Uses your device's default voice
           </Text>
         </View>
-        {selectedId === null && <Text style={styles.checkmark}>✓</Text>}
+        {selectedId === null && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} style={styles.checkmark} />}
       </TouchableOpacity>
     ),
     [selectedId, handleSelect],
@@ -234,7 +235,12 @@ export default function VoicePickerSheet({
                     enhancedOnly && styles.filterChipTextActive,
                   ]}
                 >
-                  ✨ Enhanced
+                  <Ionicons
+                    name="sparkles"
+                    size={14}
+                    color={enhancedOnly ? Colors.primary : Colors.textSecondary}
+                  />{' '}
+                  Enhanced
                 </Text>
               </TouchableOpacity>
             </View>
@@ -391,9 +397,6 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
   checkmark: {
-    fontSize: FontSize.lg,
-    fontWeight: '700',
-    color: Colors.primary,
     marginLeft: Spacing.sm,
   },
   emptyText: {

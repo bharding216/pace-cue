@@ -105,6 +105,13 @@ export async function saveCompletedWorkout(
   );
 }
 
+export async function deleteHistoryEntry(id: string): Promise<CompletedWorkout[]> {
+  const history = await loadHistory();
+  const updated = history.filter((h) => h.id !== id);
+  await AsyncStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(updated));
+  return updated;
+}
+
 export async function clearHistory(): Promise<void> {
   await AsyncStorage.removeItem(STORAGE_KEYS.HISTORY);
 }

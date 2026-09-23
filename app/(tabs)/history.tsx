@@ -2,7 +2,7 @@
  * History screen — shows completed workouts.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -15,14 +15,37 @@ import {
   Platform,
   UIManager,
 } from 'react-native';
+import ReanimatedSwipeable, {
+  type SwipeableMethods,
+} from 'react-native-gesture-handler/ReanimatedSwipeable';
+import Reanimated, {
+  SharedValue,
+  useAnimatedStyle,
+} from 'react-native-reanimated';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { CompletedWorkout, formatTime } from '../../src/workout/workoutTypes';
-import { loadHistory, clearHistory } from '../../src/workout/workoutStorage';
+import { loadHistory, clearHistory, deleteHistoryEntry } from '../../src/workout/workoutStorage';
 import { exportData, importData } from '../../src/workout/backupManager';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+function DeleteAction(
+  _prog: SharedValue<number>,
+  drag: SharedValue<number>,
+) {
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: drag.value + 80 }],
+  }));
+
+  return (
+    <Reanimated.View style={[styles.deleteAction, animStyle]}>
+      <Ionicons name="trash-outline" size={24} color={Colors.white} />
+    </Reanimated.View>
+  );
 }
 
 export default function HistoryScreen() {
@@ -31,6 +54,7 @@ export default function HistoryScreen() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const swipeableRefs = useRef<Map<string, SwipeableMethods>>(new Map());
 
   useFocusEffect(
     useCallback(() => {
@@ -85,6 +109,30 @@ export default function HistoryScreen() {
     }
   };
 
+  const handleDelete = (item: CompletedWorkout) => {
+    Alert.alert(
+      'Delete Workout',
+      `Remove "${item.workoutName}" from your history?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => swipeableRefs.current.get(item.id)?.close(),
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            const updated = await deleteHistoryEntry(item.id);
+            setHistory(updated);
+          },
+        },
+      ],
+      { cancelable: true, onDismiss: () => swipeableRefs.current.get(item.id)?.close() },
+    );
+  };
+
   const toggleExpand = (id: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpandedId((prev) => (prev === id ? null : id));
@@ -121,35 +169,40 @@ export default function HistoryScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <View>
-            {/* Import / Export row */}
-            <View style={styles.backupRow}>
-              <TouchableOpacity
-                style={styles.backupBtn}
-                onPress={handleExport}
-                disabled={exporting}
-                activeOpacity={0.7}
-              >
-                {exporting ? (
-                  <ActivityIndicator color={Colors.primary} size="small" />
-                ) : (
-                  <Text style={styles.backupBtnIcon}>📤</Text>
-                )}
-                <Text style={styles.backupBtnLabel}>Export</Text>
-              </TouchableOpacity>
+            {/* Backup / Restore row */}
+            <View style={styles.backupSection}>
+              <Text style={styles.backupHint}>
+                Save a backup before deleting the app so you don't lose your data.
+              </Text>
+              <View style={styles.backupRow}>
+                <TouchableOpacity
+                  style={styles.backupBtn}
+                  onPress={handleExport}
+                  disabled={exporting}
+                  activeOpacity={0.7}
+                >
+                  {exporting ? (
+                    <ActivityIndicator color={Colors.primary} size="small" />
+                  ) : (
+                    <Ionicons name="cloud-upload-outline" size={18} color={Colors.textPrimary} />
+                  )}
+                  <Text style={styles.backupBtnLabel}>Back Up Data</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.backupBtn}
-                onPress={handleImport}
-                disabled={importing}
-                activeOpacity={0.7}
-              >
-                {importing ? (
-                  <ActivityIndicator color={Colors.accent} size="small" />
-                ) : (
-                  <Text style={styles.backupBtnIcon}>📥</Text>
-                )}
-                <Text style={styles.backupBtnLabel}>Import</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.backupBtn}
+                  onPress={handleImport}
+                  disabled={importing}
+                  activeOpacity={0.7}
+                >
+                  {importing ? (
+                    <ActivityIndicator color={Colors.accent} size="small" />
+                  ) : (
+                    <Ionicons name="cloud-download-outline" size={18} color={Colors.textPrimary} />
+                  )}
+                  <Text style={styles.backupBtnLabel}>Restore Backup</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             {history.length > 0 ? (
@@ -167,52 +220,67 @@ export default function HistoryScreen() {
         renderItem={({ item }) => {
           const isExpanded = expandedId === item.id;
           return (
-            <TouchableOpacity
-              style={[styles.card, isExpanded && styles.cardExpanded]}
-              onPress={() => toggleExpand(item.id)}
-              activeOpacity={0.7}
+            <ReanimatedSwipeable
+              ref={(ref) => {
+                if (ref) swipeableRefs.current.set(item.id, ref);
+                else swipeableRefs.current.delete(item.id);
+              }}
+              friction={2}
+              rightThreshold={40}
+              renderRightActions={(prog, drag) => DeleteAction(prog, drag)}
+              onSwipeableOpen={(direction) => {
+                if (direction === 'right') handleDelete(item);
+              }}
+              overshootRight={false}
+              containerStyle={styles.swipeableContainer}
             >
-              <View style={styles.cardRow}>
-                <Text style={styles.workoutName}>{item.workoutName}</Text>
-                <Text style={styles.date}>{formatDate(item.completedAt)}</Text>
-              </View>
-              <Text style={styles.durationText}>
-                {formatDuration(item.totalDurationMs)}
-              </Text>
-
-              {isExpanded && (
-                <View style={styles.expandedSection}>
-                  <Text style={styles.timeOfDay}>
-                    Completed at {formatTimeOfDay(item.completedAt)}
-                  </Text>
-
-                  <View style={styles.expandedActions}>
-                    <TouchableOpacity
-                      style={styles.actionBtn}
-                      onPress={() => router.push(`/workout/run/${item.workoutId}`)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.actionBtnIcon}>▶</Text>
-                      <Text style={styles.actionBtnLabel}>Run Again</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.actionBtn, styles.actionBtnSecondary]}
-                      onPress={() => router.push(`/workout/${item.workoutId}`)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.actionBtnIconSecondary}>✎</Text>
-                      <Text style={styles.actionBtnLabelSecondary}>Edit Workout</Text>
-                    </TouchableOpacity>
-                  </View>
+              <TouchableOpacity
+                style={[styles.card, isExpanded && styles.cardExpanded]}
+                onPress={() => toggleExpand(item.id)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.cardRow}>
+                  <Text style={styles.workoutName}>{item.workoutName}</Text>
+                  <Text style={styles.date}>{formatDate(item.completedAt)}</Text>
                 </View>
-              )}
-            </TouchableOpacity>
+                <Text style={styles.durationText}>
+                  {formatDuration(item.totalDurationMs)}
+                </Text>
+
+                {isExpanded && (
+                  <View style={styles.expandedSection}>
+                    <Text style={styles.timeOfDay}>
+                      Completed at {formatTimeOfDay(item.completedAt)}
+                    </Text>
+
+                    <View style={styles.expandedActions}>
+                      <TouchableOpacity
+                        style={styles.actionBtn}
+                        onPress={() => router.push(`/workout/run/${item.workoutId}`)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="play" size={14} color={Colors.black} />
+                        <Text style={styles.actionBtnLabel}>Run Again</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.actionBtn, styles.actionBtnSecondary]}
+                        onPress={() => router.push(`/workout/${item.workoutId}`)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="create-outline" size={14} color={Colors.textPrimary} />
+                        <Text style={styles.actionBtnLabelSecondary}>Edit Workout</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </ReanimatedSwipeable>
           );
         }}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>📊</Text>
+            <Ionicons name="bar-chart-outline" size={48} color={Colors.textMuted} />
             <Text style={styles.emptyTitle}>No history yet</Text>
             <Text style={styles.emptyText}>
               Complete a workout and it'll show up here.
@@ -232,10 +300,18 @@ const styles = StyleSheet.create({
   list: {
     padding: Spacing.md,
   },
+  backupSection: {
+    marginBottom: Spacing.md,
+  },
+  backupHint: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
+  },
   backupRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
-    marginBottom: Spacing.md,
   },
   backupBtn: {
     flex: 1,
@@ -248,9 +324,6 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     borderWidth: 1.5,
     borderColor: Colors.surfaceLight,
-  },
-  backupBtnIcon: {
-    fontSize: 18,
   },
   backupBtnLabel: {
     fontSize: FontSize.sm,
@@ -272,11 +345,21 @@ const styles = StyleSheet.create({
     color: Colors.danger,
     fontWeight: '600',
   },
+  swipeableContainer: {
+    marginBottom: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    overflow: 'hidden',
+  },
+  deleteAction: {
+    width: 80,
+    backgroundColor: Colors.danger,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   card: {
     backgroundColor: Colors.card,
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
-    marginBottom: Spacing.sm,
   },
   cardExpanded: {
     borderWidth: 1,
@@ -328,10 +411,6 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     gap: Spacing.xs,
   },
-  actionBtnIcon: {
-    fontSize: 14,
-    color: Colors.black,
-  },
   actionBtnLabel: {
     fontSize: FontSize.sm,
     fontWeight: '700',
@@ -339,10 +418,6 @@ const styles = StyleSheet.create({
   },
   actionBtnSecondary: {
     backgroundColor: Colors.surfaceLight,
-  },
-  actionBtnIconSecondary: {
-    fontSize: 14,
-    color: Colors.textPrimary,
   },
   actionBtnLabelSecondary: {
     fontSize: FontSize.sm,
@@ -352,10 +427,6 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: 'center',
     marginTop: Spacing.xxl * 2,
-  },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: Spacing.md,
   },
   emptyTitle: {
     fontSize: FontSize.xl,
