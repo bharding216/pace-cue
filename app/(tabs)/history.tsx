@@ -18,10 +18,6 @@ import {
 import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
-import Reanimated, {
-  SharedValue,
-  useAnimatedStyle,
-} from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { CompletedWorkout, formatTime } from '../../src/workout/workoutTypes';
@@ -33,22 +29,14 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-function DeleteAction({
-  drag,
-  onPress,
-}: {
-  drag: SharedValue<number>;
-  onPress: () => void;
-}) {
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: drag.value + 80 }],
-  }));
-
+function DeleteAction({ onPress }: { onPress: () => void }) {
   return (
-    <TouchableOpacity activeOpacity={0.7} onPress={onPress} style={styles.deleteActionOuter}>
-      <Reanimated.View style={[styles.deleteAction, animStyle]}>
-        <Ionicons name="trash-outline" size={24} color={Colors.white} />
-      </Reanimated.View>
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={onPress}
+      style={styles.deleteAction}
+    >
+      <Ionicons name="trash-outline" size={24} color={Colors.white} />
     </TouchableOpacity>
   );
 }
@@ -232,8 +220,8 @@ export default function HistoryScreen() {
               }}
               friction={2}
               rightThreshold={40}
-              renderRightActions={(_prog, drag) => (
-                <DeleteAction drag={drag} onPress={() => handleDelete(item)} />
+              renderRightActions={() => (
+                <DeleteAction onPress={() => handleDelete(item)} />
               )}
               overshootRight={false}
               containerStyle={styles.swipeableContainer}
@@ -354,15 +342,11 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     overflow: 'hidden',
   },
-  deleteActionOuter: {
-    flex: 1,
-  },
   deleteAction: {
-    flex: 1,
     width: 80,
-    backgroundColor: Colors.danger,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: Colors.danger,
   },
   card: {
     backgroundColor: Colors.card,

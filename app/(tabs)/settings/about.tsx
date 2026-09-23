@@ -97,9 +97,6 @@ export default function AboutSettingsScreen() {
         <Text style={styles.footerText}>
           PaceCue v{Constants.expoConfig?.version ?? '?'}
         </Text>
-        <Text style={styles.footerText}>
-          Built with ❤️ for runners who don't want subscriptions
-        </Text>
       </View>
     </ScrollView>
   );

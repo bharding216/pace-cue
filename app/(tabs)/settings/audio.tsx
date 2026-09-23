@@ -152,7 +152,7 @@ export default function AudioSettingsScreen() {
               update({ duckOtherAudio: v });
             }}
             trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
-            thumbColor={settings.duckOtherAudio ? Colors.primary : Colors.textMuted}
+            thumbColor={Colors.white}
           />
         </View>
       )}

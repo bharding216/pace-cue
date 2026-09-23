@@ -72,6 +72,9 @@ export default function SettingsHubScreen() {
         <Text style={styles.footerText}>
           PaceCue v{Constants.expoConfig?.version ?? '?'}
         </Text>
+        <Text style={styles.footerText}>
+          Built with ❤️ for runners who don't want subscriptions
+        </Text>
       </View>
     </ScrollView>
   );
@@ -113,6 +116,7 @@ const styles = StyleSheet.create({
   footer: {
     marginTop: Spacing.xxl,
     alignItems: 'center',
+    gap: Spacing.xs,
   },
   footerText: {
     fontSize: FontSize.sm,

@@ -38,7 +38,7 @@ export default function GeneralSettingsScreen() {
             update({ hapticEnabled: v });
           }}
           trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
-          thumbColor={settings.hapticEnabled ? Colors.primary : Colors.textMuted}
+          thumbColor={Colors.white}
         />
       </View>
 
@@ -50,7 +50,7 @@ export default function GeneralSettingsScreen() {
           value={settings.keepScreenOn}
           onValueChange={(v) => update({ keepScreenOn: v })}
           trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
-          thumbColor={settings.keepScreenOn ? Colors.primary : Colors.textMuted}
+          thumbColor={Colors.white}
         />
       </View>
     </ScrollView>

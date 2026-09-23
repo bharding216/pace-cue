@@ -156,11 +156,11 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  audioCueMode: 'beeps',
+  audioCueMode: 'both',
   hapticEnabled: true,
   countdownWarningSeconds: 10,
   keepScreenOn: true,
-  timeRemainingInterval: 0,
+  timeRemainingInterval: 60,
   voiceIdentifier: null,
   duckOtherAudio: false,
 };
