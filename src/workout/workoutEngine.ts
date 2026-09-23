@@ -71,7 +71,7 @@ export function resumeWorkout(state: EngineState): EngineState {
   };
 }
 
-/** Skip to the next interval. Returns updated state. */
+/** Skip to the next interval (user-initiated). Anchors timing to Date.now(). */
 export function skipInterval(state: EngineState): EngineState {
   const nextIndex = state.currentIndex + 1;
   if (nextIndex >= state.intervals.length) {
@@ -88,9 +88,25 @@ export function skipInterval(state: EngineState): EngineState {
   };
 }
 
-/** Called when the current interval's time has expired. Advances to next or finishes. */
+/**
+ * Called when the current interval's time has expired. Chains the next
+ * interval's end time from the previous `intervalEndsAt` instead of
+ * Date.now() so the workout doesn't drift when the JS tick fires late
+ * (e.g. while the app is backgrounded).
+ */
 export function advanceInterval(state: EngineState): EngineState {
-  return skipInterval(state);
+  const nextIndex = state.currentIndex + 1;
+  if (nextIndex >= state.intervals.length) {
+    return finishWorkout(state);
+  }
+  const next = state.intervals[nextIndex];
+  return {
+    ...state,
+    phase: 'running',
+    currentIndex: nextIndex,
+    intervalEndsAt: state.intervalEndsAt + next.durationSeconds * 1000,
+    pausedRemaining: 0,
+  };
 }
 
 /** Mark the workout as finished. */

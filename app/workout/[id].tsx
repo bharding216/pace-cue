@@ -6,7 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { WorkoutDefinition } from '../../src/workout/workoutTypes';
+import { WorkoutDefinition, generateId } from '../../src/workout/workoutTypes';
 import { loadWorkouts, saveWorkout } from '../../src/workout/workoutStorage';
 import { WorkoutEditorForm } from '../../src/components/WorkoutEditorForm';
 import { Colors } from '../../src/constants/theme';
@@ -36,6 +36,17 @@ export default function EditWorkoutScreen() {
       initial={workout}
       onSave={async (updated) => {
         await saveWorkout({ ...updated, updatedAt: Date.now() });
+        router.back();
+      }}
+      onSaveAsNew={async (updated) => {
+        const now = Date.now();
+        await saveWorkout({
+          ...updated,
+          id: generateId(),
+          name: updated.name.replace(/\s*\(copy\)$/i, '') + ' (Copy)',
+          createdAt: now,
+          updatedAt: now,
+        });
         router.back();
       }}
       onCancel={() => router.back()}

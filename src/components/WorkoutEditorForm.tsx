@@ -36,10 +36,11 @@ import { hapticTap } from '../audio/haptics';
 interface Props {
   initial: WorkoutDefinition;
   onSave: (workout: WorkoutDefinition) => void;
+  onSaveAsNew?: (workout: WorkoutDefinition) => void;
   onCancel: () => void;
 }
 
-export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
+export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel }: Props) {
   const [name, setName] = useState(initial.name);
   const [warmup, setWarmup] = useState(initial.warmup);
   const [blocks, setBlocks] = useState(initial.blocks);
@@ -59,6 +60,14 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
       return;
     }
     onSave(current);
+  };
+
+  const handleSaveAsNew = () => {
+    if (!name.trim()) {
+      Alert.alert('Name Required', 'Give your workout a name.');
+      return;
+    }
+    onSaveAsNew?.(current);
   };
 
   // ── Generic block helpers (reused for warmup, main, cooldown) ──────
@@ -230,8 +239,19 @@ export function WorkoutEditorForm({ initial, onSave, onCancel }: Props) {
           onPress={handleSave}
           activeOpacity={0.8}
         >
-          <Text style={styles.saveBtnText}>Save Workout</Text>
+          <Text style={styles.saveBtnText}>
+            {onSaveAsNew ? 'Save' : 'Save Workout'}
+          </Text>
         </TouchableOpacity>
+        {onSaveAsNew && (
+          <TouchableOpacity
+            style={styles.saveAsNewBtn}
+            onPress={handleSaveAsNew}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.saveAsNewBtnText}>Save as New Workout</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           style={styles.cancelBtn}
           onPress={onCancel}
@@ -1045,6 +1065,19 @@ const styles = StyleSheet.create({
     color: Colors.black,
     fontSize: FontSize.lg,
     fontWeight: '800',
+  },
+  saveAsNewBtn: {
+    backgroundColor: Colors.surfaceLight,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: Colors.accent,
+  },
+  saveAsNewBtnText: {
+    color: Colors.accent,
+    fontSize: FontSize.lg,
+    fontWeight: '700',
   },
   cancelBtn: {
     paddingVertical: Spacing.md,

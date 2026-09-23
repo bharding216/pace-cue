@@ -9,7 +9,7 @@
  */
 
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import {
   EngineState,
   WorkoutDefinition,
@@ -160,12 +160,17 @@ export function useWorkoutRunner(
   );
 
   const tick = useCallback(() => {
-    const s = engineRef.current;
+    let s = engineRef.current;
 
     if (s.phase === 'running') {
-      // Check if current interval has expired
+      // Advance through ALL expired intervals in one pass.
+      // When the app is backgrounded the JS timer can be delayed by seconds
+      // (or longer), so multiple intervals may have elapsed.
       if (isIntervalExpired(s)) {
-        const next = advanceInterval(s);
+        let next = advanceInterval(s);
+        while (next.phase === 'running' && isIntervalExpired(next)) {
+          next = advanceInterval(next);
+        }
         engineRef.current = next;
         setEngine(next);
 
@@ -192,7 +197,7 @@ export function useWorkoutRunner(
             onWorkoutCompleted();
           }
         } else {
-          // New interval started — verbose voice cue
+          // New interval started — voice cue for the current interval only
           const cueCtx = buildVerboseCueContext(next, 'intervalStart');
           playCue('intervalStart', settingsRef.current.audioCueMode, cueCtx);
           if (settingsRef.current.hapticEnabled) hapticIntervalChange();
@@ -242,7 +247,7 @@ export function useWorkoutRunner(
           if (settingsRef.current.hapticEnabled) hapticCountdown();
         }
 
-        // Periodic Live Activity refresh to prevent stale 0:00 display
+        // Periodic Live Activity refresh
         const now = Date.now();
         if (now - lastLAUpdate.current >= 10000) {
           updateLiveActivity(buildLAProps(s, false));
@@ -268,6 +273,18 @@ export function useWorkoutRunner(
       }
     };
   }, [engine.phase, tick]);
+
+  // When the app returns to foreground, immediately run a tick so the
+  // Live Activity and UI catch up with any intervals that elapsed while
+  // the JS timer was throttled in the background.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && engineRef.current.phase === 'running') {
+        tick();
+      }
+    });
+    return () => sub.remove();
+  }, [tick]);
 
   // Ensure audio is configured and voice is set
   useEffect(() => {
@@ -381,6 +398,15 @@ export function useWorkoutRunner(
       saveCompletedWorkout(entry).catch((e) =>
         console.warn('Failed to save workout history:', e)
       );
+
+      // Still prompt for review if the user completed a good chunk of the
+      // workout (e.g. skipped the cooldown). 50% threshold avoids prompting
+      // on genuinely abandoned workouts.
+      const plannedMs =
+        next.intervals.reduce((s, i) => s + i.durationSeconds, 0) * 1000;
+      if (plannedMs > 0 && next.totalElapsedMs / plannedMs >= 0.5) {
+        onWorkoutCompleted();
+      }
     }
   }, [workout.id, workout.name]);
 

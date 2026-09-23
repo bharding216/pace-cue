@@ -11,15 +11,24 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { CompletedWorkout, formatTime } from '../../src/workout/workoutTypes';
 import { loadHistory, clearHistory } from '../../src/workout/workoutStorage';
 import { exportData, importData } from '../../src/workout/backupManager';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 export default function HistoryScreen() {
+  const router = useRouter();
   const [history, setHistory] = useState<CompletedWorkout[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -76,12 +85,25 @@ export default function HistoryScreen() {
     }
   };
 
+  const toggleExpand = (id: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedId((prev) => (prev === id ? null : id));
+  };
+
   const formatDate = (epoch: number) => {
     const d = new Date(epoch);
     return d.toLocaleDateString(undefined, {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
+    });
+  };
+
+  const formatTimeOfDay = (epoch: number) => {
+    const d = new Date(epoch);
+    return d.toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
     });
   };
 
@@ -142,17 +164,52 @@ export default function HistoryScreen() {
             ) : null}
           </View>
         }
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={styles.cardRow}>
-              <Text style={styles.workoutName}>{item.workoutName}</Text>
-              <Text style={styles.date}>{formatDate(item.completedAt)}</Text>
-            </View>
-            <Text style={styles.durationText}>
-              {formatDuration(item.totalDurationMs)}
-            </Text>
-          </View>
-        )}
+        renderItem={({ item }) => {
+          const isExpanded = expandedId === item.id;
+          return (
+            <TouchableOpacity
+              style={[styles.card, isExpanded && styles.cardExpanded]}
+              onPress={() => toggleExpand(item.id)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.cardRow}>
+                <Text style={styles.workoutName}>{item.workoutName}</Text>
+                <Text style={styles.date}>{formatDate(item.completedAt)}</Text>
+              </View>
+              <Text style={styles.durationText}>
+                {formatDuration(item.totalDurationMs)}
+              </Text>
+
+              {isExpanded && (
+                <View style={styles.expandedSection}>
+                  <Text style={styles.timeOfDay}>
+                    Completed at {formatTimeOfDay(item.completedAt)}
+                  </Text>
+
+                  <View style={styles.expandedActions}>
+                    <TouchableOpacity
+                      style={styles.actionBtn}
+                      onPress={() => router.push(`/workout/run/${item.workoutId}`)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.actionBtnIcon}>▶</Text>
+                      <Text style={styles.actionBtnLabel}>Run Again</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.actionBtnSecondary]}
+                      onPress={() => router.push(`/workout/${item.workoutId}`)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.actionBtnIconSecondary}>✎</Text>
+                      <Text style={styles.actionBtnLabelSecondary}>Edit Workout</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        }}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>📊</Text>
@@ -221,6 +278,10 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     marginBottom: Spacing.sm,
   },
+  cardExpanded: {
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
   cardRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -241,6 +302,52 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: Spacing.xs,
     fontVariant: ['tabular-nums'],
+  },
+  expandedSection: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceLight,
+  },
+  timeOfDay: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.md,
+  },
+  expandedActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+  },
+  actionBtnIcon: {
+    fontSize: 14,
+    color: Colors.black,
+  },
+  actionBtnLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.black,
+  },
+  actionBtnSecondary: {
+    backgroundColor: Colors.surfaceLight,
+  },
+  actionBtnIconSecondary: {
+    fontSize: 14,
+    color: Colors.textPrimary,
+  },
+  actionBtnLabelSecondary: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textPrimary,
   },
   emptyContainer: {
     alignItems: 'center',

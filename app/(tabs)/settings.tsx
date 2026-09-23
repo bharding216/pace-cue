@@ -14,9 +14,11 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
+  Share,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import * as Speech from 'expo-speech';
+import * as StoreReview from 'expo-store-review';
 import { AppSettings, AudioCueMode, TimeRemainingInterval, DEFAULT_SETTINGS } from '../../src/workout/workoutTypes';
 import { loadSettings, saveSettings } from '../../src/workout/workoutStorage';
 import Constants from 'expo-constants';
@@ -25,6 +27,9 @@ import { hapticTap } from '../../src/audio/haptics';
 import { exportData, importData } from '../../src/workout/backupManager';
 import { configureAudio, getAvailableVoices, setVoiceIdentifier, speak } from '../../src/audio/audioManager';
 import VoicePickerSheet from '../../src/components/VoicePickerSheet';
+
+const APP_STORE_URL = 'https://apps.apple.com/us/app/pacecue-interval-timer/id6809834816';
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.toddly.runningintervals';
 
 const AUDIO_MODES: { value: AudioCueMode; label: string; icon: string }[] = [
   { value: 'beeps', label: 'Beeps', icon: '🔔' },
@@ -117,6 +122,19 @@ export default function SettingsScreen() {
       Alert.alert('Import Failed', e.message ?? 'Could not read backup file.');
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleShare = async () => {
+    hapticTap();
+    const storeUrl = Platform.OS === 'android' ? PLAY_STORE_URL : APP_STORE_URL;
+    try {
+      await Share.share({
+        message: `Check out PaceCue — a free interval timer for runners with audio pacing cues. No subscriptions!\n\n${storeUrl}`,
+        url: Platform.OS === 'ios' ? storeUrl : undefined,
+      });
+    } catch (_) {
+      // User dismissed the share sheet — nothing to do
     }
   };
 
@@ -408,6 +426,55 @@ export default function SettingsScreen() {
           <Text style={styles.actionBtnIcon}>📥</Text>
         )}
         <Text style={styles.actionBtnLabel}>Import Backup</Text>
+      </TouchableOpacity>
+
+      {/* Feedback */}
+      <Text style={styles.sectionTitle}>Feedback</Text>
+      <Text style={styles.sectionSub}>
+        Have a feature request or found a bug? We'd love to hear from you.
+      </Text>
+
+      <TouchableOpacity
+        style={styles.actionBtn}
+        onPress={() => {
+          hapticTap();
+          const version = Constants.expoConfig?.version ?? '?';
+          const subject = encodeURIComponent(`PaceCue Feedback (v${version})`);
+          Linking.openURL(`mailto:brandon@getsurmount.com?subject=${subject}`);
+        }}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.actionBtnIcon}>💡</Text>
+        <Text style={styles.actionBtnLabel}>Send Feedback</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.actionBtn, { marginTop: Spacing.sm }]}
+        onPress={async () => {
+          hapticTap();
+          const available = await StoreReview.isAvailableAsync();
+          if (available) {
+            StoreReview.requestReview();
+          } else {
+            Alert.alert(
+              'Not Available',
+              'In-app reviews are only available on production builds from the App Store or Play Store.'
+            );
+          }
+        }}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.actionBtnIcon}>⭐</Text>
+        <Text style={styles.actionBtnLabel}>Rate PaceCue</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.actionBtn, { marginTop: Spacing.sm }]}
+        onPress={handleShare}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.actionBtnIcon}>🔗</Text>
+        <Text style={styles.actionBtnLabel}>Share PaceCue</Text>
       </TouchableOpacity>
 
       <View style={styles.footer}>
