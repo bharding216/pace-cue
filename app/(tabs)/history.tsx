@@ -45,7 +45,7 @@ function DeleteAction({
   }));
 
   return (
-    <TouchableOpacity activeOpacity={0.7} onPress={onPress}>
+    <TouchableOpacity activeOpacity={0.7} onPress={onPress} style={styles.deleteActionOuter}>
       <Reanimated.View style={[styles.deleteAction, animStyle]}>
         <Ionicons name="trash-outline" size={24} color={Colors.white} />
       </Reanimated.View>
@@ -354,7 +354,11 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     overflow: 'hidden',
   },
+  deleteActionOuter: {
+    flex: 1,
+  },
   deleteAction: {
+    flex: 1,
     width: 80,
     backgroundColor: Colors.danger,
     justifyContent: 'center',
