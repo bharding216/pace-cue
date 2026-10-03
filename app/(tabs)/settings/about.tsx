@@ -70,7 +70,25 @@ export default function AboutSettingsScreen() {
           hapticTap();
           const available = await StoreReview.isAvailableAsync();
           if (available) {
-            StoreReview.requestReview();
+            await StoreReview.requestReview();
+            // The native API silently no-ops if the user already reviewed or
+            // the OS rate-limits the prompt. Offer a direct store link so the
+            // tap never feels broken.
+            const storeUrl =
+              Platform.OS === 'android'
+                ? `${PLAY_STORE_URL}&showAllReviews=true`
+                : `${APP_STORE_URL}?action=write-review`;
+            Alert.alert(
+              'Thanks!',
+              "If the review prompt didn't appear, you can leave a review directly on the store.",
+              [
+                { text: 'Done', style: 'cancel' },
+                {
+                  text: 'Open Store Page',
+                  onPress: () => Linking.openURL(storeUrl),
+                },
+              ],
+            );
           } else {
             Alert.alert(
               'Not Available',

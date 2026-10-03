@@ -41,6 +41,7 @@ import {
   startBackgroundLoop,
   stopBackgroundLoop,
   setVoiceIdentifier,
+  setDuckingEnabled,
   type CueContext,
 } from '../audio/audioManager';
 import {
@@ -118,7 +119,7 @@ export function useWorkoutRunner(
   settingsRef.current = settings;
 
   // Track which warnings we've already fired to avoid duplicates
-  const firedWarning = useRef(false);
+  const firedWarnings = useRef(new Set<number>());
   const firedCountdowns = useRef(new Set<number>());
   const firedTimeAnnouncements = useRef(new Set<number>());
   const lastIndex = useRef(-1);
@@ -201,7 +202,7 @@ export function useWorkoutRunner(
           const cueCtx = buildVerboseCueContext(next, 'intervalStart');
           playCue('intervalStart', settingsRef.current.audioCueMode, cueCtx);
           if (settingsRef.current.hapticEnabled) hapticIntervalChange();
-          firedWarning.current = false;
+          firedWarnings.current.clear();
           firedCountdowns.current.clear();
           firedTimeAnnouncements.current.clear();
 
@@ -213,14 +214,15 @@ export function useWorkoutRunner(
         // Check for interval-progress announcements, warning, and countdown cues
         const secs = remainingSeconds(s);
         const ci = currentInterval(s);
-        const warnSecs = settingsRef.current.countdownWarningSeconds;
+        const warnSecsArr = settingsRef.current.countdownWarningSeconds;
+        const maxWarn = Math.max(...warnSecsArr);
         const announceEvery = settingsRef.current.timeRemainingInterval;
 
         // Announce elapsed time at regular intervals (voice only, no beep)
         if (
           announceEvery > 0 &&
           ci &&
-          secs > warnSecs
+          secs > maxWarn
         ) {
           const elapsed = ci.durationSeconds - secs;
           if (
@@ -233,9 +235,16 @@ export function useWorkoutRunner(
           }
         }
 
-        if (secs <= warnSecs && secs > 3 && !firedWarning.current) {
-          firedWarning.current = true;
+        // Fire warning cues at each selected countdown threshold
+        const newlyTriggered = warnSecsArr.filter(
+          (w) => secs <= w && secs > 3 && !firedWarnings.current.has(w),
+        );
+        if (newlyTriggered.length > 0) {
+          newlyTriggered.forEach((w) => firedWarnings.current.add(w));
+          // Announce the most relevant (closest to now) warning
+          const closest = Math.min(...newlyTriggered);
           const warnCtx = buildVerboseCueContext(s, 'warning');
+          warnCtx.warningSeconds = closest;
           playCue('warning', settingsRef.current.audioCueMode, warnCtx);
           if (settingsRef.current.hapticEnabled) hapticWarning();
         }
@@ -288,7 +297,8 @@ export function useWorkoutRunner(
 
   // Ensure audio is configured and voice is set
   useEffect(() => {
-    configureAudio(settings.duckOtherAudio);
+    configureAudio();
+    setDuckingEnabled(settings.duckOtherAudio);
     setVoiceIdentifier(settings.voiceIdentifier);
   }, [settings.voiceIdentifier, settings.duckOtherAudio]);
 
@@ -306,7 +316,7 @@ export function useWorkoutRunner(
     engineRef.current = next;
     setEngine(next);
     historySaved.current = false;
-    firedWarning.current = false;
+    firedWarnings.current.clear();
     firedCountdowns.current.clear();
     firedTimeAnnouncements.current.clear();
     lastIndex.current = 0;
@@ -345,7 +355,7 @@ export function useWorkoutRunner(
     engineRef.current = next;
     setEngine(next);
     if (next.phase !== 'finished') {
-      firedWarning.current = false;
+      firedWarnings.current.clear();
       firedCountdowns.current.clear();
       firedTimeAnnouncements.current.clear();
       const skipCueCtx = buildVerboseCueContext(next, 'intervalStart');

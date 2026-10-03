@@ -148,7 +148,7 @@ export type TimeRemainingInterval = 0 | 15 | 30 | 45 | 60 | 120;
 export interface AppSettings {
   audioCueMode: AudioCueMode;
   hapticEnabled: boolean;
-  countdownWarningSeconds: number; // seconds before interval end to play warning
+  countdownWarningSeconds: number[]; // seconds before interval end to play warning(s)
   keepScreenOn: boolean;
   timeRemainingInterval: TimeRemainingInterval; // 0 = off, seconds between elapsed-time announcements
   voiceIdentifier: string | null; // selected TTS voice identifier, null = system default
@@ -158,7 +158,7 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   audioCueMode: 'both',
   hapticEnabled: true,
-  countdownWarningSeconds: 10,
+  countdownWarningSeconds: [10],
   keepScreenOn: true,
   timeRemainingInterval: 60,
   voiceIdentifier: null,

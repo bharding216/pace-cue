@@ -121,7 +121,12 @@ export async function clearHistory(): Promise<void> {
 export async function loadSettings(): Promise<AppSettings> {
   const raw = await AsyncStorage.getItem(STORAGE_KEYS.SETTINGS);
   if (!raw) return DEFAULT_SETTINGS;
-  return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  // Migrate old single-number countdownWarningSeconds to array
+  if (typeof parsed.countdownWarningSeconds === 'number') {
+    parsed.countdownWarningSeconds = [parsed.countdownWarningSeconds];
+  }
+  return parsed;
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {

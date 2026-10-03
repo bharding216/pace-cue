@@ -15,6 +15,74 @@ import { AudioCueMode, formatDurationForSpeech } from '../workout/workoutTypes';
 
 let isAudioConfigured = false;
 
+// ── Per-cue ducking ──────────────────────────────────────────────────
+// Instead of keeping duckOthers active for the entire workout, we flip
+// into duckOthers mode right before a cue and flip back to mixWithOthers
+// once the cue finishes.  A debounced timer handles the "unduck" so that
+// rapid-fire cues (e.g. countdown 3-2-1 → interval start) stay ducked
+// without a gap.
+
+let duckingEnabled = false;
+let unduckTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Store whether the user wants other audio ducked during cues. */
+export function setDuckingEnabled(enabled: boolean): void {
+  duckingEnabled = enabled;
+  if (!enabled) {
+    if (unduckTimer) {
+      clearTimeout(unduckTimer);
+      unduckTimer = null;
+    }
+    // Immediately restore mix mode when the user disables the setting
+    setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: 'mixWithOthers',
+    }).catch(() => {});
+  }
+}
+
+/** Temporarily switch to duckOthers mode before playing a cue. */
+async function activateDucking(): Promise<void> {
+  if (!duckingEnabled) return;
+  // Cancel any pending unduck — a new cue is about to play
+  if (unduckTimer) {
+    clearTimeout(unduckTimer);
+    unduckTimer = null;
+  }
+  try {
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: 'duckOthers',
+    });
+  } catch (e) {
+    console.warn('Failed to activate ducking:', e);
+  }
+}
+
+/**
+ * Schedule a return to mixWithOthers after a cue finishes.
+ * The delay gives a brief buffer so back-to-back cues don't cause
+ * rapid duck/unduck flicker.
+ */
+function scheduleUnduck(delayMs = 500): void {
+  if (!duckingEnabled) return;
+  if (unduckTimer) clearTimeout(unduckTimer);
+  unduckTimer = setTimeout(async () => {
+    unduckTimer = null;
+    try {
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: true,
+        interruptionMode: 'mixWithOthers',
+      });
+    } catch (e) {
+      console.warn('Failed to deactivate ducking:', e);
+    }
+  }, delayMs);
+}
+
 // ── Voice selection ──────────────────────────────────────────────────
 
 /** Cached voice identifier for the current session. */
@@ -50,12 +118,12 @@ export async function getAvailableVoices(
 }
 
 /** Configure the audio session for background playback (call once at app start). */
-export async function configureAudio(duck = false): Promise<void> {
+export async function configureAudio(): Promise<void> {
   try {
     await setAudioModeAsync({
       playsInSilentMode: true,
       shouldPlayInBackground: true,
-      interruptionMode: duck ? 'duckOthers' : 'mixWithOthers',
+      interruptionMode: 'mixWithOthers',
     });
     isAudioConfigured = true;
   } catch (e) {
@@ -202,10 +270,17 @@ export async function playDoubleBeep(): Promise<void> {
 /** Speak a phrase using the device's text-to-speech engine. */
 export function speak(text: string): void {
   try {
+    // Activate ducking right before speaking — cancels any pending unduck
+    // so rapid-fire announcements stay ducked without gaps.
+    activateDucking();
+
     const opts: Speech.SpeechOptions = {
       language: 'en-US',
       rate: 1.05,
       pitch: 1.0,
+      onDone: () => scheduleUnduck(),
+      onStopped: () => scheduleUnduck(),
+      onError: (_error: Error) => scheduleUnduck(),
     };
     // Only override the OS default voice when the user has explicitly chosen one
     if (selectedVoiceId) {
@@ -219,6 +294,7 @@ export function speak(text: string): void {
     }, 50);
   } catch (e) {
     console.warn('Failed to speak:', e);
+    scheduleUnduck();
   }
 }
 
@@ -361,6 +437,9 @@ export async function playCue(
 ): Promise<void> {
   if (mode === 'silent') return;
 
+  // Activate ducking before any audio plays
+  await activateDucking();
+
   // Beeps
   if (mode === 'beeps' || mode === 'both') {
     if (cue === 'workoutComplete') {
@@ -371,7 +450,8 @@ export async function playCue(
   }
 
   // Voice
-  if (mode === 'voice' || mode === 'both') {
+  const willSpeak = mode === 'voice' || mode === 'both';
+  if (willSpeak) {
     // Small delay when in 'both' mode so the beep finishes before speech
     const delay = mode === 'both' ? 300 : 0;
     if (delay > 0) {
@@ -394,4 +474,19 @@ export async function playCue(
       );
     }
   }
+
+  // In beeps-only mode, still speak a brief time label for warnings so users
+  // can tell which countdown triggered (e.g. "30 seconds" vs "10 seconds").
+  if (mode === 'beeps' && cue === 'warning' && context?.warningSeconds) {
+    setTimeout(() => {
+      speak(`${context.warningSeconds} seconds`);
+    }, 300);
+  }
+
+  // Schedule a fallback unduck.  If announceInterval or the beeps-only
+  // warning above calls speak(), speak() will cancel this timer and
+  // schedule its own tighter unduck via onDone/onStopped/onError.
+  // The fallback covers pure-beep cues and edge-cases where no speech
+  // fires (e.g. countdown).
+  scheduleUnduck(willSpeak || (mode === 'beeps' && cue === 'warning') ? 2000 : 500);
 }

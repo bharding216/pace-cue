@@ -31,6 +31,7 @@ import {
   configureAudio,
   getAvailableVoices,
   setVoiceIdentifier,
+  setDuckingEnabled,
   speak,
 } from '../../../src/audio/audioManager';
 import VoicePickerSheet from '../../../src/components/VoicePickerSheet';
@@ -78,7 +79,8 @@ export default function AudioSettingsScreen() {
     useCallback(() => {
       loadSettings().then((s) => {
         setSettings(s);
-        configureAudio(s.duckOtherAudio);
+        configureAudio();
+        setDuckingEnabled(s.duckOtherAudio);
       });
       setVoicesLoading(true);
       getAvailableVoices('en').then((v) => {
@@ -93,7 +95,7 @@ export default function AudioSettingsScreen() {
     setSettings(next);
     await saveSettings(next);
     if ('duckOtherAudio' in partial) {
-      configureAudio(next.duckOtherAudio);
+      setDuckingEnabled(next.duckOtherAudio);
     }
   };
 
@@ -247,34 +249,48 @@ export default function AudioSettingsScreen() {
       )}
 
       {/* Countdown warning */}
-      <Text style={styles.sectionTitle}>Countdown Warning</Text>
+      <Text style={styles.sectionTitle}>Countdown Warnings</Text>
       <Text style={styles.sectionSub}>
-        Play a warning cue this many seconds before an interval ends
+        Play warning cues before an interval ends — tap to toggle each
       </Text>
       <View style={styles.row}>
-        {WARNING_OPTIONS.map((sec) => (
-          <TouchableOpacity
-            key={sec}
-            style={[
-              styles.chip,
-              settings.countdownWarningSeconds === sec && styles.chipActive,
-            ]}
-            onPress={() => {
-              hapticTap();
-              update({ countdownWarningSeconds: sec });
-            }}
-            activeOpacity={0.7}
-          >
-            <Text
+        {WARNING_OPTIONS.map((sec) => {
+          const isSelected = settings.countdownWarningSeconds.includes(sec);
+          return (
+            <TouchableOpacity
+              key={sec}
               style={[
-                styles.chipLabel,
-                settings.countdownWarningSeconds === sec && styles.chipLabelActive,
+                styles.chip,
+                isSelected && styles.chipActive,
               ]}
+              onPress={() => {
+                hapticTap();
+                let next: number[];
+                if (isSelected) {
+                  next = settings.countdownWarningSeconds.filter((s) => s !== sec);
+                } else {
+                  next = [...settings.countdownWarningSeconds, sec].sort((a, b) => a - b);
+                }
+                // Keep at least one selected
+                if (next.length === 0) return;
+                update({ countdownWarningSeconds: next });
+              }}
+              activeOpacity={0.7}
             >
-              {sec}s
-            </Text>
-          </TouchableOpacity>
-        ))}
+              {isSelected && (
+                <Ionicons name="checkmark" size={14} color={Colors.primary} />
+              )}
+              <Text
+                style={[
+                  styles.chipLabel,
+                  isSelected && styles.chipLabelActive,
+                ]}
+              >
+                {sec}s
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {/* Interval progress announcements */}
