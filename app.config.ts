@@ -8,7 +8,10 @@ const BUNDLE_ID = IS_DEV
   : IS_PREVIEW
     ? 'com.toddly.runningintervals.preview'
     : 'com.toddly.runningintervals';
-const APP_GROUP = `group.${BUNDLE_ID}`;
+// Preview reuses the production App Group (the preview-specific one can't be created in Apple)
+const APP_GROUP = IS_DEV
+  ? 'group.com.toddly.runningintervals.dev'
+  : 'group.com.toddly.runningintervals';
 
 const APP_NAME = IS_DEV
   ? 'PaceCue Dev Build'
