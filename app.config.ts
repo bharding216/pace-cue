@@ -1,19 +1,29 @@
 import type { ExpoConfig, ConfigContext } from 'expo/config';
 
-const IS_DEV = process.env.APP_VARIANT === 'development';
+const VARIANT = process.env.APP_VARIANT; // 'development' | 'preview' | undefined (production)
+const IS_DEV = VARIANT === 'development';
+const IS_PREVIEW = VARIANT === 'preview';
 const BUNDLE_ID = IS_DEV
   ? 'com.toddly.runningintervals.dev'
-  : 'com.toddly.runningintervals';
+  : IS_PREVIEW
+    ? 'com.toddly.runningintervals.preview'
+    : 'com.toddly.runningintervals';
 const APP_GROUP = `group.${BUNDLE_ID}`;
 
+const APP_NAME = IS_DEV
+  ? 'PaceCue Dev Build'
+  : IS_PREVIEW
+    ? 'PaceCue Preview Build'
+    : 'PaceCue';
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
-  name: IS_DEV ? 'PaceCue Dev Build' : 'PaceCue',
+  name: APP_NAME,
   slug: 'pace-cue',
   version: '1.5.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
-  scheme: IS_DEV ? 'pacecue-dev' : 'pacecue',
+  scheme: IS_DEV ? 'pacecue-dev' : IS_PREVIEW ? 'pacecue-preview' : 'pacecue',
   ios: {
     supportsTablet: false,
     bundleIdentifier: BUNDLE_ID,
