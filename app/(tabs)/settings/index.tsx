@@ -14,7 +14,7 @@ interface SettingsCard {
   icon: React.ComponentProps<typeof Ionicons>['name'];
   title: string;
   description: string;
-  route: '/(tabs)/settings/audio' | '/(tabs)/settings/general' | '/(tabs)/settings/data' | '/(tabs)/settings/about';
+  route: string;
 }
 
 const CARDS: SettingsCard[] = [
@@ -23,6 +23,12 @@ const CARDS: SettingsCard[] = [
     title: 'Audio & Cues',
     description: 'Cue mode, voice, countdown warning, progress updates',
     route: '/(tabs)/settings/audio',
+  },
+  {
+    icon: 'speedometer-outline',
+    title: 'Pace Tracking',
+    description: 'GPS pace, cue frequency, pace window, units',
+    route: '/(tabs)/settings/pace',
   },
   {
     icon: 'options-outline',
@@ -55,7 +61,7 @@ export default function SettingsHubScreen() {
           style={styles.card}
           onPress={() => {
             hapticTap();
-            router.push(card.route);
+            router.push(card.route as any);
           }}
           activeOpacity={0.7}
         >

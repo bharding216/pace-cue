@@ -23,6 +23,7 @@ import {
   totalWorkoutSeconds,
   INTERVAL_LABEL_OPTIONS,
 } from '../workout/workoutTypes';
+import { formatPaceDisplay } from '../pace/paceTracker';
 import {
   Colors,
   Spacing,
@@ -459,6 +460,11 @@ function BlockList({
                   effort={interval.effort}
                   onChange={(e) => updateInt(setter, bi, ii, { effort: e })}
                 />
+
+                <TargetPacePicker
+                  pace={interval.targetPace}
+                  onChange={(p) => updateInt(setter, bi, ii, { targetPace: p })}
+                />
               </View>
             </View>
           ))}
@@ -753,6 +759,196 @@ const effortStyles = StyleSheet.create({
     fontSize: FontSize.xs,
     fontWeight: '700',
     marginTop: 2,
+  },
+});
+
+// ── Target pace picker sub-component ─────────────────────────────────
+
+function TargetPacePicker({
+  pace,
+  onChange,
+}: {
+  pace?: number;
+  onChange: (p: number | undefined) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [editMins, setEditMins] = useState('');
+  const [editSecs, setEditSecs] = useState('');
+
+  if (!expanded && pace == null) {
+    return (
+      <TouchableOpacity
+        style={tpStyles.addBtn}
+        onPress={() => {
+          hapticTap();
+          setExpanded(true);
+          setEditMins('8');
+          setEditSecs('00');
+        }}
+        activeOpacity={0.7}
+      >
+        <Text style={tpStyles.addBtnText}>+ Target Pace</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  const displayValue = pace != null ? formatPaceDisplay(pace) : '--:--';
+
+  if (expanded || pace != null) {
+    const startEdit = () => {
+      if (pace != null) {
+        const mins = Math.floor(pace);
+        const secs = Math.round((pace - mins) * 60);
+        setEditMins(mins.toString());
+        setEditSecs(secs.toString().padStart(2, '0'));
+      } else {
+        setEditMins('8');
+        setEditSecs('00');
+      }
+      setExpanded(true);
+    };
+
+    if (expanded) {
+      const confirmEdit = () => {
+        const m = parseInt(editMins, 10) || 0;
+        const s = parseInt(editSecs, 10) || 0;
+        if (m === 0 && s === 0) {
+          onChange(undefined);
+          setExpanded(false);
+          return;
+        }
+        const totalMinutes = m + Math.min(59, s) / 60;
+        onChange(totalMinutes);
+        setExpanded(false);
+      };
+
+      return (
+        <View style={tpStyles.container}>
+          <View style={tpStyles.row}>
+            <Ionicons name="speedometer-outline" size={14} color={Colors.accent} />
+            <Text style={tpStyles.label}>Target Pace</Text>
+            <TextInput
+              style={tpStyles.editInput}
+              value={editMins}
+              onChangeText={setEditMins}
+              keyboardType="number-pad"
+              maxLength={2}
+              selectTextOnFocus
+              autoFocus
+              placeholder="M"
+              placeholderTextColor={Colors.textMuted}
+            />
+            <Text style={tpStyles.editColon}>:</Text>
+            <TextInput
+              style={tpStyles.editInput}
+              value={editSecs}
+              onChangeText={setEditSecs}
+              keyboardType="number-pad"
+              maxLength={2}
+              selectTextOnFocus
+              placeholder="SS"
+              placeholderTextColor={Colors.textMuted}
+            />
+            <Text style={tpStyles.unitLabel}>/mi</Text>
+            <TouchableOpacity onPress={confirmEdit} style={tpStyles.doneBtn}>
+              <Ionicons name="checkmark" size={18} color={Colors.primary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={tpStyles.container}>
+        <View style={tpStyles.row}>
+          <Ionicons name="speedometer-outline" size={14} color={Colors.accent} />
+          <Text style={tpStyles.label}>Target</Text>
+          <TouchableOpacity onPress={startEdit} activeOpacity={0.7}>
+            <Text style={tpStyles.valueText}>{displayValue}/mi</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => {
+              hapticTap();
+              onChange(undefined);
+              setExpanded(false);
+            }}
+            style={tpStyles.clearBtn}
+            hitSlop={8}
+          >
+            <Ionicons name="close-circle" size={16} color={Colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  return null;
+}
+
+const tpStyles = StyleSheet.create({
+  container: {
+    marginTop: 4,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  label: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  addBtn: {
+    marginTop: 4,
+    paddingVertical: 4,
+  },
+  addBtnText: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  valueText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.accent,
+    fontVariant: ['tabular-nums'],
+  },
+  editInput: {
+    backgroundColor: Colors.surfaceLight,
+    color: Colors.textPrimary,
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.sm,
+    textAlign: 'center',
+    padding: 0,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+  },
+  editColon: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+  },
+  unitLabel: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  doneBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.primary + '22',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 2,
+  },
+  clearBtn: {
+    marginLeft: 2,
   },
 });
 

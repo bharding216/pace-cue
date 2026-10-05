@@ -38,12 +38,15 @@ import {
   playCue,
   configureAudio,
   speakIntervalProgress,
+  speakPaceCue,
   startBackgroundLoop,
   stopBackgroundLoop,
   setVoiceIdentifier,
   setDuckingEnabled,
   type CueContext,
 } from '../audio/audioManager';
+import { usePaceTracker, type PaceTrackerResult } from './usePaceTracker';
+import type { PaceState } from '../pace/paceTypes';
 import {
   hapticIntervalChange,
   hapticWarning,
@@ -97,6 +100,10 @@ export interface WorkoutRunnerControls {
   nextLabel: string | null;
   intervalNumber: string; // e.g. "3 / 12"
 
+  // Pace tracking
+  paceState: PaceState;
+  isPaceTracking: boolean;
+
   start: () => void;
   pause: () => void;
   resume: () => void;
@@ -112,6 +119,14 @@ export function useWorkoutRunner(
     createEngineState(workout)
   );
 
+  // Pace tracking
+  const paceTracker = usePaceTracker(
+    settings.paceTrackingEnabled,
+    settings.paceWindow,
+  );
+  const paceTrackerRef = useRef(paceTracker);
+  paceTrackerRef.current = paceTracker;
+
   // Refs for the animation loop so we have access to latest state
   const engineRef = useRef(engine);
   engineRef.current = engine;
@@ -122,6 +137,7 @@ export function useWorkoutRunner(
   const firedWarnings = useRef(new Set<number>());
   const firedCountdowns = useRef(new Set<number>());
   const firedTimeAnnouncements = useRef(new Set<number>());
+  const firedPaceCues = useRef(new Set<number>());
   const lastIndex = useRef(-1);
 
   // Force re-render while running so the timer updates smoothly
@@ -181,6 +197,7 @@ export function useWorkoutRunner(
           if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
           stopBackgroundLoop();
           endLiveActivity();
+          paceTrackerRef.current.stop();
 
           // Save to history (guard against duplicate saves)
           if (!historySaved.current) {
@@ -205,6 +222,7 @@ export function useWorkoutRunner(
           firedWarnings.current.clear();
           firedCountdowns.current.clear();
           firedTimeAnnouncements.current.clear();
+          firedPaceCues.current.clear();
 
           updateLiveActivity(buildLAProps(next, false));
           lastLAUpdate.current = Date.now();
@@ -232,6 +250,35 @@ export function useWorkoutRunner(
           ) {
             firedTimeAnnouncements.current.add(elapsed);
             speakIntervalProgress(elapsed, settingsRef.current.audioCueMode);
+          }
+        }
+
+        // Pace cue announcements at configured frequency
+        const paceFreq = settingsRef.current.paceCueFrequency;
+        if (
+          settingsRef.current.paceTrackingEnabled &&
+          paceFreq > 0 &&
+          ci &&
+          secs > maxWarn
+        ) {
+          const elapsed = ci.durationSeconds - secs;
+          if (
+            elapsed > 0 &&
+            elapsed % paceFreq === 0 &&
+            !firedPaceCues.current.has(elapsed)
+          ) {
+            firedPaceCues.current.add(elapsed);
+            const ps = paceTrackerRef.current.paceState;
+            const currentPace =
+              settingsRef.current.paceUnit === 'minPerMile'
+                ? ps.currentPaceMinPerMile
+                : ps.currentPaceMinPerKm;
+            speakPaceCue(
+              currentPace,
+              ci.targetPace,
+              settingsRef.current.paceUnit,
+              settingsRef.current.audioCueMode,
+            );
           }
         }
 
@@ -319,10 +366,17 @@ export function useWorkoutRunner(
     firedWarnings.current.clear();
     firedCountdowns.current.clear();
     firedTimeAnnouncements.current.clear();
+    firedPaceCues.current.clear();
     lastIndex.current = 0;
     const startCueCtx = buildVerboseCueContext(next, 'intervalStart');
     playCue('intervalStart', settingsRef.current.audioCueMode, startCueCtx);
     if (settingsRef.current.hapticEnabled) hapticIntervalChange();
+
+    // Start pace tracking if enabled
+    if (settingsRef.current.paceTrackingEnabled) {
+      paceTrackerRef.current.reset();
+      paceTrackerRef.current.start();
+    }
 
     // Start silent background loop and Live Activity
     startBackgroundLoop();
@@ -358,6 +412,7 @@ export function useWorkoutRunner(
       firedWarnings.current.clear();
       firedCountdowns.current.clear();
       firedTimeAnnouncements.current.clear();
+      firedPaceCues.current.clear();
       const skipCueCtx = buildVerboseCueContext(next, 'intervalStart');
       playCue('intervalStart', settingsRef.current.audioCueMode, skipCueCtx);
       if (settingsRef.current.hapticEnabled) hapticIntervalChange();
@@ -371,6 +426,7 @@ export function useWorkoutRunner(
       if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
       stopBackgroundLoop();
       endLiveActivity();
+      paceTrackerRef.current.stop();
       if (!historySaved.current) {
         historySaved.current = true;
         const entry: CompletedWorkout = {
@@ -394,6 +450,7 @@ export function useWorkoutRunner(
     setEngine(next);
     stopBackgroundLoop();
     endLiveActivity();
+    paceTrackerRef.current.stop();
 
     // Save partial workout to history
     if (next.totalElapsedMs > 0 && !historySaved.current) {
@@ -437,6 +494,10 @@ export function useWorkoutRunner(
       engine.intervals.length > 0
         ? `${engine.currentIndex + 1} / ${engine.intervals.length}`
         : '',
+
+    // Pace tracking
+    paceState: paceTracker.paceState,
+    isPaceTracking: paceTracker.isTracking,
 
     start,
     pause,

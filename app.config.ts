@@ -8,8 +8,8 @@ const APP_GROUP = `group.${BUNDLE_ID}`;
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   name: IS_DEV ? 'PaceCue Dev Build' : 'PaceCue',
-  slug: IS_DEV ? 'pace-cue-dev' : 'pace-cue',
-  version: '1.4.0',
+  slug: 'pace-cue',
+  version: '1.5.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
@@ -21,8 +21,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'com.apple.security.application-groups': [APP_GROUP],
     },
     infoPlist: {
-      UIBackgroundModes: ['audio'],
+      UIBackgroundModes: ['audio', 'location'],
       NSMicrophoneUsageDescription: 'PaceCue does not use the microphone.',
+      NSLocationWhenInUseUsageDescription:
+        'PaceCue uses your location to calculate your running pace in real time.',
+      NSLocationAlwaysAndWhenInUseUsageDescription:
+        'PaceCue uses your location in the background to track pace while your screen is locked.',
       NSSupportsLiveActivities: true,
       NSSupportsLiveActivitiesFrequentUpdates: true,
       ITSAppUsesNonExemptEncryption: false,
@@ -40,6 +44,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'android.permission.MODIFY_AUDIO_SETTINGS',
       'android.permission.FOREGROUND_SERVICE',
       'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
+      'android.permission.FOREGROUND_SERVICE_LOCATION',
+      'android.permission.ACCESS_FINE_LOCATION',
+      'android.permission.ACCESS_COARSE_LOCATION',
+      'android.permission.ACCESS_BACKGROUND_LOCATION',
     ],
   },
   web: {
@@ -48,6 +56,18 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     'expo-router',
     'expo-status-bar',
+    [
+      'expo-location',
+      {
+        locationAlwaysAndWhenInUsePermission:
+          'Allow PaceCue to track your running pace in the background.',
+        locationWhenInUsePermission:
+          'Allow PaceCue to track your running pace.',
+        isIosBackgroundLocationEnabled: true,
+        isAndroidBackgroundLocationEnabled: true,
+        isAndroidForegroundServiceEnabled: true,
+      },
+    ],
     [
       'expo-splash-screen',
       {

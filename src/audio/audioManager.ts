@@ -12,6 +12,8 @@ import {
 } from 'expo-audio';
 import * as Speech from 'expo-speech';
 import { AudioCueMode, formatDurationForSpeech } from '../workout/workoutTypes';
+import type { PaceUnit } from '../pace/paceTypes';
+import { formatPaceForSpeech } from '../pace/paceTracker';
 
 let isAudioConfigured = false;
 
@@ -489,4 +491,55 @@ export async function playCue(
   // The fallback covers pure-beep cues and edge-cases where no speech
   // fires (e.g. countdown).
   scheduleUnduck(willSpeak || (mode === 'beeps' && cue === 'warning') ? 2000 : 500);
+}
+
+// ── Pace cue announcements ───────────────────────────────────────────
+
+/**
+ * Speak a smart pace cue comparing current pace to target pace.
+ *
+ * Examples:
+ *   "Current pace 8 minutes 15 seconds per mile. Target 8 minutes. Looking strong."
+ *   "Current pace 8 minutes 42 seconds per mile. Target 8 minutes. Pick it up."
+ *   "Current pace 7 minutes 58 seconds per mile. Right on target."
+ *   "Pace 9 minutes 10 seconds per mile." (no target set)
+ */
+export function speakPaceCue(
+  currentPaceMinutes: number | null,
+  targetPaceMinutes: number | undefined,
+  unit: PaceUnit,
+  mode: AudioCueMode,
+): void {
+  if (mode !== 'voice' && mode !== 'both') return;
+
+  const unitLabel = unit === 'minPerMile' ? 'per mile' : 'per K';
+
+  if (currentPaceMinutes == null || !isFinite(currentPaceMinutes)) {
+    speak('Pace unavailable.');
+    return;
+  }
+
+  const currentStr = formatPaceForSpeech(currentPaceMinutes);
+
+  if (targetPaceMinutes != null && isFinite(targetPaceMinutes)) {
+    const diff = currentPaceMinutes - targetPaceMinutes;
+    const targetStr = formatPaceForSpeech(targetPaceMinutes);
+
+    if (Math.abs(diff) < 0.15) {
+      // Within ~9 seconds — on target
+      speak(`Pace ${currentStr} ${unitLabel}. Right on target.`);
+    } else if (diff > 0) {
+      // Slower than target (higher min/mile = slower)
+      speak(
+        `Pace ${currentStr} ${unitLabel}. Target ${targetStr}. Pick it up.`,
+      );
+    } else {
+      // Faster than target
+      speak(
+        `Pace ${currentStr} ${unitLabel}. Target ${targetStr}. Looking strong.`,
+      );
+    }
+  } else {
+    speak(`Pace ${currentStr} ${unitLabel}.`);
+  }
 }

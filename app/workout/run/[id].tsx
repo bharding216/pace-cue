@@ -22,6 +22,8 @@ import { loadWorkouts, loadSettings } from '../../../src/workout/workoutStorage'
 import { useWorkoutRunner } from '../../../src/hooks/useWorkoutRunner';
 import { Timer } from '../../../src/components/Timer';
 import { IntervalProgress } from '../../../src/components/IntervalProgress';
+import { formatPaceDisplay, formatDistance } from '../../../src/pace/paceTracker';
+import { currentInterval as getCurrentInterval } from '../../../src/workout/workoutEngine';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   Colors,
@@ -173,7 +175,26 @@ function ActiveWorkoutInner({
         <Text style={styles.doneDuration}>
           {formatTime(Math.floor(state.totalElapsedMs / 1000))}
         </Text>
-        <Text style={styles.doneSubtext}>Total time</Text>
+        <Text
+          style={[
+            styles.doneSubtext,
+            !(settings.paceTrackingEnabled && runner.paceState.totalDistanceMeters > 0) && {
+              marginBottom: Spacing.xxl,
+            },
+          ]}
+        >
+          Total time
+        </Text>
+
+        {settings.paceTrackingEnabled &&
+          runner.paceState.totalDistanceMeters > 0 && (
+            <Text style={styles.doneDistance}>
+              {formatDistance(
+                runner.paceState.totalDistanceMeters,
+                settings.paceUnit,
+              )}
+            </Text>
+          )}
 
         <TouchableOpacity
           style={styles.doneBtn}
@@ -211,6 +232,15 @@ function ActiveWorkoutInner({
           intervalType={runner.currentType}
         />
       </View>
+
+      {/* Pace display (when tracking) */}
+      {settings.paceTrackingEnabled && runner.isPaceTracking && (
+        <PaceDisplay
+          paceState={runner.paceState}
+          paceUnit={settings.paceUnit}
+          targetPace={getCurrentInterval(state)?.targetPace}
+        />
+      )}
 
       {/* Workout timeline */}
       <WorkoutTimeline
@@ -273,6 +303,137 @@ function ActiveWorkoutInner({
     </View>
   );
 }
+
+// ── Pace Display ─────────────────────────────────────────────────────
+
+function PaceDisplay({
+  paceState,
+  paceUnit,
+  targetPace,
+}: {
+  paceState: import('../../../src/pace/paceTypes').PaceState;
+  paceUnit: import('../../../src/pace/paceTypes').PaceUnit;
+  targetPace?: number;
+}) {
+  const currentPace =
+    paceUnit === 'minPerMile'
+      ? paceState.currentPaceMinPerMile
+      : paceState.currentPaceMinPerKm;
+  const unitLabel = paceUnit === 'minPerMile' ? '/mi' : '/km';
+  const paceStr = formatPaceDisplay(currentPace);
+  const distStr = formatDistance(paceState.totalDistanceMeters, paceUnit);
+
+  // Determine pace status relative to target
+  let statusColor: string = Colors.textSecondary;
+  let statusText = '';
+  if (targetPace != null && currentPace != null && isFinite(currentPace)) {
+    const diff = currentPace - targetPace;
+    if (Math.abs(diff) < 0.15) {
+      statusColor = Colors.primary;
+      statusText = 'On target';
+    } else if (diff > 0) {
+      statusColor = Colors.danger;
+      statusText = 'Behind target';
+    } else {
+      statusColor = Colors.accent;
+      statusText = 'Ahead of target';
+    }
+  }
+
+  return (
+    <View style={paceStyles.container}>
+      <View style={paceStyles.mainRow}>
+        <View style={paceStyles.paceCol}>
+          <Text style={paceStyles.paceLabel}>PACE</Text>
+          <Text style={paceStyles.paceValue}>
+            {paceStr}
+            <Text style={paceStyles.paceUnit}> {unitLabel}</Text>
+          </Text>
+        </View>
+        {targetPace != null && (
+          <View style={paceStyles.targetCol}>
+            <Text style={paceStyles.paceLabel}>TARGET</Text>
+            <Text style={[paceStyles.targetValue]}>
+              {formatPaceDisplay(targetPace)}
+              <Text style={paceStyles.paceUnit}> {unitLabel}</Text>
+            </Text>
+          </View>
+        )}
+        <View style={paceStyles.distCol}>
+          <Text style={paceStyles.paceLabel}>DIST</Text>
+          <Text style={paceStyles.distValue}>{distStr}</Text>
+        </View>
+      </View>
+      {statusText !== '' && (
+        <Text style={[paceStyles.statusText, { color: statusColor }]}>
+          {statusText}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+const paceStyles = StyleSheet.create({
+  container: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+  },
+  mainRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  paceCol: {
+    flex: 1,
+  },
+  targetCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  distCol: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  paceLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.textMuted,
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  paceValue: {
+    fontSize: FontSize.xl,
+    fontWeight: '700',
+    color: Colors.primary,
+    fontVariant: ['tabular-nums'],
+  },
+  targetValue: {
+    fontSize: FontSize.lg,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    fontVariant: ['tabular-nums'],
+  },
+  paceUnit: {
+    fontSize: FontSize.sm,
+    fontWeight: '400',
+  },
+  distValue: {
+    fontSize: FontSize.lg,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    fontVariant: ['tabular-nums'],
+  },
+  statusText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    marginTop: Spacing.xs,
+    textAlign: 'center',
+    letterSpacing: 0.5,
+  },
+});
 
 // ── Workout Timeline ─────────────────────────────────────────────────
 
@@ -615,6 +776,13 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Colors.textMuted,
     marginTop: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  doneDistance: {
+    fontSize: FontSize.xl,
+    fontWeight: '600',
+    color: Colors.accent,
+    fontVariant: ['tabular-nums'],
     marginBottom: Spacing.xxl,
   },
   doneBtn: {

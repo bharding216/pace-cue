@@ -76,6 +76,7 @@ export interface WorkoutInterval {
   durationSeconds: number;
   label?: string; // optional user-facing label override
   effort?: number; // optional perceived effort 1-10 (e.g. 7 = "7/10 effort")
+  targetPace?: number; // optional target pace in min/mile (e.g. 8.5 = 8:30/mile)
 }
 
 export interface WorkoutRepeatBlock {
@@ -100,6 +101,7 @@ export interface FlatInterval {
   durationSeconds: number;
   label: string;
   effort?: number; // 1-10 perceived effort rating
+  targetPace?: number; // min/mile target pace
   index: number; // position in the flattened list
   // Block/set context for verbose voice cues and progress display
   blockName?: string; // user-assigned block name (e.g. "Sprint")
@@ -145,6 +147,8 @@ export type AudioCueMode = 'voice' | 'beeps' | 'both' | 'silent';
 /** How often to announce elapsed time during an interval (in seconds, 0 = off). */
 export type TimeRemainingInterval = 0 | 15 | 30 | 45 | 60 | 120;
 
+import type { PaceCueFrequency, PaceWindowSize, PaceUnit } from '../pace/paceTypes';
+
 export interface AppSettings {
   audioCueMode: AudioCueMode;
   hapticEnabled: boolean;
@@ -153,6 +157,11 @@ export interface AppSettings {
   timeRemainingInterval: TimeRemainingInterval; // 0 = off, seconds between elapsed-time announcements
   voiceIdentifier: string | null; // selected TTS voice identifier, null = system default
   duckOtherAudio: boolean; // lower other apps' volume when cues play
+  // Pace tracking
+  paceTrackingEnabled: boolean;
+  paceCueFrequency: PaceCueFrequency; // how often to announce pace (seconds, 0 = off)
+  paceWindow: PaceWindowSize; // rolling window for pace calculation (seconds)
+  paceUnit: PaceUnit; // min/mile or min/km
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -163,6 +172,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   timeRemainingInterval: 60,
   voiceIdentifier: null,
   duckOtherAudio: false,
+  paceTrackingEnabled: false,
+  paceCueFrequency: 30,
+  paceWindow: 30,
+  paceUnit: 'minPerMile',
 };
 
 /** Default label for an interval based on its type. */
@@ -216,6 +229,7 @@ function flattenBlocks(
           durationSeconds: interval.durationSeconds,
           label: interval.label || defaultLabel(interval.type),
           effort: interval.effort,
+          targetPace: interval.targetPace,
           index: idx++,
           blockName: block.name,
           blockNumber: blockNum,
