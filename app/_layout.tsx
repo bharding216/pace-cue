@@ -1,14 +1,33 @@
 import { useEffect } from 'react';
+import { Alert } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Colors } from '../src/constants/theme';
 import { cleanupStaleLiveActivities } from '../src/hooks/useLiveActivity';
+import {
+  initInstallTimestamp,
+  getUnseenAnnouncement,
+  dismissAnnouncement,
+} from '../src/announcements/announcementService';
 
 export default function RootLayout() {
   // End any Live Activities orphaned by a force-kill during a workout.
   useEffect(() => {
     cleanupStaleLiveActivities();
+  }, []);
+
+  // Show a single "what's new" alert to existing users on app open.
+  useEffect(() => {
+    (async () => {
+      await initInstallTimestamp();
+      const announcement = await getUnseenAnnouncement();
+      if (announcement) {
+        Alert.alert(announcement.title, announcement.body, [
+          { text: 'Got it', onPress: () => dismissAnnouncement(announcement.id) },
+        ]);
+      }
+    })();
   }, []);
 
   return (
