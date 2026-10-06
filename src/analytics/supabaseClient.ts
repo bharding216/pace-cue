@@ -12,4 +12,10 @@ const SUPABASE_URL = 'https://oakhqqrxsavmoeqlzcny.supabase.co';
 const SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ha2hxcXJ4c2F2bW9lcWx6Y255Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyOTgyMDYsImV4cCI6MjEwNjg3NDIwNn0.kLmkWC2SgnSfaGY20s4WXo2n1BauLboEZZQDYbrKs4M';
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+    detectSessionInUrl: false,
+  },
+});
