@@ -15,6 +15,7 @@ import {
   WorkoutDefinition,
   AppSettings,
   CompletedWorkout,
+  IntervalSplit,
   generateId,
   IntervalType,
 } from '../workout/workoutTypes';
@@ -151,6 +152,49 @@ export function useWorkoutRunner(
   // Prevent saving history more than once per workout
   const historySaved = useRef(false);
 
+  // ── Per-interval split tracking ──────────────────────────────────
+  const splitsRef = useRef<IntervalSplit[]>([]);
+  const intervalStartedAtRef = useRef(0); // epoch ms when current interval began
+  const intervalStartDistanceRef = useRef(0); // distance (m) at interval start
+
+  /** Snapshot the current interval's performance into a split record. */
+  const captureSplit = useCallback((s: EngineState) => {
+    const ci = currentInterval(s);
+    if (!ci) return;
+    const now = Date.now();
+    const actualMs = intervalStartedAtRef.current > 0
+      ? now - intervalStartedAtRef.current
+      : ci.durationSeconds * 1000;
+
+    const ps = paceTrackerRef.current.paceState;
+    const distNow = ps.totalDistanceMeters;
+    const intervalDist = distNow - intervalStartDistanceRef.current;
+    const hasDist = settingsRef.current.paceTrackingEnabled && intervalDist > 1;
+
+    const actualSec = actualMs / 1000;
+    const mps = hasDist ? intervalDist / actualSec : null;
+    const METERS_PER_MILE = 1609.344;
+    const METERS_PER_KM = 1000;
+
+    splitsRef.current.push({
+      label: ci.label,
+      type: ci.type,
+      plannedDurationSec: ci.durationSeconds,
+      actualDurationMs: actualMs,
+      distanceMeters: hasDist ? intervalDist : null,
+      avgPaceMinPerMile: mps && mps > 0.3 ? METERS_PER_MILE / mps / 60 : null,
+      avgPaceMinPerKm: mps && mps > 0.3 ? METERS_PER_KM / mps / 60 : null,
+      targetPace: ci.targetPace,
+      effort: ci.effort,
+    });
+  }, []);
+
+  /** Mark the start of a new interval for split tracking. */
+  const markIntervalStart = useCallback(() => {
+    intervalStartedAtRef.current = Date.now();
+    intervalStartDistanceRef.current = paceTrackerRef.current.paceState.totalDistanceMeters;
+  }, []);
+
   // Live Activity: throttle updates to ~1/sec to stay within the system budget
   const lastLAUpdate = useRef(0);
   const lastLAIndex = useRef(-1);
@@ -188,8 +232,13 @@ export function useWorkoutRunner(
       // When the app is backgrounded the JS timer can be delayed by seconds
       // (or longer), so multiple intervals may have elapsed.
       if (isIntervalExpired(s)) {
+        // Capture split for the interval that just ended
+        captureSplit(s);
+
         let next = advanceInterval(s);
         while (next.phase === 'running' && isIntervalExpired(next)) {
+          // Capture split for each skipped-over interval (backgrounded catch-up)
+          captureSplit(next);
           next = advanceInterval(next);
         }
         engineRef.current = next;
@@ -206,12 +255,15 @@ export function useWorkoutRunner(
           // Save to history (guard against duplicate saves)
           if (!historySaved.current) {
             historySaved.current = true;
+            const ps = paceTrackerRef.current.paceState;
             const entry: CompletedWorkout = {
               id: generateId(),
               workoutId: workout.id,
               workoutName: workout.name,
               completedAt: Date.now(),
               totalDurationMs: next.totalElapsedMs,
+              splits: [...splitsRef.current],
+              totalDistanceMeters: ps.totalDistanceMeters > 0 ? ps.totalDistanceMeters : undefined,
             };
             saveCompletedWorkout(entry).catch((e) =>
               console.warn('Failed to save workout history:', e)
@@ -225,6 +277,7 @@ export function useWorkoutRunner(
           }
         } else {
           // New interval started — voice cue for the current interval only
+          markIntervalStart();
           const cueCtx = buildVerboseCueContext(next, 'intervalStart', settingsRef.current);
           playCue('intervalStart', settingsRef.current.audioCueMode, cueCtx);
           if (settingsRef.current.hapticEnabled) hapticIntervalChange();
@@ -322,7 +375,7 @@ export function useWorkoutRunner(
 
       setTick((t) => t + 1);
     }
-  }, [workout.id, workout.name, buildLAProps]);
+  }, [workout.id, workout.name, buildLAProps, captureSplit, markIntervalStart]);
 
   // Start/stop the tick loop based on engine phase.
   // Uses setInterval instead of requestAnimationFrame so ticks continue
@@ -372,6 +425,7 @@ export function useWorkoutRunner(
     engineRef.current = next;
     setEngine(next);
     historySaved.current = false;
+    splitsRef.current = [];
     firedWarnings.current.clear();
     firedCountdowns.current.clear();
     firedTimeAnnouncements.current.clear();
@@ -387,6 +441,9 @@ export function useWorkoutRunner(
       paceTrackerRef.current.start();
     }
 
+    // Mark first interval start for split tracking
+    markIntervalStart();
+
     // Start silent background loop and Live Activity
     startBackgroundLoop();
     startLiveActivity(buildLAProps(next, false), workout.id);
@@ -399,7 +456,7 @@ export function useWorkoutRunner(
       interval_count: next.intervals.length,
       total_duration_seconds: next.intervals.reduce((s, i) => s + i.durationSeconds, 0),
     });
-  }, [buildLAProps]);
+  }, [buildLAProps, markIntervalStart]);
 
   const pause = useCallback(() => {
     const next = pauseWorkout(engineRef.current);
@@ -421,6 +478,9 @@ export function useWorkoutRunner(
   }, [buildLAProps]);
 
   const skip_ = useCallback(() => {
+    // Capture split for the interval being skipped
+    captureSplit(engineRef.current);
+
     const next = skipInterval(engineRef.current);
     engineRef.current = next;
     setEngine(next);
@@ -429,6 +489,7 @@ export function useWorkoutRunner(
       firedCountdowns.current.clear();
       firedTimeAnnouncements.current.clear();
       firedPaceCues.current.clear();
+      markIntervalStart();
       const skipCueCtx = buildVerboseCueContext(next, 'intervalStart', settingsRef.current);
       playCue('intervalStart', settingsRef.current.audioCueMode, skipCueCtx);
       if (settingsRef.current.hapticEnabled) hapticIntervalChange();
@@ -445,12 +506,15 @@ export function useWorkoutRunner(
       paceTrackerRef.current.stop();
       if (!historySaved.current) {
         historySaved.current = true;
+        const ps = paceTrackerRef.current.paceState;
         const entry: CompletedWorkout = {
           id: generateId(),
           workoutId: workout.id,
           workoutName: workout.name,
           completedAt: Date.now(),
           totalDurationMs: next.totalElapsedMs,
+          splits: [...splitsRef.current],
+          totalDistanceMeters: ps.totalDistanceMeters > 0 ? ps.totalDistanceMeters : undefined,
         };
         saveCompletedWorkout(entry).catch((e) =>
           console.warn('Failed to save workout history:', e)
@@ -463,9 +527,12 @@ export function useWorkoutRunner(
         });
       }
     }
-  }, [workout.id, workout.name, buildLAProps]);
+  }, [workout.id, workout.name, buildLAProps, captureSplit, markIntervalStart]);
 
   const stop_ = useCallback(() => {
+    // Capture split for the interval in progress when stopped
+    captureSplit(engineRef.current);
+
     const next = stopWorkout(engineRef.current);
     engineRef.current = next;
     setEngine(next);
@@ -476,12 +543,15 @@ export function useWorkoutRunner(
     // Save partial workout to history
     if (next.totalElapsedMs > 0 && !historySaved.current) {
       historySaved.current = true;
+      const ps = paceTrackerRef.current.paceState;
       const entry: CompletedWorkout = {
         id: generateId(),
         workoutId: workout.id,
         workoutName: workout.name,
         completedAt: Date.now(),
         totalDurationMs: next.totalElapsedMs,
+        splits: [...splitsRef.current],
+        totalDistanceMeters: ps.totalDistanceMeters > 0 ? ps.totalDistanceMeters : undefined,
       };
       saveCompletedWorkout(entry).catch((e) =>
         console.warn('Failed to save workout history:', e)
@@ -505,7 +575,7 @@ export function useWorkoutRunner(
           : 0,
       });
     }
-  }, [workout.id, workout.name]);
+  }, [workout.id, workout.name, captureSplit]);
 
   // Derived display values
   const ci = currentInterval(engine);

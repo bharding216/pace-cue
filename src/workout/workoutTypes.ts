@@ -133,12 +133,27 @@ export interface EngineState {
   startedAt: number;
 }
 
+/** Per-interval performance data captured during a workout. */
+export interface IntervalSplit {
+  label: string;
+  type: IntervalType;
+  plannedDurationSec: number;
+  actualDurationMs: number;
+  distanceMeters: number | null;
+  avgPaceMinPerMile: number | null;
+  avgPaceMinPerKm: number | null;
+  targetPace: number | undefined;
+  effort: number | undefined;
+}
+
 export interface CompletedWorkout {
   id: string;
   workoutId: string;
   workoutName: string;
   completedAt: number; // epoch ms
   totalDurationMs: number;
+  splits?: IntervalSplit[];
+  totalDistanceMeters?: number;
 }
 
 /** Audio cue preference. */

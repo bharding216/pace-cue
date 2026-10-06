@@ -20,10 +20,10 @@ import ReanimatedSwipeable, {
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { CompletedWorkout, formatTime } from '../../src/workout/workoutTypes';
+import { CompletedWorkout, IntervalSplit, formatTime } from '../../src/workout/workoutTypes';
 import { loadHistory, clearHistory, deleteHistoryEntry } from '../../src/workout/workoutStorage';
 import { exportData, importData } from '../../src/workout/backupManager';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
+import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../../src/constants/theme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -40,6 +40,177 @@ function DeleteAction({ onPress }: { onPress: () => void }) {
     </TouchableOpacity>
   );
 }
+
+const METERS_PER_MILE = 1609.344;
+
+function formatDistanceDisplay(meters: number): string {
+  const miles = meters / METERS_PER_MILE;
+  if (miles >= 0.1) return `${miles.toFixed(2)} mi`;
+  const km = meters / 1000;
+  return `${km.toFixed(2)} km`;
+}
+
+function formatPaceDisplay(paceMinutes: number | null): string {
+  if (paceMinutes == null || !isFinite(paceMinutes)) return '--:--';
+  const mins = Math.floor(paceMinutes);
+  const secs = Math.round((paceMinutes - mins) * 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function SplitsTable({ splits }: { splits: IntervalSplit[] }) {
+  const hasPace = splits.some((s) => s.avgPaceMinPerMile != null);
+  const hasDist = splits.some((s) => s.distanceMeters != null);
+
+  return (
+    <View style={splitStyles.container}>
+      <Text style={splitStyles.title}>Splits</Text>
+
+      {/* Header */}
+      <View style={splitStyles.headerRow}>
+        <Text style={[splitStyles.headerCell, splitStyles.labelCol]}>#</Text>
+        <Text style={[splitStyles.headerCell, splitStyles.labelCol, { flex: 1 }]}>Interval</Text>
+        <Text style={[splitStyles.headerCell, splitStyles.valueCol]}>Time</Text>
+        {hasPace && (
+          <Text style={[splitStyles.headerCell, splitStyles.valueCol]}>Pace</Text>
+        )}
+        {hasDist && (
+          <Text style={[splitStyles.headerCell, splitStyles.valueCol]}>Dist</Text>
+        )}
+      </View>
+
+      {/* Rows */}
+      {splits.map((split, i) => {
+        const actualSec = Math.floor(split.actualDurationMs / 1000);
+        const paceStr = formatPaceDisplay(split.avgPaceMinPerMile);
+        const distStr =
+          split.distanceMeters != null
+            ? split.distanceMeters >= 160.9
+              ? `${(split.distanceMeters / METERS_PER_MILE).toFixed(2)}`
+              : `${Math.round(split.distanceMeters)}m`
+            : '—';
+
+        // Pace vs target indicator
+        let paceColor = Colors.textSecondary;
+        if (
+          split.targetPace != null &&
+          split.avgPaceMinPerMile != null &&
+          isFinite(split.avgPaceMinPerMile)
+        ) {
+          const diff = split.avgPaceMinPerMile - split.targetPace;
+          if (Math.abs(diff) < 0.15) paceColor = Colors.primary;
+          else if (diff > 0) paceColor = Colors.danger;
+          else paceColor = Colors.accent;
+        }
+
+        return (
+          <View
+            key={i}
+            style={[
+              splitStyles.row,
+              i % 2 === 0 && splitStyles.rowAlt,
+            ]}
+          >
+            <Text style={[splitStyles.cell, splitStyles.labelCol, { color: Colors.textMuted }]}>
+              {i + 1}
+            </Text>
+            <View style={[splitStyles.labelCol, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+              <View
+                style={[
+                  splitStyles.typeDot,
+                  { backgroundColor: intervalColor(split.type) },
+                ]}
+              />
+              <Text style={splitStyles.cell} numberOfLines={1}>
+                {split.label}
+              </Text>
+            </View>
+            <Text style={[splitStyles.cell, splitStyles.valueCol, { fontVariant: ['tabular-nums'] }]}>
+              {formatTime(actualSec)}
+            </Text>
+            {hasPace && (
+              <Text
+                style={[
+                  splitStyles.cell,
+                  splitStyles.valueCol,
+                  { color: paceColor, fontVariant: ['tabular-nums'] },
+                ]}
+              >
+                {paceStr}
+              </Text>
+            )}
+            {hasDist && (
+              <Text
+                style={[
+                  splitStyles.cell,
+                  splitStyles.valueCol,
+                  { fontVariant: ['tabular-nums'] },
+                ]}
+              >
+                {distStr}
+              </Text>
+            )}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+const splitStyles = StyleSheet.create({
+  container: {
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    overflow: 'hidden',
+  },
+  title: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    paddingHorizontal: Spacing.sm,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xs,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceLight,
+  },
+  headerCell: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.textMuted,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  rowAlt: {
+    backgroundColor: Colors.surfaceLight + '44',
+  },
+  cell: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  labelCol: {
+    minWidth: 24,
+  },
+  valueCol: {
+    minWidth: 48,
+    textAlign: 'right',
+  },
+  typeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+});
 
 export default function HistoryScreen() {
   const router = useRouter();
@@ -245,6 +416,16 @@ export default function HistoryScreen() {
                       Completed at {formatTimeOfDay(item.completedAt)}
                     </Text>
 
+                    {item.totalDistanceMeters != null && item.totalDistanceMeters > 0 && (
+                      <Text style={styles.totalDistance}>
+                        {formatDistanceDisplay(item.totalDistanceMeters)}
+                      </Text>
+                    )}
+
+                    {item.splits && item.splits.length > 0 && (
+                      <SplitsTable splits={item.splits} />
+                    )}
+
                     <View style={styles.expandedActions}>
                       <TouchableOpacity
                         style={styles.actionBtn}
@@ -387,6 +568,13 @@ const styles = StyleSheet.create({
   timeOfDay: {
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
+  totalDistance: {
+    fontSize: FontSize.md,
+    fontWeight: '600',
+    color: Colors.accent,
+    fontVariant: ['tabular-nums'],
     marginBottom: Spacing.md,
   },
   expandedActions: {
