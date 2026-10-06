@@ -55,6 +55,7 @@
     "build:prod:android": "eas build --profile production --platform android",
     "submit:ios": "eas submit --platform ios",
     "submit:android": "eas submit --platform android",
+    "update:preview": "eas update --branch preview --message",
     "update:prod": "eas update --branch production --message"
   },
   "private": true
