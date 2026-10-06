@@ -65,6 +65,7 @@ import {
 function buildVerboseCueContext(
   state: EngineState,
   cueType: 'intervalStart' | 'warning',
+  settings?: AppSettings,
 ): CueContext {
   const ci = currentInterval(state);
   const ni = nextInterval(state);
@@ -86,6 +87,8 @@ function buildVerboseCueContext(
     nextEffort: ni?.effort,
     warningSeconds:
       cueType === 'warning' ? remainingSeconds(state) : undefined,
+    targetPace: ci.targetPace,
+    paceUnit: settings?.paceUnit,
   };
 }
 
@@ -216,7 +219,7 @@ export function useWorkoutRunner(
           }
         } else {
           // New interval started — voice cue for the current interval only
-          const cueCtx = buildVerboseCueContext(next, 'intervalStart');
+          const cueCtx = buildVerboseCueContext(next, 'intervalStart', settingsRef.current);
           playCue('intervalStart', settingsRef.current.audioCueMode, cueCtx);
           if (settingsRef.current.hapticEnabled) hapticIntervalChange();
           firedWarnings.current.clear();
@@ -290,7 +293,7 @@ export function useWorkoutRunner(
           newlyTriggered.forEach((w) => firedWarnings.current.add(w));
           // Announce the most relevant (closest to now) warning
           const closest = Math.min(...newlyTriggered);
-          const warnCtx = buildVerboseCueContext(s, 'warning');
+          const warnCtx = buildVerboseCueContext(s, 'warning', settingsRef.current);
           warnCtx.warningSeconds = closest;
           playCue('warning', settingsRef.current.audioCueMode, warnCtx);
           if (settingsRef.current.hapticEnabled) hapticWarning();
@@ -368,7 +371,7 @@ export function useWorkoutRunner(
     firedTimeAnnouncements.current.clear();
     firedPaceCues.current.clear();
     lastIndex.current = 0;
-    const startCueCtx = buildVerboseCueContext(next, 'intervalStart');
+    const startCueCtx = buildVerboseCueContext(next, 'intervalStart', settingsRef.current);
     playCue('intervalStart', settingsRef.current.audioCueMode, startCueCtx);
     if (settingsRef.current.hapticEnabled) hapticIntervalChange();
 
@@ -413,7 +416,7 @@ export function useWorkoutRunner(
       firedCountdowns.current.clear();
       firedTimeAnnouncements.current.clear();
       firedPaceCues.current.clear();
-      const skipCueCtx = buildVerboseCueContext(next, 'intervalStart');
+      const skipCueCtx = buildVerboseCueContext(next, 'intervalStart', settingsRef.current);
       playCue('intervalStart', settingsRef.current.audioCueMode, skipCueCtx);
       if (settingsRef.current.hapticEnabled) hapticIntervalChange();
 
