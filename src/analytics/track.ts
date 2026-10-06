@@ -61,21 +61,16 @@ export function track(
   const environment = (Constants.expoConfig?.extra?.appVariant as string) ?? 'production';
 
   getAnonymousId()
-    .then(async (anonymousUserId) => {
-      const { error } = await supabase.from('events').insert({
+    .then((anonymousUserId) =>
+      supabase.from('events').insert({
         anonymous_user_id: anonymousUserId,
         event_name: eventName,
         app_version: appVersion,
         environment,
         metadata: metadata ?? {},
-      });
-      if (error) {
-        console.warn('[track]', eventName, 'failed:', error.message);
-      } else if (__DEV__) {
-        console.log('[track]', eventName);
-      }
-    })
-    .catch((err) => {
-      console.warn('[track]', eventName, 'error:', err);
+      }),
+    )
+    .catch(() => {
+      // Analytics should never crash the app.
     });
 }
