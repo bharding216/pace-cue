@@ -26,6 +26,7 @@ import {
   AppSettings,
   DEFAULT_SETTINGS,
 } from './workoutTypes';
+import { track } from '../analytics/track';
 
 // ── Backup shape ─────────────────────────────────────────────────────
 
@@ -72,6 +73,11 @@ export async function exportData(): Promise<void> {
   await Sharing.shareAsync(file.uri, {
     mimeType: 'application/json',
     dialogTitle: 'Save PaceCue Backup',
+  });
+
+  track('workout_shared', {
+    workout_count: workouts.length,
+    history_count: history.length,
   });
 }
 

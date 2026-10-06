@@ -55,6 +55,7 @@ import {
 } from '../audio/haptics';
 import { saveCompletedWorkout } from '../workout/workoutStorage';
 import { onWorkoutCompleted } from '../review/storeReview';
+import { track } from '../analytics/track';
 import {
   startLiveActivity,
   updateLiveActivity,
@@ -216,6 +217,11 @@ export function useWorkoutRunner(
               console.warn('Failed to save workout history:', e)
             );
             onWorkoutCompleted();
+            track('workout_completed', {
+              workout_id: workout.id,
+              workout_name: workout.name,
+              total_duration_ms: next.totalElapsedMs,
+            });
           }
         } else {
           // New interval started — voice cue for the current interval only
@@ -386,6 +392,13 @@ export function useWorkoutRunner(
     startLiveActivity(buildLAProps(next, false), workout.id);
     lastLAUpdate.current = Date.now();
     lastLAIndex.current = 0;
+
+    track('workout_started', {
+      workout_id: workout.id,
+      workout_name: workout.name,
+      interval_count: next.intervals.length,
+      total_duration_seconds: next.intervals.reduce((s, i) => s + i.durationSeconds, 0),
+    });
   }, [buildLAProps]);
 
   const pause = useCallback(() => {
@@ -443,6 +456,11 @@ export function useWorkoutRunner(
           console.warn('Failed to save workout history:', e)
         );
         onWorkoutCompleted();
+        track('workout_completed', {
+          workout_id: workout.id,
+          workout_name: workout.name,
+          total_duration_ms: next.totalElapsedMs,
+        });
       }
     }
   }, [workout.id, workout.name, buildLAProps]);
@@ -477,6 +495,15 @@ export function useWorkoutRunner(
       if (plannedMs > 0 && next.totalElapsedMs / plannedMs >= 0.5) {
         onWorkoutCompleted();
       }
+
+      track('workout_abandoned', {
+        workout_id: workout.id,
+        workout_name: workout.name,
+        elapsed_ms: next.totalElapsedMs,
+        completion_pct: plannedMs > 0
+          ? Math.round((next.totalElapsedMs / plannedMs) * 100)
+          : 0,
+      });
     }
   }, [workout.id, workout.name]);
 

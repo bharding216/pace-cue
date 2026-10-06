@@ -118,6 +118,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     typedRoutes: true,
   },
   extra: {
+    appVariant: VARIANT ?? 'production',
     router: {},
     eas: {
       build: {

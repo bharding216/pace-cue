@@ -10,6 +10,7 @@ import { WorkoutDefinition, generateId } from '../../src/workout/workoutTypes';
 import { loadWorkouts, saveWorkout } from '../../src/workout/workoutStorage';
 import { WorkoutEditorForm } from '../../src/components/WorkoutEditorForm';
 import { Colors } from '../../src/constants/theme';
+import { track } from '../../src/analytics/track';
 
 export default function EditWorkoutScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -36,16 +37,27 @@ export default function EditWorkoutScreen() {
       initial={workout}
       onSave={async (updated) => {
         await saveWorkout({ ...updated, updatedAt: Date.now() });
+        track('workout_saved', {
+          workout_id: updated.id,
+          workout_name: updated.name,
+          is_copy: false,
+        });
         router.back();
       }}
       onSaveAsNew={async (updated) => {
         const now = Date.now();
+        const newId = generateId();
         await saveWorkout({
           ...updated,
-          id: generateId(),
+          id: newId,
           name: updated.name.replace(/\s*\(copy\)$/i, '') + ' (Copy)',
           createdAt: now,
           updatedAt: now,
+        });
+        track('workout_saved', {
+          workout_id: newId,
+          workout_name: updated.name,
+          is_copy: true,
         });
         router.back();
       }}

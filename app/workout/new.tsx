@@ -4,9 +4,10 @@
 
 import React from 'react';
 import { useRouter } from 'expo-router';
-import { WorkoutDefinition, generateId } from '../../src/workout/workoutTypes';
+import { WorkoutDefinition, generateId, flattenWorkout } from '../../src/workout/workoutTypes';
 import { saveWorkout } from '../../src/workout/workoutStorage';
 import { WorkoutEditorForm } from '../../src/components/WorkoutEditorForm';
+import { track } from '../../src/analytics/track';
 
 export default function NewWorkoutScreen() {
   const router = useRouter();
@@ -39,6 +40,11 @@ export default function NewWorkoutScreen() {
       initial={blank}
       onSave={async (workout) => {
         await saveWorkout(workout);
+        track('workout_created', {
+          workout_id: workout.id,
+          workout_name: workout.name,
+          interval_count: flattenWorkout(workout).length,
+        });
         router.back();
       }}
       onCancel={() => router.back()}

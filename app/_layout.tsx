@@ -10,11 +10,17 @@ import {
   getUnseenAnnouncement,
   dismissAnnouncement,
 } from '../src/announcements/announcementService';
+import { track } from '../src/analytics/track';
 
 export default function RootLayout() {
   // End any Live Activities orphaned by a force-kill during a workout.
   useEffect(() => {
     cleanupStaleLiveActivities();
+  }, []);
+
+  // Track app open
+  useEffect(() => {
+    track('app_opened');
   }, []);
 
   // Show a single "what's new" alert to existing users on app open.
