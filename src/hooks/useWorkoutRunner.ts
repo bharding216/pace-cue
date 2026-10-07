@@ -321,7 +321,9 @@ export function useWorkoutRunner(
           settingsRef.current.paceTrackingEnabled &&
           paceFreq > 0 &&
           ci &&
-          secs > maxWarn
+          secs > maxWarn &&
+          // When paceCueOnlyWithTarget is on, skip intervals without a target pace
+          (!settingsRef.current.paceCueOnlyWithTarget || ci.targetPace != null)
         ) {
           const elapsed = ci.durationSeconds - secs;
           if (

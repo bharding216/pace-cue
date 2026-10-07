@@ -177,6 +177,7 @@ export interface AppSettings {
   paceCueFrequency: PaceCueFrequency; // how often to announce pace (seconds, 0 = off)
   paceWindow: PaceWindowSize; // rolling window for pace calculation (seconds)
   paceUnit: PaceUnit; // min/mile or min/km
+  paceCueOnlyWithTarget: boolean; // only announce pace on intervals with a target pace set
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -191,6 +192,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   paceCueFrequency: 30,
   paceWindow: 30,
   paceUnit: 'minPerMile',
+  paceCueOnlyWithTarget: false,
 };
 
 /** Default label for an interval based on its type. */

@@ -22,7 +22,7 @@ const APP_NAME = IS_DEV
 export default ({ config }: ConfigContext): ExpoConfig => ({
   name: APP_NAME,
   slug: 'pace-cue',
-  version: '1.5.0',
+  version: '1.6.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',

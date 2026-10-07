@@ -150,6 +150,27 @@ export default function PaceSettingsScreen() {
             ))}
           </View>
 
+          {/* Only cue on intervals with target pace */}
+          {settings.paceCueFrequency > 0 && (
+            <View style={[styles.settingRow, { marginTop: Spacing.md }]}>
+              <View style={{ flex: 1, marginRight: Spacing.md }}>
+                <Text style={styles.settingLabel}>Only With Target Pace</Text>
+                <Text style={styles.settingHint}>
+                  Only announce pace cues on intervals that have a target pace set
+                </Text>
+              </View>
+              <Switch
+                value={settings.paceCueOnlyWithTarget}
+                onValueChange={(v) => {
+                  hapticTap();
+                  update({ paceCueOnlyWithTarget: v });
+                }}
+                trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
+                thumbColor={Colors.white}
+              />
+            </View>
+          )}
+
           {/* Pace Window */}
           <Text style={styles.sectionTitle}>Pace Window</Text>
           <Text style={styles.sectionSub}>
