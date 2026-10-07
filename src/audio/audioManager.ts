@@ -361,6 +361,11 @@ function announceInterval(
         const nextDur = formatDurationForSpeech(ctx.nextDuration);
         const nextEffort = ctx?.nextEffort ? `, ${ctx.nextEffort} out of 10` : '';
         parts.push(`Next up, ${ctx.nextLabel} for ${nextDur}${nextEffort}`);
+        if (ctx.nextTargetPace != null && isFinite(ctx.nextTargetPace)) {
+          const tgtStr = formatPaceForSpeech(ctx.nextTargetPace);
+          const unitLabel = ctx.paceUnit === 'minPerKm' ? 'per K' : 'per mile';
+          parts.push(`Target pace ${tgtStr} ${unitLabel}`);
+        }
       } else if (!ctx?.nextLabel) {
         parts.push('almost done');
       } else if (currentLabel) {
@@ -430,6 +435,7 @@ export interface CueContext {
   nextLabel?: string;
   nextDuration?: number;
   nextEffort?: number; // effort for the next interval
+  nextTargetPace?: number; // target pace in min/unit for the next interval
   warningSeconds?: number;
   targetPace?: number; // target pace in min/unit for current interval
   paceUnit?: PaceUnit; // unit for target pace announcement

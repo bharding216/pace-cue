@@ -87,6 +87,7 @@ function buildVerboseCueContext(
     nextLabel: ni?.label,
     nextDuration: ni?.durationSeconds,
     nextEffort: ni?.effort,
+    nextTargetPace: ni?.targetPace,
     warningSeconds:
       cueType === 'warning' ? remainingSeconds(state) : undefined,
     targetPace: ci.targetPace,
