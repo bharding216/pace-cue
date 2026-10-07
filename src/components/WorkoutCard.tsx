@@ -95,7 +95,9 @@ export function WorkoutCard({
           onPress={onStart}
           activeOpacity={0.7}
         >
-          <Text style={styles.startText}>▶  START</Text>
+          <Ionicons name="play" size={16} color={Colors.black} />
+          <Text style={styles.startText}>START RUN</Text>
+          <Ionicons name="chevron-forward" size={16} color={Colors.black} />
         </TouchableOpacity>
 
         <View style={styles.secondaryActions}>
@@ -117,6 +119,8 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
     marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
   },
   cardActive: {
     backgroundColor: Colors.surface,
@@ -168,9 +172,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   startButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
     backgroundColor: Colors.primary,
-    paddingVertical: Spacing.sm + 2,
-    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm + 4,
+    paddingLeft: Spacing.md,
+    paddingRight: Spacing.md - 2,
     borderRadius: BorderRadius.md,
   },
   startText: {

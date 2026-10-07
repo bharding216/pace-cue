@@ -100,7 +100,8 @@ function ActiveWorkoutInner({
   };
 
   const handleFinishedDone = useCallback(() => {
-    router.back();
+    router.dismissAll();
+    router.navigate('/(tabs)/history');
   }, [router]);
 
   // ── IDLE state ──
@@ -201,7 +202,10 @@ function ActiveWorkoutInner({
           onPress={handleFinishedDone}
           activeOpacity={0.8}
         >
-          <Text style={styles.doneBtnText}>Done</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Ionicons name="time-outline" size={20} color={Colors.black} />
+            <Text style={styles.doneBtnText}>View History</Text>
+          </View>
         </TouchableOpacity>
       </View>
     );
