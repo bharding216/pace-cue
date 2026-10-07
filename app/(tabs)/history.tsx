@@ -60,6 +60,7 @@ function formatPaceDisplay(paceMinutes: number | null): string {
 function SplitsTable({ splits }: { splits: IntervalSplit[] }) {
   const hasPace = splits.some((s) => s.avgPaceMinPerMile != null);
   const hasDist = splits.some((s) => s.distanceMeters != null);
+  const hasTarget = splits.some((s) => s.targetPace != null);
 
   return (
     <View style={splitStyles.container}>
@@ -70,6 +71,9 @@ function SplitsTable({ splits }: { splits: IntervalSplit[] }) {
         <Text style={[splitStyles.headerCell, splitStyles.labelCol]}>#</Text>
         <Text style={[splitStyles.headerCell, splitStyles.labelCol, { flex: 1 }]}>Interval</Text>
         <Text style={[splitStyles.headerCell, splitStyles.valueCol]}>Time</Text>
+        {hasTarget && (
+          <Text style={[splitStyles.headerCell, splitStyles.valueCol]}>Target</Text>
+        )}
         {hasPace && (
           <Text style={[splitStyles.headerCell, splitStyles.valueCol]}>Pace</Text>
         )}
@@ -127,6 +131,17 @@ function SplitsTable({ splits }: { splits: IntervalSplit[] }) {
             <Text style={[splitStyles.cell, splitStyles.valueCol, { fontVariant: ['tabular-nums'] }]}>
               {formatTime(actualSec)}
             </Text>
+            {hasTarget && (
+              <Text
+                style={[
+                  splitStyles.cell,
+                  splitStyles.valueCol,
+                  { color: Colors.textMuted, fontVariant: ['tabular-nums'] },
+                ]}
+              >
+                {split.targetPace != null ? formatPaceDisplay(split.targetPace) : '—'}
+              </Text>
+            )}
             {hasPace && (
               <Text
                 style={[
