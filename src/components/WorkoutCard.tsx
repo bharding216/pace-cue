@@ -20,6 +20,7 @@ import {
   BorderRadius,
   intervalColor,
 } from '../constants/theme';
+import { shareWorkoutStructure } from '../sharing/shareWorkout';
 
 interface WorkoutCardProps {
   workout: WorkoutDefinition;
@@ -101,6 +102,12 @@ export function WorkoutCard({
         </TouchableOpacity>
 
         <View style={styles.secondaryActions}>
+          <TouchableOpacity
+            onPress={() => shareWorkoutStructure(workout)}
+            style={styles.iconButton}
+          >
+            <Ionicons name="share-outline" size={20} color={Colors.textMuted} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={onEdit} style={styles.iconButton}>
             <Ionicons name="pencil-outline" size={20} color={Colors.textMuted} />
           </TouchableOpacity>

@@ -20,9 +20,10 @@ import ReanimatedSwipeable, {
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { CompletedWorkout, IntervalSplit, formatTime } from '../../src/workout/workoutTypes';
-import { loadHistory, clearHistory, deleteHistoryEntry } from '../../src/workout/workoutStorage';
+import { CompletedWorkout, WorkoutDefinition, IntervalSplit, formatTime } from '../../src/workout/workoutTypes';
+import { loadHistory, clearHistory, deleteHistoryEntry, loadWorkouts } from '../../src/workout/workoutStorage';
 import { exportData, importData } from '../../src/workout/backupManager';
+import { shareWorkoutResults } from '../../src/sharing/shareWorkout';
 import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../../src/constants/theme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -234,12 +235,19 @@ export default function HistoryScreen() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const swipeableRefs = useRef<Map<string, SwipeableMethods>>(new Map());
+  const workoutsRef = useRef<WorkoutDefinition[]>([]);
 
   useFocusEffect(
     useCallback(() => {
       loadHistory().then(setHistory);
+      loadWorkouts().then((w) => { workoutsRef.current = w; });
     }, [])
   );
+
+  const handleShare = (item: CompletedWorkout) => {
+    const def = workoutsRef.current.find((w) => w.id === item.workoutId) ?? null;
+    shareWorkoutResults(def, item);
+  };
 
   const handleClear = () => {
     Alert.alert(
@@ -453,11 +461,20 @@ export default function HistoryScreen() {
 
                       <TouchableOpacity
                         style={[styles.actionBtn, styles.actionBtnSecondary]}
+                        onPress={() => handleShare(item)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="share-outline" size={14} color={Colors.textPrimary} />
+                        <Text style={styles.actionBtnLabelSecondary}>Share</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.actionBtn, styles.actionBtnSecondary]}
                         onPress={() => router.push(`/workout/${item.workoutId}`)}
                         activeOpacity={0.7}
                       >
                         <Ionicons name="create-outline" size={14} color={Colors.textPrimary} />
-                        <Text style={styles.actionBtnLabelSecondary}>Edit Workout</Text>
+                        <Text style={styles.actionBtnLabelSecondary}>Edit</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
