@@ -134,6 +134,30 @@ create policy "Users can read own AI generations"
 create policy "Users can insert own AI generations"
   on ai_generations for insert with check (auth.uid() = user_id);
 
+-- ── AI Conversations (chat persistence) ─────────────────────
+
+create table if not exists ai_conversations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users on delete cascade not null,
+  title text not null default 'New Conversation',
+  messages jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index idx_ai_conversations_user_id on ai_conversations(user_id);
+create index idx_ai_conversations_updated_at on ai_conversations(updated_at desc);
+
+alter table ai_conversations enable row level security;
+create policy "Users can read own conversations"
+  on ai_conversations for select using (auth.uid() = user_id);
+create policy "Users can insert own conversations"
+  on ai_conversations for insert with check (auth.uid() = user_id);
+create policy "Users can update own conversations"
+  on ai_conversations for update using (auth.uid() = user_id);
+create policy "Users can delete own conversations"
+  on ai_conversations for delete using (auth.uid() = user_id);
+
 -- ── Cloud Workouts (sync) ───────────────────────────────────
 
 create table if not exists cloud_workouts (

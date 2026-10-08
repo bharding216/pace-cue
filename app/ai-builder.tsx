@@ -588,8 +588,14 @@ export default function AIBuilderScreen() {
   const { user } = useAuth();
   const { canUseAI, aiWorkoutsUsed, aiWorkoutsLimit, tier, incrementAIUsage } =
     useSubscription();
-  const { messages, setMessages, aiContext, setAiContext, clearConversation } =
-    useAIBuilder();
+  const {
+    messages,
+    setMessages,
+    aiContext,
+    setAiContext,
+    clearConversation,
+    loadingConversation,
+  } = useAIBuilder();
 
   const [input, setInput] = useState('');
   const [generating, setGenerating] = useState(false);
@@ -833,6 +839,14 @@ export default function AIBuilderScreen() {
             <View style={styles.typingIndicator}>
               <ActivityIndicator color={Colors.primary} size="small" />
               <Text style={styles.typingText}>Building your workout…</Text>
+            </View>
+          ) : null
+        }
+        ListEmptyComponent={
+          loadingConversation ? (
+            <View style={styles.typingIndicator}>
+              <ActivityIndicator color={Colors.textMuted} size="small" />
+              <Text style={styles.typingText}>Loading conversation…</Text>
             </View>
           ) : null
         }
