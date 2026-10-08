@@ -82,6 +82,11 @@ export async function saveWorkout(
 export async function deleteWorkout(id: string): Promise<void> {
   const existing = await loadWorkouts();
   await saveWorkouts(existing.filter((w) => w.id !== id));
+
+  // Track for cloud sync (lazy import to avoid circular deps)
+  import('../sync/cloudSync').then(({ trackWorkoutDeletion }) => {
+    trackWorkoutDeletion(id);
+  }).catch(() => {});
 }
 
 // ── History ──────────────────────────────────────────────────────────
@@ -109,6 +114,12 @@ export async function deleteHistoryEntry(id: string): Promise<CompletedWorkout[]
   const history = await loadHistory();
   const updated = history.filter((h) => h.id !== id);
   await AsyncStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(updated));
+
+  // Track for cloud sync
+  import('../sync/cloudSync').then(({ trackHistoryDeletion }) => {
+    trackHistoryDeletion(id);
+  }).catch(() => {});
+
   return updated;
 }
 

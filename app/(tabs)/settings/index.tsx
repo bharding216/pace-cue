@@ -19,6 +19,18 @@ interface SettingsCard {
 
 const CARDS: SettingsCard[] = [
   {
+    icon: 'person-outline',
+    title: 'Account',
+    description: 'Sign in, subscription, cloud sync',
+    route: '/(tabs)/settings/account',
+  },
+  {
+    icon: 'fitness-outline',
+    title: 'Running Profile',
+    description: 'Goals, experience, paces — powers AI workouts',
+    route: '/(tabs)/settings/profile',
+  },
+  {
     icon: 'volume-high-outline',
     title: 'Audio & Cues',
     description: 'Cue mode, voice, countdown warning, progress updates',
@@ -79,7 +91,7 @@ export default function SettingsHubScreen() {
           PaceCue v{Constants.expoConfig?.version ?? '?'}
         </Text>
         <Text style={styles.footerText}>
-          Built with ❤️ for runners who don't want subscriptions
+          Built with ❤️ for runners
         </Text>
       </View>
     </ScrollView>

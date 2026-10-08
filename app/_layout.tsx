@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { StatusBar } from 'expo-status-bar';
@@ -14,9 +14,13 @@ import {
 import { track } from '../src/analytics/track';
 import { decodeWorkoutLink } from '../src/sharing/shareWorkout';
 import { saveWorkout } from '../src/workout/workoutStorage';
+import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
+import { SubscriptionProvider } from '../src/contexts/SubscriptionContext';
+import { syncAll } from '../src/sync/cloudSync';
 
-export default function RootLayout() {
+function RootLayoutInner() {
   const router = useRouter();
+  const { user } = useAuth();
 
   // End any Live Activities orphaned by a force-kill during a workout.
   useEffect(() => {
@@ -27,6 +31,23 @@ export default function RootLayout() {
   useEffect(() => {
     track('app_opened');
   }, []);
+
+  // Cloud sync on foreground + when user changes
+  useEffect(() => {
+    if (!user) return;
+
+    // Sync immediately
+    syncAll(user.id);
+
+    // Sync again when app comes back to foreground
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && user) {
+        syncAll(user.id);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [user?.id]);
 
   // Handle incoming deep links for shared workout imports.
   useEffect(() => {
@@ -86,7 +107,7 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <>
       <StatusBar style="light" />
       <Stack
         screenOptions={{
@@ -117,7 +138,43 @@ export default function RootLayout() {
             gestureEnabled: false,
           }}
         />
+        <Stack.Screen
+          name="login"
+          options={{
+            title: 'Sign In',
+            presentation: 'modal',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="paywall"
+          options={{
+            title: 'PaceCue Pro',
+            presentation: 'modal',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="ai-builder"
+          options={{
+            title: 'AI Builder',
+            presentation: 'modal',
+            headerShown: false,
+          }}
+        />
       </Stack>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AuthProvider>
+        <SubscriptionProvider>
+          <RootLayoutInner />
+        </SubscriptionProvider>
+      </AuthProvider>
     </GestureHandlerRootView>
   );
 }

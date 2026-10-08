@@ -1,12 +1,16 @@
 /**
- * Supabase client for anonymous analytics.
+ * Supabase client — shared across analytics, auth, cloud sync, and AI.
  *
  * The anon key is safe to embed in client code — Supabase is designed
- * this way.  Row Level Security on the `events` table restricts the
- * client to INSERT-only; it cannot read, update, or delete rows.
+ * this way.  Row Level Security on each table restricts what the
+ * client can do based on the authenticated user (or anon role).
+ *
+ * Auth sessions are persisted via AsyncStorage so users stay signed in
+ * across app restarts.
  */
 
 import { createClient } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SUPABASE_URL = 'https://oakhqqrxsavmoeqlzcny.supabase.co';
 const SUPABASE_ANON_KEY =
@@ -14,8 +18,9 @@ const SUPABASE_ANON_KEY =
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    autoRefreshToken: false,
-    persistSession: false,
+    storage: AsyncStorage,
+    autoRefreshToken: true,
+    persistSession: true,
     detectSessionInUrl: false,
   },
 });

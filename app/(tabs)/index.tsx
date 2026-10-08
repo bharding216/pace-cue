@@ -17,14 +17,17 @@ import DraggableFlatList, {
   ScaleDecorator,
   RenderItemParams,
 } from 'react-native-draggable-flatlist';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { WorkoutDefinition } from '../../src/workout/workoutTypes';
 import { loadWorkouts, deleteWorkout, saveWorkouts } from '../../src/workout/workoutStorage';
 import { createPresets } from '../../src/workout/presets';
 import { WorkoutCard } from '../../src/components/WorkoutCard';
+import { useAuth } from '../../src/contexts/AuthContext';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -103,13 +106,31 @@ export default function HomeScreen() {
         }
       />
 
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push('/workout/new')}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.fabText}>+ New Workout</Text>
-      </TouchableOpacity>
+      {/* Bottom action buttons */}
+      <View style={styles.fabRow}>
+        <TouchableOpacity
+          style={styles.aiFab}
+          onPress={() => {
+            if (!user) {
+              router.push('/login' as any);
+            } else {
+              router.push('/ai-builder' as any);
+            }
+          }}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="sparkles" size={18} color={Colors.black} />
+          <Text style={styles.aiFabText}>AI Builder</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push('/workout/new')}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.fabText}>+ New Workout</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -158,11 +179,31 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: Spacing.xxl,
   },
-  fab: {
+  fabRow: {
     position: 'absolute',
     bottom: Spacing.lg,
     left: Spacing.lg,
     right: Spacing.lg,
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  aiFab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.accent,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    gap: Spacing.xs,
+  },
+  aiFabText: {
+    color: Colors.black,
+    fontSize: FontSize.md,
+    fontWeight: '800',
+  },
+  fab: {
+    flex: 1,
     backgroundColor: Colors.primary,
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.lg,

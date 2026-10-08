@@ -30,6 +30,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: false,
     bundleIdentifier: BUNDLE_ID,
+    usesAppleSignIn: true,
     entitlements: {
       'com.apple.security.application-groups': [APP_GROUP],
     },
