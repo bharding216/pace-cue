@@ -34,6 +34,11 @@ import {
   ChatMessage,
 } from '../src/ai/aiWorkoutService';
 import {
+  loadConversations,
+  deleteConversation,
+  StoredConversation,
+} from '../src/ai/conversationStorage';
+import {
   WorkoutDefinition,
   WorkoutRepeatBlock,
   WorkoutInterval,
@@ -580,6 +585,290 @@ const bubbleStyles = StyleSheet.create({
   },
 });
 
+// ── Conversation History Sheet ───────────────────────────────
+
+function ConversationHistorySheet({
+  visible,
+  onClose,
+  onSelect,
+  activeConversationId,
+  userId,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (convo: StoredConversation) => void;
+  activeConversationId: string | null;
+  userId: string | null;
+}) {
+  const insets = useSafeAreaInsets();
+  const [conversations, setConversations] = useState<StoredConversation[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!visible || !userId) return;
+    setLoading(true);
+    loadConversations(userId, 30)
+      .then(setConversations)
+      .finally(() => setLoading(false));
+  }, [visible, userId]);
+
+  const handleDelete = (convo: StoredConversation) => {
+    Alert.alert(
+      'Delete Conversation',
+      `Remove "${convo.title}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteConversation(convo.id);
+            setConversations((prev) => prev.filter((c) => c.id !== convo.id));
+          },
+        },
+      ],
+    );
+  };
+
+  const formatDate = (epoch: number) => {
+    const d = new Date(epoch);
+    const now = new Date();
+    const diffMs = now.getTime() - epoch;
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+
+    return d.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  const messagePreview = (convo: StoredConversation): string => {
+    const lastAssistant = [...convo.messages]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.id !== 'welcome');
+    if (lastAssistant) {
+      const text = lastAssistant.content;
+      return text.length > 60 ? text.slice(0, 57) + '…' : text;
+    }
+    return `${convo.messages.filter((m) => m.role === 'user').length} messages`;
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <View
+        style={[
+          historyStyles.container,
+          { paddingTop: insets.top },
+        ]}
+      >
+        {/* Header */}
+        <View style={historyStyles.header}>
+          <Text style={historyStyles.title}>Conversations</Text>
+          <TouchableOpacity
+            onPress={onClose}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Ionicons name="close" size={24} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* List */}
+        {loading ? (
+          <View style={historyStyles.centered}>
+            <ActivityIndicator color={Colors.primary} size="large" />
+          </View>
+        ) : conversations.length === 0 ? (
+          <View style={historyStyles.centered}>
+            <Ionicons name="chatbubbles-outline" size={48} color={Colors.textMuted} />
+            <Text style={historyStyles.emptyTitle}>No conversations yet</Text>
+            <Text style={historyStyles.emptyText}>
+              Your AI Builder chats will appear here.
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={conversations}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={historyStyles.list}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item }) => {
+              const isActive = item.id === activeConversationId;
+              return (
+                <TouchableOpacity
+                  style={[
+                    historyStyles.card,
+                    isActive && historyStyles.cardActive,
+                  ]}
+                  onPress={() => {
+                    onSelect(item);
+                    onClose();
+                  }}
+                  onLongPress={() => handleDelete(item)}
+                  activeOpacity={0.7}
+                >
+                  <View style={historyStyles.cardRow}>
+                    <View style={historyStyles.cardContent}>
+                      <View style={historyStyles.titleRow}>
+                        <Text
+                          style={[
+                            historyStyles.cardTitle,
+                            isActive && historyStyles.cardTitleActive,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {item.title}
+                        </Text>
+                        {isActive && (
+                          <View style={historyStyles.activeBadge}>
+                            <Text style={historyStyles.activeBadgeText}>Current</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={historyStyles.preview} numberOfLines={2}>
+                        {messagePreview(item)}
+                      </Text>
+                    </View>
+                    <View style={historyStyles.cardMeta}>
+                      <Text style={historyStyles.date}>
+                        {formatDate(item.updatedAt)}
+                      </Text>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={14}
+                        color={Colors.textMuted}
+                      />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            }}
+            ListFooterComponent={
+              <Text style={historyStyles.hint}>
+                Long press to delete a conversation
+              </Text>
+            }
+          />
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+const historyStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceLight,
+  },
+  title: {
+    fontSize: FontSize.lg,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+  },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+  },
+  emptyTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  emptyText: {
+    fontSize: FontSize.md,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
+  list: {
+    padding: Spacing.md,
+  },
+  card: {
+    backgroundColor: Colors.card,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  cardActive: {
+    borderColor: Colors.primary + '60',
+  },
+  cardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardContent: {
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: 4,
+  },
+  cardTitle: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    flexShrink: 1,
+  },
+  cardTitleActive: {
+    color: Colors.primary,
+  },
+  activeBadge: {
+    backgroundColor: Colors.primary + '22',
+    paddingHorizontal: Spacing.xs + 2,
+    paddingVertical: 1,
+    borderRadius: BorderRadius.sm,
+  },
+  activeBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  preview: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  cardMeta: {
+    alignItems: 'flex-end',
+    gap: Spacing.xs,
+  },
+  date: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  hint: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginTop: Spacing.sm,
+    paddingBottom: Spacing.lg,
+  },
+});
+
 // ── Main Screen ─────────────────────────────────────────────
 
 export default function AIBuilderScreen() {
@@ -594,12 +883,15 @@ export default function AIBuilderScreen() {
     aiContext,
     setAiContext,
     clearConversation,
+    switchToConversation,
+    activeConversationId,
     loadingConversation,
   } = useAIBuilder();
 
   const [input, setInput] = useState('');
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<{
     messageId: string;
     workout: WorkoutDefinition;
@@ -781,12 +1073,25 @@ export default function AIBuilderScreen() {
     >
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Ionicons name="close" size={28} color={Colors.textSecondary} />
-        </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Ionicons name="close" size={28} color={Colors.textSecondary} />
+          </TouchableOpacity>
+          {user && (
+            <TouchableOpacity
+              onPress={() => setShowHistory(true)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.historyBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="chatbubbles-outline" size={14} color={Colors.textSecondary} />
+              <Text style={styles.historyBtnText}>History</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <View style={styles.headerCenter}>
           <Ionicons name="sparkles" size={18} color={Colors.primary} />
           <Text style={styles.headerTitle}>AI Builder</Text>
@@ -919,6 +1224,15 @@ export default function AIBuilderScreen() {
           </View>
         </Modal>
       )}
+
+      {/* Conversation history */}
+      <ConversationHistorySheet
+        visible={showHistory}
+        onClose={() => setShowHistory(false)}
+        onSelect={switchToConversation}
+        activeConversationId={activeConversationId}
+        userId={user?.id ?? null}
+      />
     </View>
   );
 }
@@ -938,6 +1252,11 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.surfaceLight,
     backgroundColor: Colors.background,
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
   headerCenter: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -952,6 +1271,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
+  },
+  historyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: Spacing.xs + 2,
+    paddingHorizontal: Spacing.sm + 2,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  historyBtnText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textSecondary,
   },
   newChatBtn: {
     flexDirection: 'row',

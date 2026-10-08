@@ -23,6 +23,7 @@ import {
   createConversation,
   updateConversation,
   loadLatestConversation,
+  StoredConversation,
 } from '../ai/conversationStorage';
 import { useAuth } from './AuthContext';
 
@@ -32,6 +33,10 @@ interface AIBuilderState {
   aiContext: AIContext | null;
   setAiContext: React.Dispatch<React.SetStateAction<AIContext | null>>;
   clearConversation: () => void;
+  /** Switch to a previously stored conversation */
+  switchToConversation: (convo: StoredConversation) => void;
+  /** The active conversation's Supabase row ID (null = unsaved new chat) */
+  activeConversationId: string | null;
   /** True while the initial cloud load is in progress */
   loadingConversation: boolean;
 }
@@ -135,6 +140,12 @@ export function AIBuilderProvider({ children }: { children: React.ReactNode }) {
     setMessages([{ ...WELCOME_MESSAGE, timestamp: Date.now() }]);
   }, []);
 
+  // ── Switch to a stored conversation ───────────────────────
+  const switchToConversation = useCallback((convo: StoredConversation) => {
+    conversationIdRef.current = convo.id;
+    setMessages(convo.messages);
+  }, []);
+
   return (
     <AIBuilderContext.Provider
       value={{
@@ -143,6 +154,8 @@ export function AIBuilderProvider({ children }: { children: React.ReactNode }) {
         aiContext,
         setAiContext,
         clearConversation,
+        switchToConversation,
+        activeConversationId: conversationIdRef.current,
         loadingConversation,
       }}
     >
