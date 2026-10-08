@@ -127,6 +127,21 @@ export async function clearHistory(): Promise<void> {
   await AsyncStorage.removeItem(STORAGE_KEYS.HISTORY);
 }
 
+/**
+ * Wipe all user-specific data from local storage.
+ * Called on sign-out or account switch so the next user
+ * starts with a clean slate before cloud sync pulls their data.
+ */
+export async function clearAllUserData(): Promise<void> {
+  await AsyncStorage.multiRemove([
+    STORAGE_KEYS.WORKOUTS,
+    STORAGE_KEYS.HISTORY,
+    '@pacecue/last_sync',
+    '@pacecue/deleted_workout_ids',
+    '@pacecue/deleted_history_ids',
+  ]);
+}
+
 // ── Settings ─────────────────────────────────────────────────────────
 
 export async function loadSettings(): Promise<AppSettings> {

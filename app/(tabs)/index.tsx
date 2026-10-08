@@ -3,7 +3,7 @@
  * Workouts can be reordered by long-pressing and dragging.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import { loadWorkouts, deleteWorkout, saveWorkouts } from '../../src/workout/wor
 import { createPresets } from '../../src/workout/presets';
 import { WorkoutCard } from '../../src/components/WorkoutCard';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { onSyncStatusChange } from '../../src/sync/cloudSync';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 
 export default function HomeScreen() {
@@ -31,19 +32,28 @@ export default function HomeScreen() {
   const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const reload = useCallback(async () => {
+    let data = await loadWorkouts();
+    if (data.length === 0) {
+      data = createPresets();
+      await saveWorkouts(data);
+    }
+    setWorkouts(data);
+    setLoading(false);
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      (async () => {
-        let data = await loadWorkouts();
-        if (data.length === 0) {
-          data = createPresets();
-          await saveWorkouts(data);
-        }
-        setWorkouts(data);
-        setLoading(false);
-      })();
-    }, [])
+      reload();
+    }, [user?.id, reload])
   );
+
+  // Reload after cloud sync finishes so new-user data appears immediately
+  useEffect(() => {
+    return onSyncStatusChange((status) => {
+      if (status === 'success') reload();
+    });
+  }, [reload]);
 
   const handleDelete = async (id: string) => {
     await deleteWorkout(id);

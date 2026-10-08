@@ -2,7 +2,7 @@
  * History screen — shows completed workouts.
  */
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,8 @@ import { CompletedWorkout, WorkoutDefinition, IntervalSplit, formatTime } from '
 import { loadHistory, clearHistory, deleteHistoryEntry, loadWorkouts } from '../../src/workout/workoutStorage';
 import { exportData, importData } from '../../src/workout/backupManager';
 import { shareWorkoutResults } from '../../src/sharing/shareWorkout';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { onSyncStatusChange } from '../../src/sync/cloudSync';
 import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../../src/constants/theme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -237,12 +239,25 @@ export default function HistoryScreen() {
   const swipeableRefs = useRef<Map<string, SwipeableMethods>>(new Map());
   const workoutsRef = useRef<WorkoutDefinition[]>([]);
 
+  const { user } = useAuth();
+
+  const reload = useCallback(() => {
+    loadHistory().then(setHistory);
+    loadWorkouts().then((w) => { workoutsRef.current = w; });
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      loadHistory().then(setHistory);
-      loadWorkouts().then((w) => { workoutsRef.current = w; });
-    }, [])
+      reload();
+    }, [user?.id, reload])
   );
+
+  // Reload after cloud sync finishes so new-user data appears immediately
+  useEffect(() => {
+    return onSyncStatusChange((status) => {
+      if (status === 'success') reload();
+    });
+  }, [reload]);
 
   const handleShare = (item: CompletedWorkout) => {
     const def = workoutsRef.current.find((w) => w.id === item.workoutId) ?? null;

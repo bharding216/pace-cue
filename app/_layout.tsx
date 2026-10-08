@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Alert, AppState } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
@@ -13,7 +13,7 @@ import {
 } from '../src/announcements/announcementService';
 import { track } from '../src/analytics/track';
 import { decodeWorkoutLink, resolveShareCode } from '../src/sharing/shareWorkout';
-import { saveWorkout } from '../src/workout/workoutStorage';
+import { saveWorkout, clearAllUserData } from '../src/workout/workoutStorage';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { SubscriptionProvider } from '../src/contexts/SubscriptionContext';
 import { AIBuilderProvider } from '../src/contexts/AIBuilderContext';
@@ -22,6 +22,7 @@ import { syncAll } from '../src/sync/cloudSync';
 function RootLayoutInner() {
   const router = useRouter();
   const { user } = useAuth();
+  const prevUserIdRef = useRef<string | null>(null);
 
   // End any Live Activities orphaned by a force-kill during a workout.
   useEffect(() => {
@@ -33,12 +34,29 @@ function RootLayoutInner() {
     track('app_opened');
   }, []);
 
-  // Cloud sync on foreground + when user changes
+  // Cloud sync on foreground + when user changes.
+  // Clear local data when switching between accounts so the new user
+  // doesn't see stale workouts/history from the previous account.
   useEffect(() => {
-    if (!user) return;
+    const prevId = prevUserIdRef.current;
+    prevUserIdRef.current = user?.id ?? null;
 
-    // Sync immediately
-    syncAll(user.id);
+    if (!user) {
+      // Signed out — clear local data so it doesn't leak to the next user
+      if (prevId) {
+        clearAllUserData();
+      }
+      return;
+    }
+
+    const run = async () => {
+      // Different user than before — wipe local cache first
+      if (prevId && prevId !== user.id) {
+        await clearAllUserData();
+      }
+      syncAll(user.id);
+    };
+    run();
 
     // Sync again when app comes back to foreground
     const subscription = AppState.addEventListener('change', (state) => {
