@@ -16,7 +16,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { supabase } from '../../../src/analytics/supabaseClient';
@@ -64,6 +64,27 @@ const EXPERIENCE_LEVELS: { value: ExperienceLevel; label: string; desc: string }
 ];
 
 const DURATION_OPTIONS = [20, 30, 45, 60, 90];
+
+// ── Pace helpers (decimal ↔ MM:SS) ──────────────────────────
+
+/** Convert decimal minutes (e.g. 8.5) → "8:30" */
+function paceToMMSS(decimal: number): string {
+  const mins = Math.floor(decimal);
+  const secs = Math.round((decimal - mins) * 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+/** Convert "8:30" → 8.5, or return null if invalid */
+function mmSSToPace(text: string): number | null {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (!match) return null;
+  const mins = parseInt(match[1], 10);
+  const secs = parseInt(match[2], 10);
+  if (secs >= 60) return null;
+  const decimal = mins + secs / 60;
+  return decimal > 0 ? parseFloat(decimal.toFixed(2)) : null;
+}
 
 // ── Preference Section ──────────────────────────────────────
 
@@ -125,7 +146,7 @@ function PreferenceSection({
       </View>
 
       {showPresets && availablePresets.length > 0 && (
-        <View style={styles.chipRow}>
+        <View style={[styles.chipRow, { marginBottom: Spacing.sm }]}>
           {availablePresets.map((p) => (
             <TouchableOpacity
               key={p}
@@ -172,10 +193,15 @@ function PreferenceSection({
 // ── Main Screen ─────────────────────────────────────────────
 
 export default function RunningProfileScreen() {
+  const router = useRouter();
   const { user } = useAuth();
   const [profile, setProfile] = useState<RunningProfile | null>(null);
   const [preferences, setPreferences] = useState<RunningPreference[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Local state for pace text fields (saved on blur, not every keystroke)
+  const [easyPaceText, setEasyPaceText] = useState('');
+  const [fastPaceText, setFastPaceText] = useState('');
 
   const fetchData = useCallback(async () => {
     if (!user) return;
@@ -185,7 +211,7 @@ export default function RunningProfileScreen() {
         .from('running_profiles')
         .select('*')
         .eq('user_id', user.id)
-        .single(),
+        .maybeSingle(),
       supabase
         .from('running_preferences')
         .select('*')
@@ -194,6 +220,8 @@ export default function RunningProfileScreen() {
     ]);
 
     setProfile(profileData);
+    setEasyPaceText(profileData?.easy_pace != null ? paceToMMSS(profileData.easy_pace) : '');
+    setFastPaceText(profileData?.fast_pace != null ? paceToMMSS(profileData.fast_pace) : '');
     setPreferences(prefData ?? []);
     setLoading(false);
   }, [user]);
@@ -207,29 +235,95 @@ export default function RunningProfileScreen() {
   const updateProfile = async (updates: Partial<RunningProfile>) => {
     if (!user) return;
 
-    if (profile) {
-      await supabase
-        .from('running_profiles')
-        .update(updates)
-        .eq('user_id', user.id);
-    } else {
-      await supabase.from('running_profiles').insert({
-        user_id: user.id,
-        ...updates,
-      });
+    // Optimistic update so UI responds instantly
+    setProfile((prev) =>
+      prev
+        ? { ...prev, ...updates }
+        : ({
+            id: '',
+            user_id: user.id,
+            experience_level: 'beginner' as ExperienceLevel,
+            typical_run_minutes: null,
+            easy_pace: null,
+            fast_pace: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            ...updates,
+          } as RunningProfile),
+    );
+
+    const { error } = profile
+      ? await supabase
+          .from('running_profiles')
+          .update(updates)
+          .eq('user_id', user.id)
+      : await supabase.from('running_profiles').insert({
+          user_id: user.id,
+          ...updates,
+        });
+
+    if (error) {
+      Alert.alert('Error', error.message);
     }
+    // Sync with DB to get the canonical row (including generated id / timestamps)
     fetchData();
+  };
+
+  const savePace = (field: 'easy_pace' | 'fast_pace', text: string) => {
+    const trimmed = text.trim();
+    if (trimmed === '') {
+      updateProfile({ [field]: null });
+      return;
+    }
+    const decimal = mmSSToPace(trimmed);
+    if (decimal != null) {
+      updateProfile({ [field]: decimal });
+    } else {
+      Alert.alert('Invalid pace', 'Enter pace as M:SS or MM:SS (e.g. 8:30)');
+    }
   };
 
   if (!user) {
     return (
-      <View style={styles.centered}>
-        <Ionicons name="person-outline" size={48} color={Colors.textMuted} />
-        <Text style={styles.emptyTitle}>Sign in to set up your profile</Text>
-        <Text style={styles.emptyText}>
-          Your running profile helps the AI build better workouts for you.
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.emptyContent}
+      >
+        <View style={styles.emptyHero}>
+          <Ionicons name="person-outline" size={48} color={Colors.textMuted} />
+          <Text style={styles.emptyTitle}>Your Running Profile</Text>
+          <Text style={styles.emptyText}>
+            Set your goals, experience level, and training preferences so our
+            AI can create workouts designed to help you meet your goals.
+          </Text>
+        </View>
+
+        <View style={styles.emptyFeatures}>
+          {[
+            { icon: 'fitness-outline' as const, text: 'Experience level & typical run duration' },
+            { icon: 'speedometer-outline' as const, text: 'Easy and fast pace targets' },
+            { icon: 'trophy-outline' as const, text: 'Personal running goals' },
+            { icon: 'options-outline' as const, text: 'Training style preferences' },
+          ].map((item) => (
+            <View key={item.text} style={styles.emptyFeatureRow}>
+              <Ionicons name={item.icon} size={20} color={Colors.primary} />
+              <Text style={styles.emptyFeatureText}>{item.text}</Text>
+            </View>
+          ))}
+        </View>
+
+        <TouchableOpacity
+          style={styles.signInButton}
+          onPress={() => router.push('/login')}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.signInButtonText}>Sign In to Get Started</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.emptyFooter}>
+          Sign in to save your profile and unlock AI-powered workouts.
         </Text>
-      </View>
+      </ScrollView>
     );
   }
 
@@ -319,25 +413,20 @@ export default function RunningProfileScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Your Paces (min/mile)</Text>
         <Text style={styles.sectionSub}>
-          Helps the AI set realistic target paces for your intervals.
+          Enter as minutes:seconds — e.g. 9:30 means 9 min 30 sec per mile.
         </Text>
         <View style={styles.paceRow}>
           <View style={styles.paceInput}>
             <Text style={styles.paceLabel}>Easy pace</Text>
             <TextInput
               style={styles.paceField}
-              value={
-                profile?.easy_pace != null
-                  ? String(profile.easy_pace)
-                  : ''
-              }
-              onChangeText={(text) => {
-                const num = parseFloat(text);
-                if (!isNaN(num)) updateProfile({ easy_pace: num });
-              }}
-              placeholder="e.g. 10.0"
+              value={easyPaceText}
+              onChangeText={setEasyPaceText}
+              onBlur={() => savePace('easy_pace', easyPaceText)}
+              onSubmitEditing={() => savePace('easy_pace', easyPaceText)}
+              placeholder="e.g. 10:00"
               placeholderTextColor={Colors.textMuted}
-              keyboardType="decimal-pad"
+              keyboardType="numbers-and-punctuation"
               returnKeyType="done"
             />
           </View>
@@ -345,18 +434,13 @@ export default function RunningProfileScreen() {
             <Text style={styles.paceLabel}>Fast pace</Text>
             <TextInput
               style={styles.paceField}
-              value={
-                profile?.fast_pace != null
-                  ? String(profile.fast_pace)
-                  : ''
-              }
-              onChangeText={(text) => {
-                const num = parseFloat(text);
-                if (!isNaN(num)) updateProfile({ fast_pace: num });
-              }}
-              placeholder="e.g. 7.5"
+              value={fastPaceText}
+              onChangeText={setFastPaceText}
+              onBlur={() => savePace('fast_pace', fastPaceText)}
+              onSubmitEditing={() => savePace('fast_pace', fastPaceText)}
+              placeholder="e.g. 7:30"
               placeholderTextColor={Colors.textMuted}
-              keyboardType="decimal-pad"
+              keyboardType="numbers-and-punctuation"
               returnKeyType="done"
             />
           </View>
@@ -396,6 +480,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     padding: Spacing.xl,
   },
+  emptyContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+    paddingBottom: Spacing.xxl * 2,
+  },
+  emptyHero: {
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+  },
   emptyTitle: {
     fontSize: FontSize.lg,
     fontWeight: '700',
@@ -405,9 +500,47 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: FontSize.sm,
-    color: Colors.textMuted,
+    color: Colors.textSecondary,
     marginTop: Spacing.sm,
     textAlign: 'center',
+    lineHeight: 20,
+  },
+  emptyFeatures: {
+    alignSelf: 'stretch',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.lg,
+    gap: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  emptyFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  emptyFeatureText: {
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    flex: 1,
+  },
+  signInButton: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl * 2,
+    alignSelf: 'stretch',
+  },
+  signInButtonText: {
+    color: Colors.black,
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  emptyFooter: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginTop: Spacing.md,
   },
   section: {
     marginBottom: Spacing.xl,

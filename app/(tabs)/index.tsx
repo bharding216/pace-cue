@@ -90,14 +90,46 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         activationDistance={0}
         ListHeaderComponent={
-          <View style={styles.hero}>
-            <Image
-              source={require('../../assets/icon.png')}
-              style={styles.heroLogo}
-            />
-            <Text style={styles.heroTitle}>PaceCue</Text>
-            <Text style={styles.heroSub}>Interval running, your way.</Text>
-          </View>
+          <>
+            {/* Compact hero */}
+            <View style={styles.hero}>
+              <Image
+                source={require('../../assets/icon.png')}
+                style={styles.heroLogo}
+              />
+              <View>
+                <Text style={styles.heroTitle}>PaceCue</Text>
+                <Text style={styles.heroSub}>Interval running, your way.</Text>
+              </View>
+            </View>
+
+            {/* Action buttons */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.aiFab}
+                onPress={() => {
+                  if (!user) {
+                    router.push('/login' as any);
+                  } else {
+                    router.push('/ai-builder' as any);
+                  }
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="sparkles" size={16} color={Colors.black} />
+                <Text style={styles.aiFabText}>AI Builder</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.newBtn}
+                onPress={() => router.push('/workout/new')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add" size={18} color={Colors.black} />
+                <Text style={styles.newBtnText}>New Workout</Text>
+              </TouchableOpacity>
+            </View>
+          </>
         }
         ListEmptyComponent={
           <Text style={styles.emptyText}>
@@ -105,32 +137,6 @@ export default function HomeScreen() {
           </Text>
         }
       />
-
-      {/* Bottom action buttons */}
-      <View style={styles.fabRow}>
-        <TouchableOpacity
-          style={styles.aiFab}
-          onPress={() => {
-            if (!user) {
-              router.push('/login' as any);
-            } else {
-              router.push('/ai-builder' as any);
-            }
-          }}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="sparkles" size={18} color={Colors.black} />
-          <Text style={styles.aiFabText}>AI Builder</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={() => router.push('/workout/new')}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.fabText}>+ New Workout</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -148,70 +154,70 @@ const styles = StyleSheet.create({
   },
   list: {
     padding: Spacing.md,
-    paddingBottom: 100,
+    paddingBottom: Spacing.xxl,
   },
   hero: {
-    marginBottom: Spacing.lg,
-    paddingTop: Spacing.md,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: Spacing.md,
+    marginBottom: Spacing.md,
+    paddingTop: Spacing.sm,
   },
   heroLogo: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    marginBottom: Spacing.sm,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
   },
   heroTitle: {
-    fontSize: 36,
+    fontSize: FontSize.xl,
     fontWeight: '900',
     color: Colors.primary,
     letterSpacing: 1,
   },
   heroSub: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.xs,
     color: Colors.textSecondary,
-    marginTop: Spacing.xs,
-    textAlign: 'center',
+    marginTop: 1,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
+  aiFab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.accent,
+    paddingVertical: Spacing.sm + 4,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+  },
+  aiFabText: {
+    color: Colors.black,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+  },
+  newBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.sm + 4,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+  },
+  newBtnText: {
+    color: Colors.black,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
   },
   emptyText: {
     color: Colors.textMuted,
     fontSize: FontSize.md,
     textAlign: 'center',
     marginTop: Spacing.xxl,
-  },
-  fabRow: {
-    position: 'absolute',
-    bottom: Spacing.lg,
-    left: Spacing.lg,
-    right: Spacing.lg,
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  aiFab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.accent,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    gap: Spacing.xs,
-  },
-  aiFabText: {
-    color: Colors.black,
-    fontSize: FontSize.md,
-    fontWeight: '800',
-  },
-  fab: {
-    flex: 1,
-    backgroundColor: Colors.primary,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    alignItems: 'center',
-  },
-  fabText: {
-    color: Colors.black,
-    fontSize: FontSize.lg,
-    fontWeight: '800',
   },
 });

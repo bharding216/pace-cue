@@ -1,0 +1,8 @@
+{
+  "name": "pacecue-share",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "routes": [
+    { "pattern": "pacecue.dev/*", "zone_name": "pacecue.dev" }
+  ]
+}

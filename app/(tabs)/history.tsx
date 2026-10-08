@@ -423,15 +423,25 @@ export default function HistoryScreen() {
               <TouchableOpacity
                 style={[styles.card, isExpanded && styles.cardExpanded]}
                 onPress={() => toggleExpand(item.id)}
-                activeOpacity={0.7}
+                activeOpacity={0.6}
               >
-                <View style={styles.cardRow}>
-                  <Text style={styles.workoutName}>{item.workoutName}</Text>
-                  <Text style={styles.date}>{formatDate(item.completedAt)}</Text>
-                </View>
-                <Text style={styles.durationText}>
-                  {formatDuration(item.totalDurationMs)}
-                </Text>
+                <View style={styles.cardAccent} />
+                <View style={styles.cardContent}>
+                  <View style={styles.cardRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.workoutName}>{item.workoutName}</Text>
+                    </View>
+                    <Text style={styles.date}>{formatDate(item.completedAt)}</Text>
+                    <Ionicons
+                      name={isExpanded ? 'chevron-up' : 'chevron-forward'}
+                      size={16}
+                      color={Colors.textMuted}
+                      style={styles.chevron}
+                    />
+                  </View>
+                  <Text style={styles.durationText}>
+                    {formatDuration(item.totalDurationMs)}
+                  </Text>
 
                 {isExpanded && (
                   <View style={styles.expandedSection}>
@@ -477,8 +487,9 @@ export default function HistoryScreen() {
                         <Text style={styles.actionBtnLabelSecondary}>Edit</Text>
                       </TouchableOpacity>
                     </View>
-                  </View>
+                    </View>
                 )}
+                </View>
               </TouchableOpacity>
             </ReanimatedSwipeable>
           );
@@ -564,16 +575,29 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.card,
     borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-  },
-  cardExpanded: {
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
+    flexDirection: 'row',
+    overflow: 'hidden',
+  },
+  cardExpanded: {
+    borderColor: Colors.primary + '44',
+  },
+  cardAccent: {
+    width: 4,
+    backgroundColor: Colors.primary,
+  },
+  cardContent: {
+    flex: 1,
+    padding: Spacing.md,
   },
   cardRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  chevron: {
+    marginLeft: Spacing.sm,
   },
   workoutName: {
     fontSize: FontSize.md,

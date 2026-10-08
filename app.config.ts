@@ -33,6 +33,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     usesAppleSignIn: true,
     entitlements: {
       'com.apple.security.application-groups': [APP_GROUP],
+      'com.apple.developer.associated-domains': ['applinks:pacecue.dev'],
     },
     infoPlist: {
       UIBackgroundModes: ['audio', 'location'],
@@ -62,6 +63,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'android.permission.ACCESS_FINE_LOCATION',
       'android.permission.ACCESS_COARSE_LOCATION',
       'android.permission.ACCESS_BACKGROUND_LOCATION',
+    ],
+    intentFilters: [
+      {
+        action: 'VIEW',
+        autoVerify: true,
+        data: [{ scheme: 'https', host: 'pacecue.dev', pathPrefix: '/w/' }],
+        category: ['BROWSABLE', 'DEFAULT'],
+      },
     ],
   },
   web: {

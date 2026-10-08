@@ -191,7 +191,7 @@ export default function PaywallScreen() {
                     selectedPlan === 'annual' && styles.planSavingsSelected,
                   ]}
                 >
-                  {`${(showAnnual.price / 12).toFixed(2)}/mo`}
+                  {`$${(showAnnual.price / 12).toFixed(2)}/mo`}
                 </Text>
               )}
             </TouchableOpacity>

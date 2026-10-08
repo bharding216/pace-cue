@@ -35,6 +35,7 @@ export default function EditWorkoutScreen() {
   return (
     <WorkoutEditorForm
       initial={workout}
+      autoSave
       onSave={async (updated) => {
         await saveWorkout({ ...updated, updatedAt: Date.now() });
         track('workout_saved', {
@@ -42,7 +43,6 @@ export default function EditWorkoutScreen() {
           workout_name: updated.name,
           is_copy: false,
         });
-        router.back();
       }}
       onSaveAsNew={async (updated) => {
         const now = Date.now();

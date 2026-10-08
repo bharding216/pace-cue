@@ -16,10 +16,11 @@ import {
   TouchableOpacity,
   StyleSheet,
   FlatList,
-  KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Alert,
+  Keyboard,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -34,10 +35,14 @@ import {
 } from '../src/ai/aiWorkoutService';
 import {
   WorkoutDefinition,
+  WorkoutRepeatBlock,
+  WorkoutInterval,
   flattenWorkout,
   formatTime,
   totalWorkoutSeconds,
 } from '../src/workout/workoutTypes';
+import { formatPaceDisplay } from '../src/pace/paceTracker';
+import { WorkoutEditorForm } from '../src/components/WorkoutEditorForm';
 import { saveWorkout } from '../src/workout/workoutStorage';
 import { track } from '../src/analytics/track';
 import {
@@ -48,58 +53,344 @@ import {
   intervalColor,
 } from '../src/constants/theme';
 
+// ── Helpers ─────────────────────────────────────────────────
+
+function intervalLabel(interval: WorkoutInterval): string {
+  if (interval.label) return interval.label;
+  switch (interval.type) {
+    case 'warmup': return 'Warm Up';
+    case 'cooldown': return 'Cool Down';
+    case 'hard': return 'Hard';
+    case 'easy': return 'Easy';
+  }
+}
+
+function effortPreviewColor(effort: number): string {
+  if (effort <= 3) return Colors.accent;
+  if (effort <= 6) return '#F59E0B';
+  if (effort <= 8) return '#F97316';
+  return Colors.danger;
+}
+
+// ── Section Preview (warmup / intervals / cooldown) ─────────
+
+function SectionPreview({
+  label,
+  blocks,
+}: {
+  label: string;
+  blocks: WorkoutRepeatBlock[];
+}) {
+  if (blocks.length === 0) return null;
+
+  // Determine which optional columns are needed across all intervals
+  const allIntervals = blocks.flatMap((b) => b.intervals);
+  const hasEffort = allIntervals.some((i) => i.effort != null);
+  const hasPace = allIntervals.some((i) => i.targetPace != null);
+
+  return (
+    <View style={sectionStyles.container}>
+      <Text style={sectionStyles.label}>{label}</Text>
+
+      {/* Column headers */}
+      <View style={sectionStyles.colHeaderRow}>
+        <View style={sectionStyles.colHeaderSpacer} />
+        <Text style={sectionStyles.colHeaderName}>Interval</Text>
+        <View style={sectionStyles.intervalMeta}>
+          <Text style={[sectionStyles.colHeader, { minWidth: 40 }]}>
+            Length
+          </Text>
+          {hasEffort && (
+            <Text style={[sectionStyles.colHeader, { minWidth: 30 }]}>
+              Effort
+            </Text>
+          )}
+          {hasPace && (
+            <Text style={[sectionStyles.colHeader, { minWidth: 52 }]}>
+              Pace
+            </Text>
+          )}
+        </View>
+      </View>
+
+      {blocks.map((block, bi) => (
+        <View key={bi} style={sectionStyles.block}>
+          {(blocks.length > 1 || block.repeatCount > 1 || block.name) && (
+            <View style={sectionStyles.blockHeader}>
+              {block.name ? (
+                <Text style={sectionStyles.blockName}>{block.name}</Text>
+              ) : blocks.length > 1 ? (
+                <Text style={sectionStyles.blockName}>Block {bi + 1}</Text>
+              ) : null}
+              {block.repeatCount > 1 && (
+                <View style={sectionStyles.repeatBadge}>
+                  <Text style={sectionStyles.repeatText}>×{block.repeatCount}</Text>
+                </View>
+              )}
+            </View>
+          )}
+          {block.intervals.map((interval, ii) => (
+            <View key={ii} style={sectionStyles.intervalRow}>
+              <View
+                style={[
+                  sectionStyles.dot,
+                  { backgroundColor: intervalColor(interval.type) },
+                ]}
+              />
+              <Text style={sectionStyles.intervalName} numberOfLines={1}>
+                {intervalLabel(interval)}
+              </Text>
+              <View style={sectionStyles.intervalMeta}>
+                <Text style={sectionStyles.intervalDuration}>
+                  {formatTime(interval.durationSeconds)}
+                </Text>
+                {hasEffort && (
+                  <Text
+                    style={[
+                      sectionStyles.effort,
+                      interval.effort != null
+                        ? { color: effortPreviewColor(interval.effort) }
+                        : { color: Colors.textMuted },
+                    ]}
+                  >
+                    {interval.effort != null ? `${interval.effort}/10` : '—'}
+                  </Text>
+                )}
+                {hasPace && (
+                  <Text
+                    style={[
+                      sectionStyles.pace,
+                      interval.targetPace == null && { color: Colors.textMuted },
+                    ]}
+                  >
+                    {interval.targetPace != null
+                      ? `${formatPaceDisplay(interval.targetPace)}/mi`
+                      : '—'}
+                  </Text>
+                )}
+              </View>
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const sectionStyles = StyleSheet.create({
+  container: {
+    marginTop: Spacing.sm,
+  },
+  label: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.textMuted,
+    letterSpacing: 1,
+    marginBottom: Spacing.xs,
+  },
+  colHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingBottom: Spacing.xs,
+    marginBottom: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.surfaceLight,
+  },
+  colHeaderSpacer: {
+    width: 8,
+  },
+  colHeaderName: {
+    flex: 1,
+    fontSize: 10,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  colHeader: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    textAlign: 'right',
+  },
+  block: {
+    backgroundColor: Colors.background + '80',
+    borderRadius: BorderRadius.sm,
+    padding: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  blockHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  blockName: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  repeatBadge: {
+    backgroundColor: Colors.primary + '22',
+    paddingHorizontal: Spacing.xs + 2,
+    paddingVertical: 1,
+    borderRadius: BorderRadius.sm,
+  },
+  repeatText: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  intervalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 3,
+    gap: Spacing.sm,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  intervalName: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    fontWeight: '500',
+  },
+  intervalMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  intervalDuration: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    fontVariant: ['tabular-nums'],
+    minWidth: 40,
+    textAlign: 'right',
+  },
+  effort: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    minWidth: 30,
+    textAlign: 'right',
+  },
+  pace: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.accent,
+    minWidth: 52,
+    textAlign: 'right',
+  },
+});
+
 // ── Inline Workout Preview ──────────────────────────────────
 
 function WorkoutPreview({
   workout,
   onSave,
+  onEdit,
   saving,
 }: {
   workout: WorkoutDefinition;
   onSave: () => void;
+  onEdit: () => void;
   saving: boolean;
 }) {
+  const [expanded, setExpanded] = useState(true);
   const intervals = flattenWorkout(workout);
   const totalSecs = totalWorkoutSeconds(workout);
 
   return (
     <View style={previewStyles.container}>
-      <Text style={previewStyles.name}>{workout.name}</Text>
-      <Text style={previewStyles.summary}>
-        {formatTime(totalSecs)} · {intervals.length} interval
-        {intervals.length !== 1 ? 's' : ''}
-      </Text>
-
-      <View style={previewStyles.dots}>
-        {intervals.slice(0, 30).map((int, i) => (
-          <View
-            key={i}
-            style={[
-              previewStyles.dot,
-              { backgroundColor: intervalColor(int.type) },
-            ]}
-          />
-        ))}
-        {intervals.length > 30 && (
-          <Text style={previewStyles.moreText}>+{intervals.length - 30}</Text>
-        )}
-      </View>
-
+      {/* Collapsible header */}
       <TouchableOpacity
-        style={[previewStyles.saveBtn, saving && previewStyles.saveBtnDisabled]}
-        onPress={onSave}
-        disabled={saving}
+        style={previewStyles.header}
+        onPress={() => setExpanded((v) => !v)}
         activeOpacity={0.8}
       >
-        {saving ? (
-          <ActivityIndicator color={Colors.black} size="small" />
-        ) : (
-          <>
-            <Ionicons name="add-circle" size={18} color={Colors.black} />
-            <Text style={previewStyles.saveBtnText}>Save to My Workouts</Text>
-          </>
-        )}
+        <View style={previewStyles.headerLeft}>
+          <Text style={previewStyles.name}>{workout.name}</Text>
+          <Text style={previewStyles.summary}>
+            {formatTime(totalSecs)} · {intervals.length} interval
+            {intervals.length !== 1 ? 's' : ''}
+          </Text>
+        </View>
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={Colors.textMuted}
+        />
       </TouchableOpacity>
+
+      {/* Detailed interval breakdown */}
+      {expanded && (
+        <View style={previewStyles.details}>
+          <SectionPreview label="WARM UP" blocks={workout.warmup} />
+          <SectionPreview label="INTERVALS" blocks={workout.blocks} />
+          <SectionPreview label="COOL DOWN" blocks={workout.cooldown} />
+        </View>
+      )}
+
+      {/* Collapsed dot summary */}
+      {!expanded && (
+        <View style={previewStyles.dots}>
+          {intervals.slice(0, 30).map((int, i) => (
+            <View
+              key={i}
+              style={[
+                previewStyles.dot,
+                { backgroundColor: intervalColor(int.type) },
+              ]}
+            />
+          ))}
+          {intervals.length > 30 && (
+            <Text style={previewStyles.moreText}>+{intervals.length - 30}</Text>
+          )}
+        </View>
+      )}
+
+      {/* Action buttons */}
+      <View style={previewStyles.actions}>
+        <TouchableOpacity
+          style={previewStyles.editBtn}
+          onPress={onEdit}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="create-outline" size={16} color={Colors.accent} />
+          <Text style={previewStyles.editBtnText}>Edit</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            previewStyles.saveBtn,
+            saving && previewStyles.saveBtnDisabled,
+          ]}
+          onPress={onSave}
+          disabled={saving}
+          activeOpacity={0.8}
+        >
+          {saving ? (
+            <ActivityIndicator color={Colors.black} size="small" />
+          ) : (
+            <>
+              <Ionicons name="add-circle" size={16} color={Colors.black} />
+              <Text style={previewStyles.saveBtnText}>Save to My Workouts</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Hint */}
+      <Text style={previewStyles.hint}>
+        💡 Ask me to adjust anything, or tap Edit to tweak manually
+      </Text>
     </View>
   );
 }
@@ -113,6 +404,14 @@ const previewStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.primary + '40',
   },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  headerLeft: {
+    flex: 1,
+  },
   name: {
     fontSize: FontSize.md,
     fontWeight: '700',
@@ -122,6 +421,12 @@ const previewStyles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
     marginTop: 2,
+  },
+  details: {
+    marginTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceLight,
+    paddingTop: Spacing.sm,
   },
   dots: {
     flexDirection: 'row',
@@ -140,14 +445,36 @@ const previewStyles = StyleSheet.create({
     alignSelf: 'center',
     marginLeft: 4,
   },
+  actions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
+  },
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceLight,
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+    borderWidth: 1,
+    borderColor: Colors.accent + '40',
+  },
+  editBtnText: {
+    color: Colors.accent,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
   saveBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Colors.primary,
     paddingVertical: Spacing.sm + 2,
     borderRadius: BorderRadius.md,
-    marginTop: Spacing.md,
     gap: Spacing.xs,
   },
   saveBtnDisabled: {
@@ -158,6 +485,13 @@ const previewStyles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: '700',
   },
+  hint: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginTop: Spacing.sm,
+    lineHeight: 16,
+  },
 });
 
 // ── Chat Message Bubble ─────────────────────────────────────
@@ -165,10 +499,12 @@ const previewStyles = StyleSheet.create({
 function MessageBubble({
   message,
   onSaveWorkout,
+  onEditWorkout,
   saving,
 }: {
   message: ChatMessage;
   onSaveWorkout: (workout: WorkoutDefinition) => void;
+  onEditWorkout: (workout: WorkoutDefinition) => void;
   saving: boolean;
 }) {
   const isUser = message.role === 'user';
@@ -200,6 +536,7 @@ function MessageBubble({
         <WorkoutPreview
           workout={message.workout}
           onSave={() => onSaveWorkout(message.workout!)}
+          onEdit={() => onEditWorkout(message.workout!)}
           saving={saving}
         />
       )}
@@ -257,6 +594,10 @@ export default function AIBuilderScreen() {
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [aiContext, setAiContext] = useState<AIContext | null>(null);
+  const [editingWorkout, setEditingWorkout] = useState<{
+    messageId: string;
+    workout: WorkoutDefinition;
+  } | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   // Load running profile context on mount
@@ -292,6 +633,27 @@ export default function AIBuilderScreen() {
 
     loadContext();
   }, [user]);
+
+  // Track keyboard height (includes suggestion bar) so we can
+  // manually offset the input — KeyboardAvoidingView breaks in modals.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Show welcome message
   useEffect(() => {
@@ -386,11 +748,34 @@ export default function AIBuilderScreen() {
     [incrementAIUsage, router],
   );
 
+  const handleUpdateWorkout = useCallback(
+    (messageId: string, updatedWorkout: WorkoutDefinition) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, workout: { ...updatedWorkout, updatedAt: Date.now() } }
+            : m,
+        ),
+      );
+    },
+    [],
+  );
+
+  const handleEditWorkout = useCallback(
+    (messageId: string, workout: WorkoutDefinition) => {
+      setEditingWorkout({ messageId, workout });
+    },
+    [],
+  );
+
+  const keyboardOpen = keyboardHeight > 0;
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
+    <View
+      style={[
+        styles.container,
+        keyboardOpen && { paddingBottom: keyboardHeight },
+      ]}
     >
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
@@ -422,13 +807,19 @@ export default function AIBuilderScreen() {
           <MessageBubble
             message={item}
             onSaveWorkout={handleSaveWorkout}
+            onEditWorkout={(workout) => handleEditWorkout(item.id, workout)}
             saving={saving}
           />
         )}
         contentContainerStyle={styles.messagesList}
         showsVerticalScrollIndicator={false}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
         onContentSizeChange={() =>
           flatListRef.current?.scrollToEnd({ animated: true })
+        }
+        onLayout={() =>
+          flatListRef.current?.scrollToEnd({ animated: false })
         }
         ListFooterComponent={
           generating ? (
@@ -441,7 +832,7 @@ export default function AIBuilderScreen() {
       />
 
       {/* Input */}
-      <View style={[styles.inputContainer, { paddingBottom: insets.bottom + Spacing.sm }]}>
+      <View style={[styles.inputContainer, { paddingBottom: keyboardOpen ? Spacing.sm : insets.bottom + Spacing.sm }]}>
         <TextInput
           style={styles.input}
           value={input}
@@ -477,7 +868,37 @@ export default function AIBuilderScreen() {
           />
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+
+      {/* Edit workout modal */}
+      {editingWorkout && (
+        <Modal visible animationType="slide" presentationStyle="pageSheet">
+          <View
+            style={[
+              styles.editModal,
+              { paddingTop: insets.top },
+            ]}
+          >
+            <View style={styles.editModalHeader}>
+              <Text style={styles.editModalTitle}>Edit Workout</Text>
+              <TouchableOpacity
+                onPress={() => setEditingWorkout(null)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons name="close" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <WorkoutEditorForm
+              initial={editingWorkout.workout}
+              onSave={(updated) => {
+                handleUpdateWorkout(editingWorkout.messageId, updated);
+                setEditingWorkout(null);
+              }}
+              onCancel={() => setEditingWorkout(null)}
+            />
+          </View>
+        </Modal>
+      )}
+    </View>
   );
 }
 
@@ -568,5 +989,23 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: {
     backgroundColor: Colors.surface,
+  },
+  editModal: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceLight,
+  },
+  editModalTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '800',
+    color: Colors.textPrimary,
   },
 });

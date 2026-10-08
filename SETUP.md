@@ -276,6 +276,12 @@ The workout intervals should match the `WorkoutInterval` type:
 { type: 'hard' | 'easy' | 'warmup' | 'cooldown', durationSeconds: number, label?: string, effort?: number, targetPace?: number }
 ```
 
+**Important:** `effort` and `targetPace` are mutually exclusive per interval.
+Each interval should have at most one — either an effort rating (1–10 RPE) or a
+target pace (min/mile), never both. If the user's profile includes pace data, prefer
+`targetPace` for hard/tempo intervals. Otherwise default to `effort`. The client
+will strip `targetPace` if both are returned on the same interval.
+
 ### `revenuecat-webhook`
 Receives RevenueCat webhook events and upserts the `subscriptions` table.
 

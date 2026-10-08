@@ -2,7 +2,7 @@
  * Shared workout editor form used by both "new" and "edit" screens.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -39,13 +39,18 @@ interface Props {
   onSave: (workout: WorkoutDefinition) => void;
   onSaveAsNew?: (workout: WorkoutDefinition) => void;
   onCancel: () => void;
+  /** When true, auto-saves on every change (for editing existing workouts). */
+  autoSave?: boolean;
 }
 
-export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel }: Props) {
+export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, autoSave }: Props) {
   const [name, setName] = useState(initial.name);
   const [warmup, setWarmup] = useState(initial.warmup);
   const [blocks, setBlocks] = useState(initial.blocks);
   const [cooldown, setCooldown] = useState(initial.cooldown);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstRender = useRef(true);
 
   const current: WorkoutDefinition = {
     ...initial,
@@ -54,6 +59,30 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel }: Pr
     blocks,
     cooldown,
   };
+
+  // Auto-save with debounce when editing existing workouts
+  useEffect(() => {
+    if (!autoSave) return;
+
+    // Skip auto-save on initial mount
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(() => {
+      if (!name.trim()) return;
+      onSave({ ...initial, name, warmup, blocks, cooldown });
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 1500);
+    }, 600);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [name, warmup, blocks, cooldown, autoSave]);
 
   const handleSave = () => {
     if (!name.trim()) {
@@ -156,11 +185,38 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel }: Pr
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
+    <View style={styles.container}>
+      {/* Sticky auto-save header (edit mode only) */}
+      {autoSave && (
+        <View style={styles.autoSaveHeader}>
+          <View style={styles.autoSaveStatus}>
+            {saveStatus === 'saved' ? (
+              <>
+                <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
+                <Text style={styles.autoSaveText}>Saved</Text>
+              </>
+            ) : (
+              <Text style={styles.autoSaveTextIdle}>Auto-saves as you edit</Text>
+            )}
+          </View>
+          {onSaveAsNew && (
+            <TouchableOpacity
+              style={styles.saveAsNewHeaderBtn}
+              onPress={handleSaveAsNew}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="copy-outline" size={14} color={Colors.accent} />
+              <Text style={styles.saveAsNewHeaderText}>Save as New</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
       {/* Name */}
       <Text style={styles.label}>Workout Name</Text>
       <TextInput
@@ -233,35 +289,27 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel }: Pr
         </Text>
       </View>
 
-      {/* Actions */}
-      <View style={styles.actions}>
-        <TouchableOpacity
-          style={styles.saveBtn}
-          onPress={handleSave}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.saveBtnText}>
-            {onSaveAsNew ? 'Save' : 'Save Workout'}
-          </Text>
-        </TouchableOpacity>
-        {onSaveAsNew && (
+      {/* Actions — only shown for new workout creation */}
+      {!autoSave && (
+        <View style={styles.actions}>
           <TouchableOpacity
-            style={styles.saveAsNewBtn}
-            onPress={handleSaveAsNew}
+            style={styles.saveBtn}
+            onPress={handleSave}
             activeOpacity={0.8}
           >
-            <Text style={styles.saveAsNewBtnText}>Save as New Workout</Text>
+            <Text style={styles.saveBtnText}>Save Workout</Text>
           </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          style={styles.cancelBtn}
-          onPress={onCancel}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.cancelBtnText}>Cancel</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={styles.cancelBtn}
+            onPress={onCancel}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </ScrollView>
+    </View>
   );
 }
 
@@ -456,14 +504,11 @@ function BlockList({
                   </TouchableOpacity>
                 </View>
 
-                <EffortPicker
+                <IntensityPicker
                   effort={interval.effort}
-                  onChange={(e) => updateInt(setter, bi, ii, { effort: e })}
-                />
-
-                <TargetPacePicker
-                  pace={interval.targetPace}
-                  onChange={(p) => updateInt(setter, bi, ii, { targetPace: p })}
+                  targetPace={interval.targetPace}
+                  onChangeEffort={(e) => updateInt(setter, bi, ii, { effort: e })}
+                  onChangePace={(p) => updateInt(setter, bi, ii, { targetPace: p })}
                 />
               </View>
             </View>
@@ -614,7 +659,7 @@ const pickerStyles = StyleSheet.create({
   },
 });
 
-// ── Effort picker sub-component ───────────────────────────────────────
+// ── Intensity picker (effort OR pace — mutually exclusive) ────────────
 
 const EFFORT_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 
@@ -625,110 +670,275 @@ function effortColor(effort: number): string {
   return Colors.danger;
 }
 
-function EffortPicker({
+function IntensityPicker({
   effort,
-  onChange,
+  targetPace,
+  onChangeEffort,
+  onChangePace,
 }: {
   effort?: number;
-  onChange: (e: number | undefined) => void;
+  targetPace?: number;
+  onChangeEffort: (e: number | undefined) => void;
+  onChangePace: (p: number | undefined) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [mode, setMode] = useState<'effort' | 'pace' | null>(
+    effort != null ? 'effort' : targetPace != null ? 'pace' : null,
+  );
+  const [editingPace, setEditingPace] = useState(false);
+  const [editMins, setEditMins] = useState('');
+  const [editSecs, setEditSecs] = useState('');
 
-  if (!expanded && effort == null) {
-    return (
-      <TouchableOpacity
-        style={effortStyles.addBtn}
-        onPress={() => {
-          hapticTap();
-          setExpanded(true);
-        }}
-        activeOpacity={0.7}
-      >
-        <Text style={effortStyles.addBtnText}>+ Effort</Text>
-      </TouchableOpacity>
-    );
-  }
+  const toggleMode = (m: 'effort' | 'pace') => {
+    hapticTap();
+    if (mode === m) {
+      // Deselect current mode
+      setMode(null);
+      if (m === 'effort') onChangeEffort(undefined);
+      else {
+        onChangePace(undefined);
+        setEditingPace(false);
+      }
+    } else {
+      // Switch to new mode — clear the other
+      setMode(m);
+      if (m === 'effort') {
+        onChangePace(undefined);
+        setEditingPace(false);
+      } else {
+        onChangeEffort(undefined);
+        if (targetPace != null) {
+          const mins = Math.floor(targetPace);
+          const secs = Math.round((targetPace - mins) * 60);
+          setEditMins(mins.toString());
+          setEditSecs(secs.toString().padStart(2, '0'));
+        } else {
+          setEditMins('8');
+          setEditSecs('00');
+        }
+        setEditingPace(true);
+      }
+    }
+  };
+
+  const confirmPace = () => {
+    const m = parseInt(editMins, 10) || 0;
+    const s = parseInt(editSecs, 10) || 0;
+    if (m === 0 && s === 0) {
+      onChangePace(undefined);
+      setMode(null);
+      setEditingPace(false);
+      return;
+    }
+    onChangePace(m + Math.min(59, s) / 60);
+    setEditingPace(false);
+  };
+
+  const startEditPace = () => {
+    if (targetPace != null) {
+      const mins = Math.floor(targetPace);
+      const secs = Math.round((targetPace - mins) * 60);
+      setEditMins(mins.toString());
+      setEditSecs(secs.toString().padStart(2, '0'));
+    }
+    setEditingPace(true);
+  };
 
   return (
-    <View style={effortStyles.container}>
-      <View style={effortStyles.row}>
-        <Text style={effortStyles.label}>Effort</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={effortStyles.chips}
+    <View style={ipStyles.container}>
+      {/* Mode toggle */}
+      <View style={ipStyles.toggleRow}>
+        <TouchableOpacity
+          style={[
+            ipStyles.toggleBtn,
+            mode === 'effort' && {
+              borderColor: Colors.warning,
+              backgroundColor: Colors.warning + '18',
+            },
+          ]}
+          onPress={() => toggleMode('effort')}
+          activeOpacity={0.7}
         >
-          {EFFORT_VALUES.map((val) => {
-            const isActive = effort === val;
-            const color = effortColor(val);
-            return (
+          <Ionicons
+            name="flame-outline"
+            size={12}
+            color={mode === 'effort' ? Colors.warning : Colors.textMuted}
+          />
+          <Text
+            style={[
+              ipStyles.toggleText,
+              mode === 'effort' && { color: Colors.warning },
+            ]}
+          >
+            Effort
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            ipStyles.toggleBtn,
+            mode === 'pace' && {
+              borderColor: Colors.accent,
+              backgroundColor: Colors.accent + '18',
+            },
+          ]}
+          onPress={() => toggleMode('pace')}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name="speedometer-outline"
+            size={12}
+            color={mode === 'pace' ? Colors.accent : Colors.textMuted}
+          />
+          <Text
+            style={[
+              ipStyles.toggleText,
+              mode === 'pace' && { color: Colors.accent },
+            ]}
+          >
+            Pace
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Effort chips */}
+      {mode === 'effort' && (
+        <View style={ipStyles.pickerContent}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={ipStyles.effortChips}
+          >
+            {EFFORT_VALUES.map((val) => {
+              const isActive = effort === val;
+              const color = effortColor(val);
+              return (
+                <TouchableOpacity
+                  key={val}
+                  style={[
+                    ipStyles.effortChip,
+                    isActive && {
+                      borderColor: color,
+                      backgroundColor: color + '22',
+                    },
+                  ]}
+                  onPress={() => {
+                    hapticTap();
+                    onChangeEffort(isActive ? undefined : val);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      ipStyles.effortChipText,
+                      isActive && { color },
+                    ]}
+                  >
+                    {val}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          {effort != null && (
+            <Text
+              style={[ipStyles.summary, { color: effortColor(effort) }]}
+            >
+              {effort}/10 effort
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* Pace input */}
+      {mode === 'pace' && (
+        <View style={ipStyles.pickerContent}>
+          {editingPace ? (
+            <View style={ipStyles.paceEditRow}>
+              <TextInput
+                style={ipStyles.paceInput}
+                value={editMins}
+                onChangeText={setEditMins}
+                keyboardType="number-pad"
+                maxLength={2}
+                selectTextOnFocus
+                autoFocus
+                placeholder="M"
+                placeholderTextColor={Colors.textMuted}
+              />
+              <Text style={ipStyles.paceColon}>:</Text>
+              <TextInput
+                style={ipStyles.paceInput}
+                value={editSecs}
+                onChangeText={setEditSecs}
+                keyboardType="number-pad"
+                maxLength={2}
+                selectTextOnFocus
+                placeholder="SS"
+                placeholderTextColor={Colors.textMuted}
+              />
+              <Text style={ipStyles.paceUnit}>/mi</Text>
               <TouchableOpacity
-                key={val}
-                style={[
-                  effortStyles.chip,
-                  isActive && { borderColor: color, backgroundColor: color + '22' },
-                ]}
-                onPress={() => {
-                  hapticTap();
-                  onChange(isActive ? undefined : val);
-                  if (isActive) setExpanded(false);
-                }}
+                onPress={confirmPace}
+                style={ipStyles.paceDoneBtn}
+              >
+                <Ionicons name="checkmark" size={18} color={Colors.primary} />
+              </TouchableOpacity>
+            </View>
+          ) : targetPace != null ? (
+            <View style={ipStyles.paceDisplayRow}>
+              <Ionicons
+                name="speedometer-outline"
+                size={14}
+                color={Colors.accent}
+              />
+              <TouchableOpacity
+                onPress={startEditPace}
                 activeOpacity={0.7}
               >
-                <Text
-                  style={[
-                    effortStyles.chipText,
-                    isActive && { color },
-                  ]}
-                >
-                  {val}
+                <Text style={ipStyles.paceValue}>
+                  {formatPaceDisplay(targetPace)}/mi
                 </Text>
               </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-        {effort != null && (
-          <TouchableOpacity
-            onPress={() => {
-              hapticTap();
-              onChange(undefined);
-              setExpanded(false);
-            }}
-            style={effortStyles.clearBtn}
-            hitSlop={8}
-          >
-            <Ionicons name="close-circle" size={16} color={Colors.textMuted} />
-          </TouchableOpacity>
-        )}
-      </View>
-      {effort != null && (
-        <Text style={[effortStyles.summary, { color: effortColor(effort) }]}>
-          {effort}/10 effort
-        </Text>
+            </View>
+          ) : null}
+        </View>
       )}
     </View>
   );
 }
 
-const effortStyles = StyleSheet.create({
+const ipStyles = StyleSheet.create({
   container: {
     marginTop: 4,
   },
-  row: {
+  toggleRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  toggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
+    gap: 4,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    backgroundColor: Colors.surfaceLight,
   },
-  label: {
+  toggleText: {
     fontSize: FontSize.xs,
-    color: Colors.textMuted,
     fontWeight: '600',
+    color: Colors.textMuted,
   },
-  chips: {
+  pickerContent: {
+    marginTop: Spacing.xs,
+  },
+  effortChips: {
     flexDirection: 'row',
     gap: 4,
   },
-  chip: {
+  effortChip: {
     width: 28,
     height: 28,
     borderRadius: 14,
@@ -738,183 +948,22 @@ const effortStyles = StyleSheet.create({
     borderColor: Colors.surfaceLight,
     backgroundColor: Colors.surfaceLight,
   },
-  chipText: {
+  effortChipText: {
     fontSize: FontSize.xs,
     fontWeight: '700',
     color: Colors.textSecondary,
-  },
-  clearBtn: {
-    marginLeft: 2,
-  },
-  addBtn: {
-    marginTop: 4,
-    paddingVertical: 4,
-  },
-  addBtnText: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontWeight: '600',
   },
   summary: {
     fontSize: FontSize.xs,
     fontWeight: '700',
     marginTop: 2,
   },
-});
-
-// ── Target pace picker sub-component ─────────────────────────────────
-
-function TargetPacePicker({
-  pace,
-  onChange,
-}: {
-  pace?: number;
-  onChange: (p: number | undefined) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [editMins, setEditMins] = useState('');
-  const [editSecs, setEditSecs] = useState('');
-
-  if (!expanded && pace == null) {
-    return (
-      <TouchableOpacity
-        style={tpStyles.addBtn}
-        onPress={() => {
-          hapticTap();
-          setExpanded(true);
-          setEditMins('8');
-          setEditSecs('00');
-        }}
-        activeOpacity={0.7}
-      >
-        <Text style={tpStyles.addBtnText}>+ Target Pace</Text>
-      </TouchableOpacity>
-    );
-  }
-
-  const displayValue = pace != null ? formatPaceDisplay(pace) : '--:--';
-
-  if (expanded || pace != null) {
-    const startEdit = () => {
-      if (pace != null) {
-        const mins = Math.floor(pace);
-        const secs = Math.round((pace - mins) * 60);
-        setEditMins(mins.toString());
-        setEditSecs(secs.toString().padStart(2, '0'));
-      } else {
-        setEditMins('8');
-        setEditSecs('00');
-      }
-      setExpanded(true);
-    };
-
-    if (expanded) {
-      const confirmEdit = () => {
-        const m = parseInt(editMins, 10) || 0;
-        const s = parseInt(editSecs, 10) || 0;
-        if (m === 0 && s === 0) {
-          onChange(undefined);
-          setExpanded(false);
-          return;
-        }
-        const totalMinutes = m + Math.min(59, s) / 60;
-        onChange(totalMinutes);
-        setExpanded(false);
-      };
-
-      return (
-        <View style={tpStyles.container}>
-          <View style={tpStyles.row}>
-            <Ionicons name="speedometer-outline" size={14} color={Colors.accent} />
-            <Text style={tpStyles.label}>Target Pace</Text>
-            <TextInput
-              style={tpStyles.editInput}
-              value={editMins}
-              onChangeText={setEditMins}
-              keyboardType="number-pad"
-              maxLength={2}
-              selectTextOnFocus
-              autoFocus
-              placeholder="M"
-              placeholderTextColor={Colors.textMuted}
-            />
-            <Text style={tpStyles.editColon}>:</Text>
-            <TextInput
-              style={tpStyles.editInput}
-              value={editSecs}
-              onChangeText={setEditSecs}
-              keyboardType="number-pad"
-              maxLength={2}
-              selectTextOnFocus
-              placeholder="SS"
-              placeholderTextColor={Colors.textMuted}
-            />
-            <Text style={tpStyles.unitLabel}>/mi</Text>
-            <TouchableOpacity onPress={confirmEdit} style={tpStyles.doneBtn}>
-              <Ionicons name="checkmark" size={18} color={Colors.primary} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      );
-    }
-
-    return (
-      <View style={tpStyles.container}>
-        <View style={tpStyles.row}>
-          <Ionicons name="speedometer-outline" size={14} color={Colors.accent} />
-          <Text style={tpStyles.label}>Target</Text>
-          <TouchableOpacity onPress={startEdit} activeOpacity={0.7}>
-            <Text style={tpStyles.valueText}>{displayValue}/mi</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => {
-              hapticTap();
-              onChange(undefined);
-              setExpanded(false);
-            }}
-            style={tpStyles.clearBtn}
-            hitSlop={8}
-          >
-            <Ionicons name="close-circle" size={16} color={Colors.textMuted} />
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  return null;
-}
-
-const tpStyles = StyleSheet.create({
-  container: {
-    marginTop: 4,
-  },
-  row: {
+  paceEditRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
   },
-  label: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontWeight: '600',
-  },
-  addBtn: {
-    marginTop: 4,
-    paddingVertical: 4,
-  },
-  addBtnText: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontWeight: '600',
-  },
-  valueText: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.accent,
-    fontVariant: ['tabular-nums'],
-  },
-  editInput: {
+  paceInput: {
     backgroundColor: Colors.surfaceLight,
     color: Colors.textPrimary,
     fontSize: FontSize.lg,
@@ -928,17 +977,17 @@ const tpStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.accent,
   },
-  editColon: {
+  paceColon: {
     color: Colors.textSecondary,
     fontSize: FontSize.lg,
     fontWeight: '700',
   },
-  unitLabel: {
+  paceUnit: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
     fontWeight: '600',
   },
-  doneBtn: {
+  paceDoneBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -947,8 +996,16 @@ const tpStyles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 2,
   },
-  clearBtn: {
-    marginLeft: 2,
+  paceDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  paceValue: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.accent,
+    fontVariant: ['tabular-nums'],
   },
 });
 
@@ -1105,9 +1162,52 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
+  scrollView: {
+    flex: 1,
+  },
   content: {
     padding: Spacing.lg,
     paddingBottom: Spacing.xxl * 2,
+  },
+  autoSaveHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm + 2,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceLight,
+    backgroundColor: Colors.background,
+  },
+  autoSaveStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  autoSaveText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  autoSaveTextIdle: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  saveAsNewHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.surface,
+    paddingVertical: Spacing.xs + 2,
+    paddingHorizontal: Spacing.sm + 2,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.accent + '40',
+  },
+  saveAsNewHeaderText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.accent,
   },
   label: {
     fontSize: FontSize.sm,

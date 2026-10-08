@@ -105,14 +105,26 @@ export function WorkoutCard({
           <TouchableOpacity
             onPress={() => shareWorkoutStructure(workout)}
             style={styles.iconButton}
+            hitSlop={8}
+            activeOpacity={0.6}
           >
-            <Ionicons name="share-outline" size={20} color={Colors.textMuted} />
+            <Ionicons name="share-outline" size={22} color={Colors.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={onEdit} style={styles.iconButton}>
-            <Ionicons name="pencil-outline" size={20} color={Colors.textMuted} />
+          <TouchableOpacity
+            onPress={onEdit}
+            style={styles.iconButton}
+            hitSlop={8}
+            activeOpacity={0.6}
+          >
+            <Ionicons name="pencil-outline" size={22} color={Colors.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleDelete} style={styles.iconButton}>
-            <Ionicons name="trash-outline" size={20} color={Colors.textMuted} />
+          <TouchableOpacity
+            onPress={handleDelete}
+            style={styles.iconButton}
+            hitSlop={8}
+            activeOpacity={0.6}
+          >
+            <Ionicons name="trash-outline" size={22} color={Colors.danger} />
           </TouchableOpacity>
         </View>
       </View>
@@ -195,9 +207,15 @@ const styles = StyleSheet.create({
   },
   secondaryActions: {
     flexDirection: 'row',
-    gap: Spacing.sm,
+    gap: Spacing.xs,
   },
   iconButton: {
-    padding: Spacing.sm,
+    padding: Spacing.sm + 2,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.sm,
+    minWidth: 42,
+    minHeight: 42,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
   },
 });

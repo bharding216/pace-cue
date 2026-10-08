@@ -12,7 +12,7 @@ import {
   dismissAnnouncement,
 } from '../src/announcements/announcementService';
 import { track } from '../src/analytics/track';
-import { decodeWorkoutLink } from '../src/sharing/shareWorkout';
+import { decodeWorkoutLink, resolveShareCode } from '../src/sharing/shareWorkout';
 import { saveWorkout } from '../src/workout/workoutStorage';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { SubscriptionProvider } from '../src/contexts/SubscriptionContext';
@@ -52,9 +52,17 @@ function RootLayoutInner() {
   // Handle incoming deep links for shared workout imports.
   useEffect(() => {
     const handleUrl = async (url: string) => {
-      if (!url.includes('workout/import')) return;
+      // Support HTTPS links (pacecue.dev/w/<code>), custom-scheme short links
+      // (pacecue://w/<code>), and legacy base64 links (pacecue://workout/import?d=...)
+      const shortMatch = url.match(/\/w\/([A-Za-z0-9]{4,16})$/);
+      const isLegacy = url.includes('workout/import');
 
-      const workout = decodeWorkoutLink(url);
+      if (!shortMatch && !isLegacy) return;
+
+      const workout = shortMatch
+        ? await resolveShareCode(shortMatch[1])
+        : decodeWorkoutLink(url);
+
       if (!workout) {
         Alert.alert('Invalid Link', 'Could not read the shared workout.');
         return;

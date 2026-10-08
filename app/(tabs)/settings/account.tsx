@@ -114,19 +114,32 @@ export default function AccountScreen() {
       </View>
 
       {/* Sync status */}
-      <View style={styles.row}>
-        <Ionicons name="cloud-done-outline" size={20} color={syncColor} />
-        <Text style={[styles.rowLabel, { color: syncColor }]}>
-          Cloud sync: {syncLabel}
+      <View style={styles.syncBlock}>
+        <View style={styles.row}>
+          <Ionicons name="cloud-done-outline" size={20} color={syncColor} />
+          <Text style={[styles.rowLabel, { color: syncColor }]}>
+            Cloud sync: {syncLabel}
+          </Text>
+        </View>
+        <Text style={styles.syncHint}>
+          Your workouts and settings are backed up to the cloud so they stay
+          safe and available if you switch devices.
         </Text>
       </View>
 
       {/* AI Usage */}
       {aiWorkoutsLimit != null && (
-        <View style={styles.row}>
-          <Ionicons name="sparkles" size={20} color={Colors.accent} />
-          <Text style={styles.rowLabel}>
-            AI workouts this month: {aiWorkoutsUsed} / {aiWorkoutsLimit}
+        <View style={styles.syncBlock}>
+          <View style={styles.row}>
+            <Ionicons name="sparkles" size={20} color={Colors.accent} />
+            <Text style={styles.rowLabel}>
+              AI workouts this month: {aiWorkoutsUsed} / {aiWorkoutsLimit}
+            </Text>
+          </View>
+          <Text style={styles.syncHint}>
+            Each workout you save from the AI builder counts toward your
+            monthly limit. Editing or deleting a saved workout doesn't use
+            another credit.
           </Text>
         </View>
       )}
@@ -249,6 +262,16 @@ const styles = StyleSheet.create({
   },
   tierBadgeTextPro: {
     color: Colors.primary,
+  },
+  syncBlock: {
+    marginBottom: Spacing.xs,
+  },
+  syncHint: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
+    marginLeft: 20 + Spacing.sm,
+    lineHeight: 16,
   },
   row: {
     flexDirection: 'row',

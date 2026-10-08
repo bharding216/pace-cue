@@ -5,9 +5,12 @@
  *  1. Share workout structure (from Home) — text summary + deep link
  *  2. Share workout results (from History) — text summary with splits + deep link
  *
- * Deep links use the `pacecue://` scheme to let recipients import workouts
- * directly into their app. The workout definition is JSON-encoded and
- * base64-encoded into the URL.
+ * Share links are HTTPS URLs pointing to a Supabase Edge Function that
+ * serves a landing page. The page lets recipients open the workout in the
+ * app (via deep link) or download from the App Store / Play Store.
+ *
+ * Falls back to a legacy `pacecue://` deep link with base64-encoded data
+ * if the Supabase upload fails.
  */
 
 import { Share, Platform } from 'react-native';
@@ -22,6 +25,7 @@ import {
   generateId,
 } from '../workout/workoutTypes';
 import { track } from '../analytics/track';
+import { supabase } from '../analytics/supabaseClient';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -75,15 +79,15 @@ function describeBlock(block: WorkoutRepeatBlock): string {
   return joined;
 }
 
-/** Icon for interval type. */
-function phaseIcon(phase: 'warmup' | 'blocks' | 'cooldown'): string {
+/** Label for a workout phase. */
+function phaseLabel(phase: 'warmup' | 'blocks' | 'cooldown'): string {
   switch (phase) {
     case 'warmup':
-      return '🔥';
+      return 'Warm-up';
     case 'blocks':
-      return '💪';
+      return 'Main Sets';
     case 'cooldown':
-      return '🧊';
+      return 'Cooldown';
   }
 }
 
@@ -95,24 +99,24 @@ export function formatWorkoutText(def: WorkoutDefinition): string {
   const totalSecs = intervals.reduce((s, i) => s + i.durationSeconds, 0);
 
   const lines: string[] = [
-    `🏃 ${def.name} — PaceCue Workout`,
+    `${def.name} — PaceCue Workout`,
     '',
-    `⏱ ${fmtDur(totalSecs)} total · ${intervals.length} interval${intervals.length !== 1 ? 's' : ''}`,
+    `${fmtDur(totalSecs)} total · ${intervals.length} interval${intervals.length !== 1 ? 's' : ''}`,
     '',
   ];
 
   if (def.warmup.length > 0) {
-    const warmupLines = def.warmup.map((b) => `${phaseIcon('warmup')} ${describeBlock(b)}`);
+    const warmupLines = def.warmup.map((b) => `${phaseLabel('warmup')}: ${describeBlock(b)}`);
     lines.push(...warmupLines);
   }
 
   if (def.blocks.length > 0) {
-    const blockLines = def.blocks.map((b) => `${phaseIcon('blocks')} ${describeBlock(b)}`);
+    const blockLines = def.blocks.map((b) => `${phaseLabel('blocks')}: ${describeBlock(b)}`);
     lines.push(...blockLines);
   }
 
   if (def.cooldown.length > 0) {
-    const cdLines = def.cooldown.map((b) => `${phaseIcon('cooldown')} ${describeBlock(b)}`);
+    const cdLines = def.cooldown.map((b) => `${phaseLabel('cooldown')}: ${describeBlock(b)}`);
     lines.push(...cdLines);
   }
 
@@ -136,11 +140,11 @@ export function formatResultsText(
   const totalSec = Math.floor(completed.totalDurationMs / 1000);
 
   const lines: string[] = [
-    `📊 Results — ${dateStr}`,
+    `Results — ${dateStr}`,
     '',
   ];
 
-  const summaryParts = [`⏱ ${fmtDur(totalSec)} total`];
+  const summaryParts = [`${fmtDur(totalSec)} total`];
   if (completed.totalDistanceMeters && completed.totalDistanceMeters > 0) {
     summaryParts.push(formatDistance(completed.totalDistanceMeters));
   }
@@ -225,6 +229,82 @@ export function decodeWorkoutLink(url: string): WorkoutDefinition | null {
   }
 }
 
+// ── Short Link (Supabase) ────────────────────────────────────────────
+
+const SHARE_BASE_URL = 'https://pacecue.dev/w';
+const SHORT_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+/** Generate a random 7-character alphanumeric code. */
+function generateShortCode(): string {
+  let code = '';
+  for (let i = 0; i < 7; i++) {
+    code += SHORT_CODE_CHARS.charAt(Math.floor(Math.random() * SHORT_CODE_CHARS.length));
+  }
+  return code;
+}
+
+/**
+ * Store a workout in Supabase and return an HTTPS share link.
+ * The link points to an Edge Function landing page that lets recipients
+ * open the workout in the app or download from the store.
+ * Falls back to the legacy base64-encoded deep link if the upload fails.
+ */
+export async function createShareLink(def: WorkoutDefinition): Promise<string> {
+  const shareable: ShareableWorkout = {
+    n: def.name,
+    w: def.warmup,
+    b: def.blocks,
+    c: def.cooldown,
+  };
+
+  const code = generateShortCode();
+
+  try {
+    const { error } = await supabase
+      .from('shared_workouts')
+      .insert({ code, workout_data: shareable });
+
+    if (!error) {
+      return `${SHARE_BASE_URL}/${code}`;
+    }
+  } catch {
+    // Network failure — fall through to legacy link
+  }
+
+  return encodeWorkoutLink(def);
+}
+
+/**
+ * Resolve a short code into a WorkoutDefinition by fetching from Supabase.
+ */
+export async function resolveShareCode(code: string): Promise<WorkoutDefinition | null> {
+  try {
+    const { data, error } = await supabase
+      .from('shared_workouts')
+      .select('workout_data')
+      .eq('code', code)
+      .single();
+
+    if (error || !data) return null;
+
+    const parsed = data.workout_data as ShareableWorkout;
+    if (!parsed.n || !Array.isArray(parsed.b)) return null;
+
+    const now = Date.now();
+    return {
+      id: generateId(),
+      name: parsed.n,
+      warmup: parsed.w ?? [],
+      blocks: parsed.b,
+      cooldown: parsed.c ?? [],
+      createdAt: now,
+      updatedAt: now,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ── Share Actions ────────────────────────────────────────────────────
 
 /**
@@ -235,14 +315,13 @@ export async function shareWorkoutStructure(
   def: WorkoutDefinition,
 ): Promise<void> {
   const text = formatWorkoutText(def);
-  const link = encodeWorkoutLink(def);
-  const message = `${text}\n\nTry it in PaceCue:\n${link}`;
+  const link = await createShareLink(def);
 
   try {
     await Share.share(
       Platform.OS === 'ios'
-        ? { message }
-        : { message, title: `${def.name} — PaceCue Workout` },
+        ? { message: `${text}\n\nTry it in PaceCue:`, url: link }
+        : { message: `${text}\n\nTry it in PaceCue:\n${link}`, title: `${def.name} — PaceCue Workout` },
     );
     track('workout_shared', {
       workout_id: def.id,
@@ -273,19 +352,20 @@ export async function shareWorkoutResults(
   parts.push(formatResultsText(completed));
 
   // Include import link if we have the definition
+  let link: string | undefined;
   if (def) {
-    const link = encodeWorkoutLink(def);
-    parts.push('');
-    parts.push(`Try it in PaceCue:\n${link}`);
+    link = await createShareLink(def);
   }
 
-  const message = parts.join('\n');
+  const textBody = parts.join('\n');
+  const iosMessage = link ? `${textBody}\n\nTry it in PaceCue:` : textBody;
+  const androidMessage = link ? `${textBody}\n\nTry it in PaceCue:\n${link}` : textBody;
 
   try {
     await Share.share(
       Platform.OS === 'ios'
-        ? { message }
-        : { message, title: `${completed.workoutName} Results — PaceCue` },
+        ? { message: iosMessage, ...(link ? { url: link } : {}) }
+        : { message: androidMessage, title: `${completed.workoutName} Results — PaceCue` },
     );
     track('workout_shared', {
       workout_id: completed.workoutId,

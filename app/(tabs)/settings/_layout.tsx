@@ -10,6 +10,7 @@ export default function SettingsLayout() {
         headerTitleStyle: { fontWeight: '700' },
         contentStyle: { backgroundColor: Colors.background },
         animation: 'slide_from_right',
+        headerShadowVisible: false,
       }}
     >
       <Stack.Screen name="index" options={{ title: 'Settings' }} />
