@@ -16,6 +16,7 @@ import { decodeWorkoutLink, resolveShareCode } from '../src/sharing/shareWorkout
 import { saveWorkout } from '../src/workout/workoutStorage';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { SubscriptionProvider } from '../src/contexts/SubscriptionContext';
+import { AIBuilderProvider } from '../src/contexts/AIBuilderContext';
 import { syncAll } from '../src/sync/cloudSync';
 
 function RootLayoutInner() {
@@ -180,7 +181,9 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
         <SubscriptionProvider>
-          <RootLayoutInner />
+          <AIBuilderProvider>
+            <RootLayoutInner />
+          </AIBuilderProvider>
         </SubscriptionProvider>
       </AuthProvider>
     </GestureHandlerRootView>

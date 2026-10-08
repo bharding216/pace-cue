@@ -27,11 +27,11 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useSubscription } from '../src/contexts/SubscriptionContext';
+import { useAIBuilder } from '../src/contexts/AIBuilderContext';
 import { supabase } from '../src/analytics/supabaseClient';
 import {
   generateWorkout,
   ChatMessage,
-  AIContext,
 } from '../src/ai/aiWorkoutService';
 import {
   WorkoutDefinition,
@@ -588,21 +588,21 @@ export default function AIBuilderScreen() {
   const { user } = useAuth();
   const { canUseAI, aiWorkoutsUsed, aiWorkoutsLimit, tier, incrementAIUsage } =
     useSubscription();
+  const { messages, setMessages, aiContext, setAiContext, clearConversation } =
+    useAIBuilder();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [aiContext, setAiContext] = useState<AIContext | null>(null);
   const [editingWorkout, setEditingWorkout] = useState<{
     messageId: string;
     workout: WorkoutDefinition;
   } | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
-  // Load running profile context on mount
+  // Load running profile context on mount (only if not already loaded)
   useEffect(() => {
-    if (!user) return;
+    if (!user || aiContext) return;
 
     const loadContext = async () => {
       const [{ data: profile }, { data: prefs }] = await Promise.all([
@@ -655,16 +655,9 @@ export default function AIBuilderScreen() {
     };
   }, []);
 
-  // Show welcome message
+  // Scroll to end when the screen opens with existing messages
   useEffect(() => {
-    const welcome: ChatMessage = {
-      id: 'welcome',
-      role: 'assistant',
-      content:
-        'Hey! 👋 I\'m your AI workout builder. Tell me what kind of interval workout you want and I\'ll create it for you.\n\nTry something like:\n• "30 minute tempo run"\n• "Speed work with 400m repeats"\n• "Easy beginner intervals"',
-      timestamp: Date.now(),
-    };
-    setMessages([welcome]);
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 100);
   }, []);
 
   const handleSend = useCallback(async () => {
@@ -748,8 +741,9 @@ export default function AIBuilderScreen() {
     [incrementAIUsage, router],
   );
 
-  const handleUpdateWorkout = useCallback(
-    (messageId: string, updatedWorkout: WorkoutDefinition) => {
+  const handleEditSave = useCallback(
+    async (messageId: string, updatedWorkout: WorkoutDefinition) => {
+      // Update the preview in the chat
       setMessages((prev) =>
         prev.map((m) =>
           m.id === messageId
@@ -757,8 +751,10 @@ export default function AIBuilderScreen() {
             : m,
         ),
       );
+      // Actually persist the workout + count against AI quota
+      await handleSaveWorkout(updatedWorkout);
     },
-    [],
+    [handleSaveWorkout, setMessages],
   );
 
   const handleEditWorkout = useCallback(
@@ -794,6 +790,17 @@ export default function AIBuilderScreen() {
             <Text style={styles.usageBadge}>
               {aiWorkoutsUsed}/{aiWorkoutsLimit}
             </Text>
+          )}
+          {messages.length > 1 && (
+            <TouchableOpacity
+              onPress={clearConversation}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.newChatBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add" size={16} color={Colors.accent} />
+              <Text style={styles.newChatText}>New</Text>
+            </TouchableOpacity>
           )}
         </View>
       </View>
@@ -890,7 +897,7 @@ export default function AIBuilderScreen() {
             <WorkoutEditorForm
               initial={editingWorkout.workout}
               onSave={(updated) => {
-                handleUpdateWorkout(editingWorkout.messageId, updated);
+                handleEditSave(editingWorkout.messageId, updated);
                 setEditingWorkout(null);
               }}
               onCancel={() => setEditingWorkout(null)}
@@ -928,8 +935,25 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
   headerRight: {
-    minWidth: 40,
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  newChatBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: Spacing.xs + 2,
+    paddingHorizontal: Spacing.sm + 2,
+    backgroundColor: Colors.accent + '15',
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: Colors.accent + '40',
+  },
+  newChatText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.accent,
   },
   usageBadge: {
     fontSize: FontSize.xs,
