@@ -57,7 +57,7 @@ type SubscriptionContextType = {
   restorePurchases: () => Promise<{ error: Error | null }>;
   refreshSubscription: () => Promise<void>;
   manageSubscription: () => void;
-  incrementAIUsage: () => Promise<void>;
+  incrementAIUsage: (workoutId: string, workoutName: string) => Promise<void>;
 };
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(
@@ -139,6 +139,8 @@ export function SubscriptionProvider({
   // ─── Load subscription from Supabase ─────────────────────
 
   const refreshSubscription = useCallback(async () => {
+    console.log('[SubscriptionContext] refreshSubscription called, user:', user?.id ?? 'null');
+
     if (!user) {
       setSubscription(null);
       setAiWorkoutsUsed(0);
@@ -146,22 +148,49 @@ export function SubscriptionProvider({
       return;
     }
 
-    const [{ data: sub }, { data: profile }] = await Promise.all([
-      supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('user_id', user.id)
-        .single(),
-      supabase
-        .from('profiles')
-        .select('ai_workouts_this_month')
-        .eq('id', user.id)
-        .single(),
-    ]);
+    try {
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
 
-    setSubscription(sub);
-    setAiWorkoutsUsed(profile?.ai_workouts_this_month ?? 0);
-    setLoading(false);
+      // Use .maybeSingle() for tables where the row may not exist yet
+      // (.single() throws when zero rows are found, which crashes the
+      // entire Promise.all and silently leaves aiWorkoutsUsed at 0).
+      const [subResult, profileResult, genResult] = await Promise.all([
+        supabase
+          .from('subscriptions')
+          .select('*')
+          .eq('user_id', user.id)
+          .maybeSingle(),
+        supabase
+          .from('profiles')
+          .select('ai_workouts_this_month')
+          .eq('id', user.id)
+          .maybeSingle(),
+        supabase
+          .from('ai_generations')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .gte('created_at', startOfMonth.toISOString()),
+      ]);
+
+      console.log('[SubscriptionContext] subResult:', JSON.stringify({ data: subResult.data, error: subResult.error }));
+      console.log('[SubscriptionContext] profileResult:', JSON.stringify({ data: profileResult.data, error: profileResult.error }));
+      console.log('[SubscriptionContext] genResult:', JSON.stringify({ count: genResult.count, error: genResult.error }));
+
+      const counterValue = profileResult.data?.ai_workouts_this_month ?? 0;
+      const generationsValue = genResult.count ?? 0;
+      const finalUsage = Math.max(counterValue, generationsValue);
+
+      console.log('[SubscriptionContext] counterValue:', counterValue, 'generationsValue:', generationsValue, 'finalUsage:', finalUsage);
+
+      setSubscription(subResult.data);
+      setAiWorkoutsUsed(finalUsage);
+    } catch (err) {
+      console.warn('[SubscriptionContext] refreshSubscription CRASHED:', err);
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
 
   useEffect(() => {
@@ -236,15 +265,27 @@ export function SubscriptionProvider({
 
   // ─── Increment AI usage ───────────────────────────────────
 
-  const incrementAIUsage = useCallback(async () => {
-    if (!user) return;
+  const incrementAIUsage = useCallback(
+    async (workoutId: string, workoutName: string) => {
+      if (!user) return;
 
-    await supabase.rpc('increment_ai_workouts', {
-      p_user_id: user.id,
-    });
+      // Insert a durable record into ai_generations — this is the
+      // source of truth that survives sign-out / sign-in cycles.
+      await supabase.from('ai_generations').insert({
+        user_id: user.id,
+        prompt: workoutName,
+        result: { workout_id: workoutId },
+      });
 
-    setAiWorkoutsUsed((prev) => prev + 1);
-  }, [user]);
+      // Best-effort update of the counter on profiles (backward compat)
+      supabase
+        .rpc('increment_ai_workouts', { p_user_id: user.id })
+        .then(null, () => {});
+
+      setAiWorkoutsUsed((prev) => prev + 1);
+    },
+    [user],
+  );
 
   return (
     <SubscriptionContext.Provider

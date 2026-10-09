@@ -302,11 +302,13 @@ function WorkoutPreview({
   onSave,
   onEdit,
   saving,
+  alreadySaved,
 }: {
   workout: WorkoutDefinition;
   onSave: () => void;
   onEdit: () => void;
   saving: boolean;
+  alreadySaved: boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
   const intervals = flattenWorkout(workout);
@@ -375,14 +377,19 @@ function WorkoutPreview({
         <TouchableOpacity
           style={[
             previewStyles.saveBtn,
-            saving && previewStyles.saveBtnDisabled,
+            (saving || alreadySaved) && previewStyles.saveBtnDisabled,
           ]}
           onPress={onSave}
-          disabled={saving}
+          disabled={saving || alreadySaved}
           activeOpacity={0.8}
         >
           {saving ? (
             <ActivityIndicator color={Colors.black} size="small" />
+          ) : alreadySaved ? (
+            <>
+              <Ionicons name="checkmark-circle" size={16} color={Colors.black} />
+              <Text style={previewStyles.saveBtnText}>Saved</Text>
+            </>
           ) : (
             <>
               <Ionicons name="add-circle" size={16} color={Colors.black} />
@@ -506,11 +513,13 @@ function MessageBubble({
   onSaveWorkout,
   onEditWorkout,
   saving,
+  alreadySaved,
 }: {
   message: ChatMessage;
   onSaveWorkout: (workout: WorkoutDefinition) => void;
   onEditWorkout: (workout: WorkoutDefinition) => void;
   saving: boolean;
+  alreadySaved: boolean;
 }) {
   const isUser = message.role === 'user';
 
@@ -543,6 +552,7 @@ function MessageBubble({
           onSave={() => onSaveWorkout(message.workout!)}
           onEdit={() => onEditWorkout(message.workout!)}
           saving={saving}
+          alreadySaved={alreadySaved}
         />
       )}
     </View>
@@ -882,8 +892,8 @@ export default function AIBuilderScreen() {
     setMessages,
     aiContext,
     setAiContext,
-    clearConversation,
-    switchToConversation,
+    clearConversation: rawClearConversation,
+    switchToConversation: rawSwitchToConversation,
     activeConversationId,
     loadingConversation,
   } = useAIBuilder();
@@ -897,6 +907,22 @@ export default function AIBuilderScreen() {
     workout: WorkoutDefinition;
   } | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  // Track which workout IDs have already been saved so we don't
+  // count the same workout against the AI credit quota twice.
+  const [savedWorkoutIds, setSavedWorkoutIds] = useState<Set<string>>(new Set());
+
+  const clearConversation = useCallback(() => {
+    setSavedWorkoutIds(new Set());
+    rawClearConversation();
+  }, [rawClearConversation]);
+
+  const switchToConversation = useCallback(
+    (convo: StoredConversation) => {
+      setSavedWorkoutIds(new Set());
+      rawSwitchToConversation(convo);
+    },
+    [rawSwitchToConversation],
+  );
 
   // Load running profile context on mount (only if not already loaded)
   useEffect(() => {
@@ -1009,19 +1035,29 @@ export default function AIBuilderScreen() {
 
   const handleSaveWorkout = useCallback(
     async (workout: WorkoutDefinition) => {
+      const isFirstSave = !savedWorkoutIds.has(workout.id);
+
       setSaving(true);
       try {
         await saveWorkout(workout);
-        await incrementAIUsage();
+
+        // Only count against AI quota on the first save of this workout
+        if (isFirstSave) {
+          await incrementAIUsage(workout.id, workout.name);
+          setSavedWorkoutIds((prev) => new Set(prev).add(workout.id));
+        }
 
         track('ai_workout_saved', {
           workout_id: workout.id,
           workout_name: workout.name,
+          is_resave: !isFirstSave,
         });
 
         Alert.alert(
-          'Workout Saved! 🎉',
-          `"${workout.name}" has been added to your workouts.`,
+          isFirstSave ? 'Workout Saved! 🎉' : 'Workout Updated! ✅',
+          isFirstSave
+            ? `"${workout.name}" has been added to your workouts.`
+            : `"${workout.name}" has been updated.`,
           [
             { text: 'Keep Chatting', style: 'cancel' },
             {
@@ -1036,7 +1072,7 @@ export default function AIBuilderScreen() {
         setSaving(false);
       }
     },
-    [incrementAIUsage, router],
+    [incrementAIUsage, router, savedWorkoutIds],
   );
 
   const handleEditSave = useCallback(
@@ -1127,6 +1163,7 @@ export default function AIBuilderScreen() {
             onSaveWorkout={handleSaveWorkout}
             onEditWorkout={(workout) => handleEditWorkout(item.id, workout)}
             saving={saving}
+            alreadySaved={item.workout ? savedWorkoutIds.has(item.workout.id) : false}
           />
         )}
         contentContainerStyle={styles.messagesList}

@@ -36,6 +36,18 @@ Everything the app code needs from the outside world to make auth, subscriptions
 Run these SQL statements in the **Supabase SQL Editor**:
 
 ```sql
+-- ── Default privileges ──────────────────────────────────────
+-- Automatically grant table permissions to authenticated/anon roles
+-- for every table created in the public schema (now and in the future).
+-- Without these, RLS policies alone are not enough — queries will fail
+-- with "permission denied for table".
+
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to authenticated;
+
+alter default privileges in schema public
+  grant select on tables to anon;
+
 -- ── Profiles (auto-created on user signup via trigger) ──────
 
 create table if not exists profiles (
@@ -202,15 +214,6 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ── Cron: Reset monthly AI usage (requires pg_cron extension) ──
-
--- Enable pg_cron in Supabase Dashboard → Database → Extensions
--- Then run:
--- select cron.schedule(
---   'reset-ai-usage-monthly',
---   '0 0 1 * *',  -- 1st of every month at midnight UTC
---   $$update profiles set ai_workouts_this_month = 0$$
--- );
 ```
 
 ---
@@ -367,7 +370,6 @@ The Supabase URL and anon key are already hardcoded in `supabaseClient.ts`.
 - [ ] Deploy `generate-workout` edge function
 - [ ] Deploy `revenuecat-webhook` edge function
 - [ ] Add LLM API key as Supabase secret
-- [ ] Enable `pg_cron` and schedule monthly AI usage reset
 - [ ] Create Terms of Use and Privacy Policy pages
 - [ ] Add Sign in with Apple capability in Xcode
 - [ ] Test full flow: sign up → AI builder → save → sync → subscribe
