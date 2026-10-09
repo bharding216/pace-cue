@@ -371,41 +371,48 @@ export default function HistoryScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <View>
-            {/* Backup / Restore row */}
-            <View style={styles.backupSection}>
-              <Text style={styles.backupHint}>
-                Save a backup before deleting the app so you don't lose your data.
-              </Text>
-              <View style={styles.backupRow}>
-                <TouchableOpacity
-                  style={styles.backupBtn}
-                  onPress={handleExport}
-                  disabled={exporting}
-                  activeOpacity={0.7}
-                >
-                  {exporting ? (
-                    <ActivityIndicator color={Colors.primary} size="small" />
-                  ) : (
-                    <Ionicons name="cloud-upload-outline" size={18} color={Colors.textPrimary} />
-                  )}
-                  <Text style={styles.backupBtnLabel}>Back Up Data</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.backupBtn}
-                  onPress={handleImport}
-                  disabled={importing}
-                  activeOpacity={0.7}
-                >
-                  {importing ? (
-                    <ActivityIndicator color={Colors.accent} size="small" />
-                  ) : (
-                    <Ionicons name="cloud-download-outline" size={18} color={Colors.textPrimary} />
-                  )}
-                  <Text style={styles.backupBtnLabel}>Restore Backup</Text>
-                </TouchableOpacity>
+            {/* Backup / Restore — only for users without an account */}
+            {user ? (
+              <View style={styles.syncBanner}>
+                <Ionicons name="cloud-done-outline" size={16} color={Colors.primary} />
+                <Text style={styles.syncBannerText}>Your data is synced to your account</Text>
               </View>
-            </View>
+            ) : (
+              <View style={styles.backupSection}>
+                <Text style={styles.backupHint}>
+                  Save a backup before deleting the app so you don't lose your data.
+                </Text>
+                <View style={styles.backupRow}>
+                  <TouchableOpacity
+                    style={styles.backupBtn}
+                    onPress={handleExport}
+                    disabled={exporting}
+                    activeOpacity={0.7}
+                  >
+                    {exporting ? (
+                      <ActivityIndicator color={Colors.primary} size="small" />
+                    ) : (
+                      <Ionicons name="cloud-upload-outline" size={18} color={Colors.textPrimary} />
+                    )}
+                    <Text style={styles.backupBtnLabel}>Back Up Data</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.backupBtn}
+                    onPress={handleImport}
+                    disabled={importing}
+                    activeOpacity={0.7}
+                  >
+                    {importing ? (
+                      <ActivityIndicator color={Colors.accent} size="small" />
+                    ) : (
+                      <Ionicons name="cloud-download-outline" size={18} color={Colors.textPrimary} />
+                    )}
+                    <Text style={styles.backupBtnLabel}>Restore Backup</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
 
             {history.length > 0 ? (
               <View style={styles.header}>
@@ -530,6 +537,20 @@ const styles = StyleSheet.create({
   },
   list: {
     padding: Spacing.md,
+  },
+  syncBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.md,
+    paddingVertical: Spacing.sm,
+    backgroundColor: Colors.primary + '14',
+    borderRadius: BorderRadius.md,
+  },
+  syncBannerText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
   },
   backupSection: {
     marginBottom: Spacing.md,

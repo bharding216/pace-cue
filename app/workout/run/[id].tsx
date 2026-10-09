@@ -14,11 +14,23 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Modal,
+  ScrollView,
+  Switch,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { WorkoutDefinition, FlatInterval, formatTime, AppSettings, DEFAULT_SETTINGS } from '../../../src/workout/workoutTypes';
-import { loadWorkouts, loadSettings } from '../../../src/workout/workoutStorage';
+import {
+  WorkoutDefinition,
+  FlatInterval,
+  formatTime,
+  AppSettings,
+  DEFAULT_SETTINGS,
+  AudioCueMode,
+  TimeRemainingInterval,
+} from '../../../src/workout/workoutTypes';
+import type { PaceCueFrequency } from '../../../src/pace/paceTypes';
+import { loadWorkouts, loadSettings, saveSettings } from '../../../src/workout/workoutStorage';
 import { useWorkoutRunner } from '../../../src/hooks/useWorkoutRunner';
 import { Timer } from '../../../src/components/Timer';
 import { IntervalProgress } from '../../../src/components/IntervalProgress';
@@ -33,6 +45,7 @@ import {
   intervalColor,
 } from '../../../src/constants/theme';
 import { hapticTap } from '../../../src/audio/haptics';
+import { setDuckingEnabled, setVoiceIdentifier } from '../../../src/audio/audioManager';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -50,6 +63,18 @@ export default function ActiveWorkoutScreen() {
     });
   }, [id]);
 
+  const updateSettings = useCallback(async (partial: Partial<AppSettings>) => {
+    const next = { ...settings, ...partial };
+    setSettings(next);
+    await saveSettings(next);
+    if ('duckOtherAudio' in partial) {
+      setDuckingEnabled(next.duckOtherAudio);
+    }
+    if ('voiceIdentifier' in partial) {
+      setVoiceIdentifier(next.voiceIdentifier);
+    }
+  }, [settings]);
+
   if (!workout) {
     return (
       <View style={styles.loading}>
@@ -59,19 +84,26 @@ export default function ActiveWorkoutScreen() {
   }
 
   return (
-    <ActiveWorkoutInner workout={workout} settings={settings} />
+    <ActiveWorkoutInner
+      workout={workout}
+      settings={settings}
+      onUpdateSettings={updateSettings}
+    />
   );
 }
 
 function ActiveWorkoutInner({
   workout,
   settings,
+  onUpdateSettings,
 }: {
   workout: WorkoutDefinition;
   settings: AppSettings;
+  onUpdateSettings: (partial: Partial<AppSettings>) => Promise<void>;
 }) {
   const router = useRouter();
   const runner = useWorkoutRunner(workout, settings);
+  const [settingsVisible, setSettingsVisible] = useState(false);
 
   // Keep screen awake during workout
   useEffect(() => {
@@ -173,28 +205,25 @@ function ActiveWorkoutInner({
         <Ionicons name="trophy" size={64} color={Colors.primary} style={styles.doneIcon} />
         <Text style={styles.doneTitle}>Workout Complete!</Text>
         <Text style={styles.doneWorkoutName}>{workout.name}</Text>
-        <Text style={styles.doneDuration}>
-          {formatTime(Math.floor(state.totalElapsedMs / 1000))}
-        </Text>
-        <Text
-          style={[
-            styles.doneSubtext,
-            !(settings.paceTrackingEnabled && runner.paceState.totalDistanceMeters > 0) && {
-              marginBottom: Spacing.xxl,
-            },
-          ]}
-        >
-          Total time
-        </Text>
+
+        <View style={styles.doneStatBlock}>
+          <Text style={styles.doneStatLabel}>Total time</Text>
+          <Text style={styles.doneDuration}>
+            {formatTime(Math.floor(state.totalElapsedMs / 1000))}
+          </Text>
+        </View>
 
         {settings.paceTrackingEnabled &&
           runner.paceState.totalDistanceMeters > 0 && (
-            <Text style={styles.doneDistance}>
-              {formatDistance(
-                runner.paceState.totalDistanceMeters,
-                settings.paceUnit,
-              )}
-            </Text>
+            <View style={styles.doneStatBlock}>
+              <Text style={styles.doneStatLabel}>Distance</Text>
+              <Text style={styles.doneDistance}>
+                {formatDistance(
+                  runner.paceState.totalDistanceMeters,
+                  settings.paceUnit,
+                )}
+              </Text>
+            </View>
           )}
 
         <TouchableOpacity
@@ -217,8 +246,27 @@ function ActiveWorkoutInner({
       {/* Top info bar */}
       <View style={styles.topBar}>
         <Text style={styles.topBarText}>{workout.name}</Text>
-        <Text style={styles.topBarText}>{runner.intervalNumber}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+          <Text style={styles.topBarText}>{runner.intervalNumber}</Text>
+          <TouchableOpacity
+            onPress={() => {
+              hapticTap();
+              setSettingsVisible(true);
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="settings-outline" size={20} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Mid-run settings sheet */}
+      <MidRunSettingsSheet
+        visible={settingsVisible}
+        settings={settings}
+        onUpdate={onUpdateSettings}
+        onClose={() => setSettingsVisible(false)}
+      />
 
       {/* Main timer */}
       <View style={styles.timerArea}>
@@ -307,6 +355,436 @@ function ActiveWorkoutInner({
     </View>
   );
 }
+
+// ── Mid-Run Settings Sheet ────────────────────────────────────────────
+
+const AUDIO_MODES: {
+  value: AudioCueMode;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+}[] = [
+  { value: 'beeps', label: 'Beeps', icon: 'notifications-outline' },
+  { value: 'voice', label: 'Voice', icon: 'volume-high-outline' },
+  { value: 'both', label: 'Both', icon: 'volume-medium-outline' },
+  { value: 'silent', label: 'Silent', icon: 'volume-mute-outline' },
+];
+
+const WARNING_OPTIONS = [3, 5, 10, 15, 30];
+
+const PACE_CUE_OPTIONS: { value: PaceCueFrequency; label: string }[] = [
+  { value: 0, label: 'Off' },
+  { value: 15, label: '15s' },
+  { value: 30, label: '30s' },
+  { value: 60, label: '1 min' },
+  { value: 120, label: '2 min' },
+];
+
+const TIME_ANNOUNCE_OPTIONS: { value: TimeRemainingInterval; label: string }[] = [
+  { value: 0, label: 'Off' },
+  { value: 15, label: '15s' },
+  { value: 30, label: '30s' },
+  { value: 60, label: '1 min' },
+  { value: 120, label: '2 min' },
+];
+
+function MidRunSettingsSheet({
+  visible,
+  settings,
+  onUpdate,
+  onClose,
+}: {
+  visible: boolean;
+  settings: AppSettings;
+  onUpdate: (partial: Partial<AppSettings>) => Promise<void>;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <View style={sheetStyles.overlay}>
+        <TouchableOpacity style={sheetStyles.backdrop} onPress={onClose} activeOpacity={1} />
+        <View style={sheetStyles.sheet}>
+          {/* Handle */}
+          <View style={sheetStyles.handleRow}>
+            <View style={sheetStyles.handle} />
+          </View>
+
+          {/* Header */}
+          <View style={sheetStyles.header}>
+            <Text style={sheetStyles.headerTitle}>Settings</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close" size={24} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={sheetStyles.scrollView}
+            contentContainerStyle={sheetStyles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            {/* Audio Mode */}
+            <Text style={sheetStyles.sectionTitle}>Audio Cues</Text>
+            <View style={sheetStyles.chipRow}>
+              {AUDIO_MODES.map((mode) => (
+                <TouchableOpacity
+                  key={mode.value}
+                  style={[
+                    sheetStyles.chip,
+                    settings.audioCueMode === mode.value && sheetStyles.chipActive,
+                  ]}
+                  onPress={() => {
+                    hapticTap();
+                    onUpdate({ audioCueMode: mode.value });
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={mode.icon}
+                    size={14}
+                    color={
+                      settings.audioCueMode === mode.value
+                        ? Colors.primary
+                        : Colors.textSecondary
+                    }
+                  />
+                  <Text
+                    style={[
+                      sheetStyles.chipLabel,
+                      settings.audioCueMode === mode.value && sheetStyles.chipLabelActive,
+                    ]}
+                  >
+                    {mode.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Duck other audio */}
+            {settings.audioCueMode !== 'silent' && (
+              <View style={sheetStyles.toggleRow}>
+                <Text style={sheetStyles.toggleLabel}>Lower music during cues</Text>
+                <Switch
+                  value={settings.duckOtherAudio}
+                  onValueChange={(v) => {
+                    hapticTap();
+                    onUpdate({ duckOtherAudio: v });
+                  }}
+                  trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
+                  thumbColor={Colors.white}
+                />
+              </View>
+            )}
+
+            {/* Haptic */}
+            <View style={sheetStyles.toggleRow}>
+              <Text style={sheetStyles.toggleLabel}>Haptic feedback</Text>
+              <Switch
+                value={settings.hapticEnabled}
+                onValueChange={(v) => {
+                  if (v) hapticTap();
+                  onUpdate({ hapticEnabled: v });
+                }}
+                trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
+                thumbColor={Colors.white}
+              />
+            </View>
+
+            {/* Countdown Warnings */}
+            <Text style={sheetStyles.sectionTitle}>Countdown Warnings</Text>
+            <View style={sheetStyles.chipRow}>
+              {WARNING_OPTIONS.map((sec) => {
+                const isSelected = settings.countdownWarningSeconds.includes(sec);
+                return (
+                  <TouchableOpacity
+                    key={sec}
+                    style={[
+                      sheetStyles.chip,
+                      isSelected && sheetStyles.chipActive,
+                    ]}
+                    onPress={() => {
+                      hapticTap();
+                      let next: number[];
+                      if (isSelected) {
+                        next = settings.countdownWarningSeconds.filter((s) => s !== sec);
+                      } else {
+                        next = [...settings.countdownWarningSeconds, sec].sort((a, b) => a - b);
+                      }
+                      if (next.length === 0) return;
+                      onUpdate({ countdownWarningSeconds: next });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    {isSelected && (
+                      <Ionicons name="checkmark" size={12} color={Colors.primary} />
+                    )}
+                    <Text
+                      style={[
+                        sheetStyles.chipLabel,
+                        isSelected && sheetStyles.chipLabelActive,
+                      ]}
+                    >
+                      {sec}s
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Interval Progress */}
+            <Text style={sheetStyles.sectionTitle}>Interval Progress</Text>
+            <Text style={sheetStyles.sectionSub}>Announce elapsed time during intervals</Text>
+            <View style={sheetStyles.chipRow}>
+              {TIME_ANNOUNCE_OPTIONS.map((opt) => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[
+                    sheetStyles.chip,
+                    settings.timeRemainingInterval === opt.value && sheetStyles.chipActive,
+                  ]}
+                  onPress={() => {
+                    hapticTap();
+                    onUpdate({ timeRemainingInterval: opt.value });
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      sheetStyles.chipLabel,
+                      settings.timeRemainingInterval === opt.value && sheetStyles.chipLabelActive,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Pace Tracking */}
+            <Text style={sheetStyles.sectionTitle}>Pace</Text>
+            <View style={sheetStyles.toggleRow}>
+              <Text style={sheetStyles.toggleLabel}>GPS pace tracking</Text>
+              <Switch
+                value={settings.paceTrackingEnabled}
+                onValueChange={(v) => {
+                  hapticTap();
+                  onUpdate({ paceTrackingEnabled: v });
+                }}
+                trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
+                thumbColor={Colors.white}
+              />
+            </View>
+
+            {settings.paceTrackingEnabled && (
+              <>
+                {/* Pace unit */}
+                <View style={sheetStyles.chipRow}>
+                  <TouchableOpacity
+                    style={[
+                      sheetStyles.chip,
+                      settings.paceUnit === 'minPerMile' && sheetStyles.chipActive,
+                    ]}
+                    onPress={() => {
+                      hapticTap();
+                      onUpdate({ paceUnit: 'minPerMile' });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        sheetStyles.chipLabel,
+                        settings.paceUnit === 'minPerMile' && sheetStyles.chipLabelActive,
+                      ]}
+                    >
+                      min/mile
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      sheetStyles.chip,
+                      settings.paceUnit === 'minPerKm' && sheetStyles.chipActive,
+                    ]}
+                    onPress={() => {
+                      hapticTap();
+                      onUpdate({ paceUnit: 'minPerKm' });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        sheetStyles.chipLabel,
+                        settings.paceUnit === 'minPerKm' && sheetStyles.chipLabelActive,
+                      ]}
+                    >
+                      min/km
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Pace cue frequency */}
+                <Text style={sheetStyles.sectionSub}>Pace cue frequency</Text>
+                <View style={sheetStyles.chipRow}>
+                  {PACE_CUE_OPTIONS.map((opt) => (
+                    <TouchableOpacity
+                      key={opt.value}
+                      style={[
+                        sheetStyles.chip,
+                        settings.paceCueFrequency === opt.value && sheetStyles.chipActive,
+                      ]}
+                      onPress={() => {
+                        hapticTap();
+                        onUpdate({ paceCueFrequency: opt.value });
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          sheetStyles.chipLabel,
+                          settings.paceCueFrequency === opt.value && sheetStyles.chipLabelActive,
+                        ]}
+                      >
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* Keep screen on */}
+            <Text style={sheetStyles.sectionTitle}>Display</Text>
+            <View style={sheetStyles.toggleRow}>
+              <Text style={sheetStyles.toggleLabel}>Keep screen on</Text>
+              <Switch
+                value={settings.keepScreenOn}
+                onValueChange={(v) => {
+                  hapticTap();
+                  onUpdate({ keepScreenOn: v });
+                }}
+                trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
+                thumbColor={Colors.white}
+              />
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const sheetStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  sheet: {
+    backgroundColor: Colors.background,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    maxHeight: '75%',
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceLight,
+  },
+  handleRow: {
+    alignItems: 'center',
+    paddingTop: Spacing.sm,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.textMuted,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
+  },
+  headerTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+  },
+  scrollView: {
+    flexGrow: 0,
+  },
+  scrollContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.xxl,
+  },
+  sectionTitle: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.xs,
+  },
+  sectionSub: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginBottom: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+    gap: Spacing.xs,
+  },
+  chipActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '18',
+  },
+  chipLabel: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
+  chipLabelActive: {
+    color: Colors.primary,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.sm,
+  },
+  toggleLabel: {
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+    flex: 1,
+    marginRight: Spacing.md,
+  },
+});
 
 // ── Pace Display ─────────────────────────────────────────────────────
 
@@ -770,30 +1248,36 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginBottom: Spacing.xl,
   },
+  doneStatBlock: {
+    alignItems: 'center',
+    marginBottom: Spacing.lg,
+  },
+  doneStatLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textMuted,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: Spacing.xs,
+  },
   doneDuration: {
     fontSize: FontSize.timer,
     fontWeight: '200',
     color: Colors.textPrimary,
     fontVariant: ['tabular-nums'],
   },
-  doneSubtext: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginTop: Spacing.xs,
-    marginBottom: Spacing.sm,
-  },
   doneDistance: {
     fontSize: FontSize.xl,
     fontWeight: '600',
     color: Colors.accent,
     fontVariant: ['tabular-nums'],
-    marginBottom: Spacing.xxl,
   },
   doneBtn: {
     backgroundColor: Colors.primary,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.xxl,
     borderRadius: BorderRadius.lg,
+    marginTop: Spacing.lg,
   },
   doneBtnText: {
     color: Colors.black,
