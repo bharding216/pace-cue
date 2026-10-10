@@ -34,6 +34,10 @@ yarn-error.*
 .env
 .env*.local
 
+# admin dashboard
+admin/.next/
+admin/node_modules/
+
 # typescript
 *.tsbuildinfo
 
