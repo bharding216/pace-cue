@@ -11,7 +11,8 @@
  * │  1. Create Supabase Edge Function `generate-workout`   │
  * │  2. Add your LLM API key as a Supabase secret          │
  * │  3. The function should accept:                        │
- * │       { prompt, profile, preferences, history_summary } │
+ * │       { prompt, profile, preferences, goals,          │
+ * │         conversation, history_summary }               │
  * │     and return:                                        │
  * │       { workout: WorkoutDefinition, message: string }  │
  * └─────────────────────────────────────────────────────────┘
@@ -26,6 +27,7 @@ import {
   totalWorkoutSeconds,
   formatTime,
 } from '../workout/workoutTypes';
+import { HistorySummary, serializeHistorySummary } from './historySummary';
 
 export interface AIContext {
   experienceLevel?: string;
@@ -34,6 +36,7 @@ export interface AIContext {
   fastPace?: number;
   goals: string[];
   preferences: string[];
+  historySummary?: HistorySummary;
 }
 
 export interface AIResponse {
@@ -124,6 +127,12 @@ export async function generateWorkout(
       : m.content,
   }));
 
+  // Pre-serialize history summary so the edge function can inject it
+  // directly into the system prompt without extra processing.
+  const historySummaryText = context.historySummary
+    ? serializeHistorySummary(context.historySummary)
+    : null;
+
   const { data, error } = await supabase.functions.invoke('generate-workout', {
     body: {
       prompt,
@@ -136,6 +145,7 @@ export async function generateWorkout(
       goals: context.goals,
       preferences: context.preferences,
       conversation: enrichedConversation,
+      history_summary: historySummaryText,
     },
   });
 

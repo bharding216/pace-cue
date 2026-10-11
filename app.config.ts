@@ -35,6 +35,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'com.apple.security.application-groups': [APP_GROUP],
       'com.apple.developer.associated-domains': ['applinks:pacecue.dev'],
     },
+    privacyManifests: {
+      NSPrivacyAccessedAPITypes: [
+        {
+          NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults',
+          NSPrivacyAccessedAPITypeReasons: ['CA92.1'],
+        },
+        {
+          NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryFileTimestamp',
+          NSPrivacyAccessedAPITypeReasons: ['C617.1', '0A2A.1', '3B52.1'],
+        },
+        {
+          NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryDiskSpace',
+          NSPrivacyAccessedAPITypeReasons: ['E174.1', '85F4.1'],
+        },
+      ],
+    },
     infoPlist: {
       UIBackgroundModes: ['audio', 'location'],
       NSMicrophoneUsageDescription: 'PaceCue does not use the microphone.',

@@ -38,6 +38,8 @@ import {
   deleteConversation,
   StoredConversation,
 } from '../src/ai/conversationStorage';
+import { loadHistory } from '../src/workout/workoutStorage';
+import { buildHistorySummary } from '../src/ai/historySummary';
 import {
   WorkoutDefinition,
   WorkoutRepeatBlock,
@@ -929,7 +931,7 @@ export default function AIBuilderScreen() {
     if (!user || aiContext) return;
 
     const loadContext = async () => {
-      const [{ data: profile }, { data: prefs }] = await Promise.all([
+      const [{ data: profile }, { data: prefs }, workoutHistory] = await Promise.all([
         supabase
           .from('running_profiles')
           .select('*')
@@ -939,6 +941,7 @@ export default function AIBuilderScreen() {
           .from('running_preferences')
           .select('content, category')
           .eq('user_id', user.id),
+        loadHistory(),
       ]);
 
       setAiContext({
@@ -952,6 +955,7 @@ export default function AIBuilderScreen() {
         preferences: (prefs ?? [])
           .filter((p: any) => p.category === 'preference')
           .map((p: any) => p.content),
+        historySummary: buildHistorySummary(workoutHistory),
       });
     };
 

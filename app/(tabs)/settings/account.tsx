@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -22,7 +23,8 @@ import { hapticTap } from '../../../src/audio/haptics';
 
 export default function AccountScreen() {
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, signOut, deleteAccount } = useAuth();
+  const [deleting, setDeleting] = useState(false);
   const { tier, subscription, aiWorkoutsUsed, aiWorkoutsLimit, manageSubscription } =
     useSubscription();
 
@@ -44,6 +46,46 @@ export default function AccountScreen() {
         },
       },
     ]);
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete your account and all associated data, including your workouts, run history, AI conversations, and running profile. This action cannot be undone.\n\nYour local data on this device will not be affected.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete My Account',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Are you sure?',
+              'This is permanent. All your cloud data will be deleted immediately.',
+              [
+                { text: 'Go Back', style: 'cancel' },
+                {
+                  text: 'Delete Forever',
+                  style: 'destructive',
+                  onPress: async () => {
+                    setDeleting(true);
+                    const { error } = await deleteAccount();
+                    setDeleting(false);
+                    if (error) {
+                      Alert.alert(
+                        'Deletion Failed',
+                        error.message ?? 'Something went wrong. Please try again or contact support.',
+                      );
+                    } else {
+                      router.back();
+                    }
+                  },
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
   };
 
   if (!user) {
@@ -186,6 +228,26 @@ export default function AccountScreen() {
           Sign Out
         </Text>
       </TouchableOpacity>
+
+      {/* Delete account */}
+      <TouchableOpacity
+        style={[styles.actionRow, styles.deleteRow]}
+        onPress={handleDeleteAccount}
+        disabled={deleting}
+        activeOpacity={0.7}
+      >
+        {deleting ? (
+          <ActivityIndicator color={Colors.danger} size="small" />
+        ) : (
+          <Ionicons name="trash-outline" size={20} color={Colors.danger} />
+        )}
+        <Text style={[styles.actionRowText, { color: Colors.danger }]}>
+          Delete Account
+        </Text>
+      </TouchableOpacity>
+      <Text style={styles.deleteHint}>
+        Permanently deletes your account and all cloud data.
+      </Text>
     </ScrollView>
   );
 }
@@ -313,5 +375,15 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '600',
     color: Colors.textPrimary,
+  },
+  deleteRow: {
+    marginTop: Spacing.sm,
+    borderColor: Colors.danger + '33',
+  },
+  deleteHint: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: Spacing.xs,
+    marginLeft: Spacing.sm,
   },
 });

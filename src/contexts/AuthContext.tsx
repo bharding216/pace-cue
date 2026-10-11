@@ -34,6 +34,7 @@ type AuthContextType = {
   signInWithOtp: (email: string) => Promise<{ error: Error | null }>;
   verifyOtp: (email: string, token: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<{ error: Error | null }>;
   isAppleSignInAvailable: boolean;
 };
 
@@ -187,6 +188,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
   };
 
+  // ─── Delete account ────────────────────────────────────
+  // Calls a Supabase RPC that deletes the user from auth.users.
+  // All user data cascades automatically via ON DELETE CASCADE FKs.
+
+  const deleteAccount = async (): Promise<{ error: Error | null }> => {
+    try {
+      const { error: rpcError } = await supabase.rpc('delete_own_account');
+      if (rpcError) {
+        return { error: new Error(rpcError.message) };
+      }
+      await supabase.auth.signOut();
+      return { error: null };
+    } catch (e: any) {
+      return { error: e };
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -198,6 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signInWithOtp,
         verifyOtp,
         signOut,
+        deleteAccount,
         isAppleSignInAvailable,
       }}
     >

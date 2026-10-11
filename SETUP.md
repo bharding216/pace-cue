@@ -281,7 +281,8 @@ supabase secrets set OPENAI_API_KEY=sk-...
   },
   "goals": ["Train for a 10K"],
   "preferences": ["Keep workouts under 45 minutes"],
-  "conversation": [{ "role": "user", "content": "..." }]
+  "conversation": [{ "role": "user", "content": "..." }],
+  "history_summary": "47 total workouts | 3 this week | 12 this month | avg 3.5/week\nLast workout: \"5K Speed\" (1d ago)\nRecent: Tempo Run (3d ago), Easy 30 Min (5d ago), Hill Repeats (6d ago)\nLast 30d by type: speed ×4, tempo ×3, easy ×5, hills ×2\nAvg duration: 38 min (7d) / 35 min (30d)\nHard interval effort avg: 7.2/10 | Best hard pace: 7:15/mi"
 }
 ```
 
@@ -308,6 +309,23 @@ Each interval should have at most one — either an effort rating (1–10 RPE) o
 target pace (min/mile), never both. If the user's profile includes pace data, prefer
 `targetPace` for hard/tempo intervals. Otherwise default to `effort`. The client
 will strip `targetPace` if both are returned on the same interval.
+
+**Coaching with history:** The `history_summary` field is a pre-serialized text
+block summarizing the user's completed workout history. It is `null` when the user
+has no history. When present, inject it into the system prompt so the AI can act
+as a coach. Example system prompt section:
+
+```
+## Runner's Recent History
+{history_summary}
+
+Use this history to guide your recommendation:
+- Suggest a workout TYPE they haven't done recently (e.g. hills if they've only done speed work)
+- If they've worked out 5+ days this week or done several hard sessions in a row, suggest recovery/easy
+- If daysSinceLastWorkout > 7, ease them back in with a lighter session
+- Consider progressive overload if volume/intensity has been consistent
+- Reference their actual history in your message (e.g. "Since your last 3 workouts were speed-focused…")
+```
 
 ### `revenuecat-webhook`
 Receives RevenueCat webhook events and upserts the `subscriptions` table.

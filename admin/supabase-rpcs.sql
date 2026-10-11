@@ -1,3 +1,16 @@
+-- ── Account Deletion (called by the client) ─────────────────
+-- Allows the authenticated user to delete their own account.
+-- All user data cascades automatically via ON DELETE CASCADE FKs
+-- on profiles, running_profiles, running_preferences, subscriptions,
+-- ai_generations, ai_conversations, cloud_workouts, and cloud_history.
+
+create or replace function delete_own_account()
+returns void as $$
+begin
+  delete from auth.users where id = auth.uid();
+end;
+$$ language plpgsql security definer;
+
 -- ── Admin Dashboard RPC Functions ────────────────────────────
 -- Run these in the Supabase SQL Editor to support the admin dashboard.
 -- These use security definer + service_role checks so they can only be
