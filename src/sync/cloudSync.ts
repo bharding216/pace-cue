@@ -15,6 +15,7 @@ import {
   loadWorkouts,
   saveWorkouts,
   loadHistory,
+  withHistoryLock,
 } from '../workout/workoutStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WorkoutDefinition, CompletedWorkout } from '../workout/workoutTypes';
@@ -259,9 +260,35 @@ async function syncHistory(userId: string): Promise<void> {
     );
   }
 
-  // Sort by completedAt descending and save locally
-  merged.sort((a, b) => b.completedAt - a.completedAt);
-  await AsyncStorage.setItem('@pacecue/history', JSON.stringify(merged));
+  // Write merged result under the history lock. Re-read local history inside
+  // the lock to pick up any entries saved by saveCompletedWorkout while we were
+  // doing network I/O (e.g. workout finished while sync was in progress).
+  await withHistoryLock(async () => {
+    const freshLocal = await loadHistory();
+    for (const entry of freshLocal) {
+      if (!seenIds.has(entry.id) && !locallyDeleted.includes(entry.id)) {
+        seenIds.add(entry.id);
+        merged.push(entry);
+      }
+    }
+
+    merged.sort((a, b) => b.completedAt - a.completedAt);
+    await AsyncStorage.setItem('@pacecue/history', JSON.stringify(merged));
+  });
+
+  // Push any late-discovered entries to remote (outside lock to avoid holding it during network I/O)
+  const laterEntries = merged.filter((e) => !toInsert.some((t) => t.history_id === e.id) && !remoteMap.has(e.id));
+  for (const entry of laterEntries) {
+    await supabase.from('cloud_history').upsert(
+      {
+        user_id: userId,
+        history_id: entry.id,
+        data: entry,
+        completed_at: new Date(entry.completedAt).toISOString(),
+      },
+      { onConflict: 'user_id,history_id' },
+    );
+  }
 
   // Clear deletion tracking
   await AsyncStorage.removeItem(DELETED_HISTORY_KEY);

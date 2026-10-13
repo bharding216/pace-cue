@@ -652,6 +652,22 @@ function MidRunSettingsSheet({
                     </TouchableOpacity>
                   ))}
                 </View>
+
+                {/* Only cue on intervals with target pace */}
+                {settings.paceCueFrequency > 0 && (
+                  <View style={sheetStyles.toggleRow}>
+                    <Text style={sheetStyles.toggleLabel}>Only with target pace</Text>
+                    <Switch
+                      value={settings.paceCueOnlyWithTarget}
+                      onValueChange={(v) => {
+                        hapticTap();
+                        onUpdate({ paceCueOnlyWithTarget: v });
+                      }}
+                      trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
+                      thumbColor={Colors.white}
+                    />
+                  </View>
+                )}
               </>
             )}
 

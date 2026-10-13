@@ -91,6 +91,24 @@ export async function deleteWorkout(id: string): Promise<void> {
 
 // ── History ──────────────────────────────────────────────────────────
 
+/**
+ * Simple async mutex that serializes history read-modify-write operations.
+ * Prevents cloud sync from overwriting entries saved by saveCompletedWorkout
+ * when both run concurrently (e.g. workout finishes while app is backgrounded
+ * and sync fires on foreground).
+ */
+let _historyLock: Promise<void> = Promise.resolve();
+
+export function withHistoryLock<T>(fn: () => Promise<T>): Promise<T> {
+  let release: () => void;
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const prev = _historyLock;
+  _historyLock = next;
+  return prev.then(fn).finally(() => release!());
+}
+
 export async function loadHistory(): Promise<CompletedWorkout[]> {
   const raw = await AsyncStorage.getItem(STORAGE_KEYS.HISTORY);
   if (!raw) return [];
@@ -100,14 +118,16 @@ export async function loadHistory(): Promise<CompletedWorkout[]> {
 export async function saveCompletedWorkout(
   entry: CompletedWorkout
 ): Promise<void> {
-  const history = await loadHistory();
-  history.unshift(entry); // newest first
-  // Keep last 200 entries
-  if (history.length > 200) history.length = 200;
-  await AsyncStorage.setItem(
-    STORAGE_KEYS.HISTORY,
-    JSON.stringify(history)
-  );
+  return withHistoryLock(async () => {
+    const history = await loadHistory();
+    history.unshift(entry); // newest first
+    // Keep last 200 entries
+    if (history.length > 200) history.length = 200;
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.HISTORY,
+      JSON.stringify(history)
+    );
+  });
 }
 
 export async function deleteHistoryEntry(id: string): Promise<CompletedWorkout[]> {
