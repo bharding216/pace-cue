@@ -21,6 +21,14 @@ create index if not exists idx_events_user_id on events(user_id) where user_id i
 -- ── Admin Dashboard RPC Functions ────────────────────────────
 -- Run these in the Supabase SQL Editor to support the admin dashboard.
 -- These use security definer so they bypass RLS and return correct counts.
+--
+-- Drop functions whose return types may have changed, so CREATE OR REPLACE
+-- doesn't error. Safe to run repeatedly.
+drop function if exists todays_events_by_user();
+drop function if exists ai_generations_by_user(int);
+drop function if exists dau_per_day(int);
+drop function if exists signups_per_day(int);
+drop function if exists events_per_day(int);
 
 -- Total registered users
 create or replace function total_users()
@@ -199,6 +207,24 @@ returns table(
   where ag.created_at > now() - (num_days || ' days')::interval
   group by ag.user_id, p.display_name, u.email
   order by generation_count desc;
+$$ language sql security definer;
+
+-- DAU per day for the last N days (unique devices that opened the app)
+create or replace function dau_per_day(num_days int default 30)
+returns table(date text, count int) as $$
+  select
+    to_char(d.day, 'YYYY-MM-DD') as date,
+    coalesce(count(distinct e.anonymous_user_id), 0)::int as count
+  from generate_series(
+    current_date - (num_days - 1),
+    current_date,
+    '1 day'::interval
+  ) as d(day)
+  left join events e
+    on e.created_at::date = d.day
+    and e.event_name = 'app_opened'
+  group by d.day
+  order by d.day;
 $$ language sql security definer;
 
 -- Signups per day for the last N days

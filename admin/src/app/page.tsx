@@ -2,12 +2,14 @@ import { createAuthServerClient } from '@/lib/supabase-server-actions';
 import {
   getOverviewStats,
   getEngagementStats,
+  getDAUOverTime,
   getSignupsOverTime,
   getEventsOverTime,
   getTodaysEventsByUser,
   getAIGenerationsByUser,
 } from '@/lib/queries';
 import StatCard from '@/components/StatCard';
+import DAUChart from '@/components/DAUChart';
 import SignupsChart from '@/components/SignupsChart';
 import EventsChart from '@/components/EventsChart';
 import TodaysActivity from '@/components/TodaysActivity';
@@ -20,9 +22,10 @@ export default async function DashboardPage() {
   const supabase = await createAuthServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [stats, engagement, signups, events, todaysUsers, aiUsers] = await Promise.all([
+  const [stats, engagement, dau, signups, events, todaysUsers, aiUsers] = await Promise.all([
     getOverviewStats(),
     getEngagementStats(),
+    getDAUOverTime(30),
     getSignupsOverTime(30),
     getEventsOverTime(30),
     getTodaysEventsByUser(),
@@ -52,8 +55,8 @@ export default async function DashboardPage() {
           value={stats.newUsersLast7d}
           detail="Last 7 days"
         />
-        <StatCard label="DAU" value={stats.dauToday} detail="Today" />
-        <StatCard label="WAU" value={stats.wau} detail="Last 7 days" />
+        <StatCard label="DAU" value={stats.dauToday} detail="Unique devices today (UTC)" />
+        <StatCard label="WAU" value={stats.wau} detail="Unique devices, rolling 7 days" />
         <StatCard
           label="Pro Subscribers"
           value={stats.proSubscribers}
@@ -101,6 +104,9 @@ export default async function DashboardPage() {
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
         Trends
       </h2>
+      <section className="mb-4">
+        <DAUChart data={dau} />
+      </section>
       <section className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SignupsChart data={signups} />
         <EventsChart data={events} />

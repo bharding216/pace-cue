@@ -95,6 +95,16 @@ export async function getEngagementStats(): Promise<EngagementStats> {
 }
 
 /**
+ * DAU per day for the last N days.
+ */
+export async function getDAUOverTime(days = 30): Promise<DailyCount[]> {
+  const supabase = createServiceClient();
+
+  const { data } = await supabase.rpc('dau_per_day', { num_days: days });
+  return (data as DailyCount[]) ?? [];
+}
+
+/**
  * Signups per day for the last N days.
  */
 export async function getSignupsOverTime(days = 30): Promise<DailyCount[]> {
