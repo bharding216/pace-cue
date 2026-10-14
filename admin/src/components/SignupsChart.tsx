@@ -17,7 +17,7 @@ export default function SignupsChart({ data }: Props) {
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
       <h2 className="mb-4 text-sm font-medium text-gray-400">
-        Signups — Last 30 Days
+        Accounts Created — Last 30 Days
       </h2>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
