@@ -28,8 +28,13 @@ export default function TodaysActivity({ data }: Props) {
             return (
               <div key={user.anonymous_user_id}>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="font-mono text-xs text-gray-300" title={user.anonymous_user_id}>
-                    {i + 1}. {user.anonymous_user_id.slice(0, 8)}…
+                  <span className="text-xs text-gray-300" title={user.anonymous_user_id}>
+                    {i + 1}.{' '}
+                    {user.display_name === user.anonymous_user_id ? (
+                      <span className="font-mono">{user.anonymous_user_id.slice(0, 8)}…</span>
+                    ) : (
+                      user.display_name
+                    )}
                   </span>
                   <span className="tabular-nums text-gray-400">
                     {user.event_count} event{user.event_count !== 1 ? 's' : ''}{' '}

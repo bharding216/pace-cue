@@ -23,6 +23,7 @@ export type DailyCount = {
 
 export type UserEventBreakdown = {
   anonymous_user_id: string;
+  display_name: string;
   event_count: number;
   events: string[];
 };

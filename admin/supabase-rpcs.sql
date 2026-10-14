@@ -11,6 +11,13 @@ begin
 end;
 $$ language plpgsql security definer;
 
+-- ── Events table: add optional user_id column ───────────────
+-- Links anonymous events to authenticated users when logged in.
+-- Nullable so existing rows and anonymous events are unaffected.
+
+alter table events add column if not exists user_id uuid references auth.users on delete set null;
+create index if not exists idx_events_user_id on events(user_id) where user_id is not null;
+
 -- ── Admin Dashboard RPC Functions ────────────────────────────
 -- Run these in the Supabase SQL Editor to support the admin dashboard.
 -- These use security definer so they bypass RLS and return correct counts.
@@ -147,17 +154,26 @@ returns numeric as $$
 $$ language sql security definer;
 
 -- Today's events broken down by anonymous user: who is generating the traffic?
+-- Resolves to display name or email when user_id is available.
 create or replace function todays_events_by_user()
 returns table(
   anonymous_user_id text,
+  display_name text,
   event_count int,
   events jsonb
 ) as $$
   select
     e.anonymous_user_id,
+    coalesce(
+      max(p.display_name),
+      max(u.email),
+      e.anonymous_user_id
+    ) as display_name,
     count(*)::int as event_count,
     jsonb_agg(distinct e.event_name order by e.event_name) as events
   from events e
+  left join auth.users u on u.id = e.user_id
+  left join profiles p on p.id = e.user_id
   where e.created_at::date = current_date
   group by e.anonymous_user_id
   order by event_count desc;

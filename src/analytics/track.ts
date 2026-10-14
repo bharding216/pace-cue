@@ -12,6 +12,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { supabase } from './supabaseClient';
 
+/** Cached authenticated user ID, updated when auth state changes. */
+let cachedUserId: string | null = null;
+
+supabase.auth.onAuthStateChange((_event, session) => {
+  cachedUserId = session?.user?.id ?? null;
+});
+
 const ANONYMOUS_ID_KEY = '@pacecue/anonymous_id';
 
 /** In-memory cache so we only hit AsyncStorage once per session. */
@@ -64,6 +71,7 @@ export function track(
     .then((anonymousUserId) =>
       supabase.from('events').insert({
         anonymous_user_id: anonymousUserId,
+        user_id: cachedUserId,
         event_name: eventName,
         app_version: appVersion,
         environment,

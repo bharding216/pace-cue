@@ -26,11 +26,13 @@ export default function AIUsageBreakdown({ data }: Props) {
               ? Math.round((user.generation_count / totalGenerations) * 100)
               : 0;
 
-            const lastUsed = new Date(user.latest_at).toLocaleDateString('en-US', {
+            const lastUsed = new Date(user.latest_at).toLocaleString('en-US', {
               month: 'short',
               day: 'numeric',
               hour: 'numeric',
               minute: '2-digit',
+              timeZone: 'UTC',
+              timeZoneName: 'short',
             });
 
             return (
