@@ -4,8 +4,16 @@ export type OverviewStats = {
   totalUsers: number;
   newUsersLast7d: number;
   dauToday: number;
+  wau: number;
   proSubscribers: number;
   aiGenerationsLast7d: number;
+};
+
+export type EngagementStats = {
+  activationRate: number;
+  week4Retention: number;
+  coreEngagementRate: number;
+  freeToPaidRate: number;
 };
 
 export type DailyCount = {
@@ -15,6 +23,7 @@ export type DailyCount = {
 
 /**
  * Fetch all overview metrics in parallel.
+ * All queries use security-definer RPCs to bypass RLS reliably.
  */
 export async function getOverviewStats(): Promise<OverviewStats> {
   const supabase = createServiceClient();
@@ -23,32 +32,51 @@ export async function getOverviewStats(): Promise<OverviewStats> {
     totalUsersRes,
     newUsersRes,
     dauRes,
+    wauRes,
     proSubsRes,
     aiGensRes,
   ] = await Promise.all([
-    supabase.from('profiles').select('*', { count: 'exact', head: true }),
-    supabase
-      .from('profiles')
-      .select('*', { count: 'exact', head: true })
-      .gte('created_at', daysAgo(7)),
+    supabase.rpc('total_users'),
+    supabase.rpc('new_users', { num_days: 7 }),
     supabase.rpc('dau_today'),
-    supabase
-      .from('subscriptions')
-      .select('*', { count: 'exact', head: true })
-      .eq('tier', 'pro')
-      .in('status', ['active', 'trialing']),
-    supabase
-      .from('ai_generations')
-      .select('*', { count: 'exact', head: true })
-      .gte('created_at', daysAgo(7)),
+    supabase.rpc('wau'),
+    supabase.rpc('pro_subscribers'),
+    supabase.rpc('ai_generations_count', { num_days: 7 }),
   ]);
 
   return {
-    totalUsers: totalUsersRes.count ?? 0,
-    newUsersLast7d: newUsersRes.count ?? 0,
+    totalUsers: (totalUsersRes.data as number) ?? 0,
+    newUsersLast7d: (newUsersRes.data as number) ?? 0,
     dauToday: (dauRes.data as number) ?? 0,
-    proSubscribers: proSubsRes.count ?? 0,
-    aiGenerationsLast7d: aiGensRes.count ?? 0,
+    wau: (wauRes.data as number) ?? 0,
+    proSubscribers: (proSubsRes.data as number) ?? 0,
+    aiGenerationsLast7d: (aiGensRes.data as number) ?? 0,
+  };
+}
+
+/**
+ * Fetch engagement / conversion metrics.
+ */
+export async function getEngagementStats(): Promise<EngagementStats> {
+  const supabase = createServiceClient();
+
+  const [
+    activationRes,
+    retentionRes,
+    engagementRes,
+    conversionRes,
+  ] = await Promise.all([
+    supabase.rpc('activation_rate'),
+    supabase.rpc('week4_retention'),
+    supabase.rpc('core_engagement_rate'),
+    supabase.rpc('free_to_paid_rate'),
+  ]);
+
+  return {
+    activationRate: (activationRes.data as number) ?? 0,
+    week4Retention: (retentionRes.data as number) ?? 0,
+    coreEngagementRate: (engagementRes.data as number) ?? 0,
+    freeToPaidRate: (conversionRes.data as number) ?? 0,
   };
 }
 
@@ -70,10 +98,4 @@ export async function getEventsOverTime(days = 30): Promise<DailyCount[]> {
 
   const { data } = await supabase.rpc('events_per_day', { num_days: days });
   return (data as DailyCount[]) ?? [];
-}
-
-function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString();
 }

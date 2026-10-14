@@ -1,5 +1,10 @@
 import { createAuthServerClient } from '@/lib/supabase-server-actions';
-import { getOverviewStats, getSignupsOverTime, getEventsOverTime } from '@/lib/queries';
+import {
+  getOverviewStats,
+  getEngagementStats,
+  getSignupsOverTime,
+  getEventsOverTime,
+} from '@/lib/queries';
 import StatCard from '@/components/StatCard';
 import SignupsChart from '@/components/SignupsChart';
 import EventsChart from '@/components/EventsChart';
@@ -11,8 +16,9 @@ export default async function DashboardPage() {
   const supabase = await createAuthServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [stats, signups, events] = await Promise.all([
+  const [stats, engagement, signups, events] = await Promise.all([
     getOverviewStats(),
+    getEngagementStats(),
     getSignupsOverTime(30),
     getEventsOverTime(30),
   ]);
@@ -29,7 +35,11 @@ export default async function DashboardPage() {
         <SignOutButton />
       </header>
 
-      <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      {/* ── Usage ─────────────────────────────────────────── */}
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Usage
+      </h2>
+      <section className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard label="Total Users" value={stats.totalUsers} />
         <StatCard
           label="New Users"
@@ -37,6 +47,7 @@ export default async function DashboardPage() {
           detail="Last 7 days"
         />
         <StatCard label="DAU" value={stats.dauToday} detail="Today" />
+        <StatCard label="WAU" value={stats.wau} detail="Last 7 days" />
         <StatCard
           label="Pro Subscribers"
           value={stats.proSubscribers}
@@ -49,6 +60,41 @@ export default async function DashboardPage() {
         />
       </section>
 
+      {/* ── Growth & Engagement ───────────────────────────── */}
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Growth &amp; Engagement
+      </h2>
+      <section className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard
+          label="Activation Rate"
+          value={engagement.activationRate}
+          format="percent"
+          detail="Signed up last 30d → completed a workout"
+        />
+        <StatCard
+          label="Week 4 Retention"
+          value={engagement.week4Retention}
+          format="percent"
+          detail="Signed up ~4 wks ago → active this week"
+        />
+        <StatCard
+          label="Core Engagement"
+          value={engagement.coreEngagementRate}
+          format="percent"
+          detail="WAU who started/completed a workout"
+        />
+        <StatCard
+          label="Free → Paid"
+          value={engagement.freeToPaidRate}
+          format="percent"
+          detail="Registered users with pro subscription"
+        />
+      </section>
+
+      {/* ── Trends ────────────────────────────────────────── */}
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Trends
+      </h2>
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SignupsChart data={signups} />
         <EventsChart data={events} />
