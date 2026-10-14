@@ -1,34 +1,62 @@
 'use client';
 
 import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+
+type Step = 'email' | 'code';
 
 export default function LoginForm() {
   const [email, setEmail] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+  const [code, setCode] = useState('');
+  const [step, setStep] = useState<Step>('email');
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
   const searchParams = useSearchParams();
   const urlError = searchParams.get('error');
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSendCode(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setLoading(true);
 
     const supabase = createBrowserSupabaseClient();
     const { error: authError } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
     });
+
+    setLoading(false);
 
     if (authError) {
       setError(authError.message);
       return;
     }
 
-    setSubmitted(true);
+    setStep('code');
+  }
+
+  async function handleVerifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    const supabase = createBrowserSupabaseClient();
+    const { error: authError } = await supabase.auth.verifyOtp({
+      email,
+      token: code,
+      type: 'email',
+    });
+
+    setLoading(false);
+
+    if (authError) {
+      setError(authError.message);
+      return;
+    }
+
+    router.push('/');
+    router.refresh();
   }
 
   return (
@@ -45,12 +73,8 @@ export default function LoginForm() {
         </div>
       )}
 
-      {submitted ? (
-        <div className="rounded-lg bg-green-900/50 border border-green-700 p-4 text-center text-sm text-green-200">
-          Check your email for a magic link to sign in.
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit} className="space-y-4">
+      {step === 'email' && (
+        <form onSubmit={handleSendCode} className="space-y-4">
           <input
             type="email"
             placeholder="admin@example.com"
@@ -61,13 +85,50 @@ export default function LoginForm() {
           />
           <button
             type="submit"
-            className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500 transition-colors"
+            disabled={loading}
+            className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500 transition-colors disabled:opacity-50"
           >
-            Send Magic Link
+            {loading ? 'Sending...' : 'Send Sign-In Code'}
           </button>
-          {error && (
-            <p className="text-sm text-red-400">{error}</p>
-          )}
+          {error && <p className="text-sm text-red-400">{error}</p>}
+        </form>
+      )}
+
+      {step === 'code' && (
+        <form onSubmit={handleVerifyCode} className="space-y-4">
+          <p className="text-sm text-gray-400">
+            Enter the 6-digit code sent to <span className="text-gray-200">{email}</span>
+          </p>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="000000"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+            required
+            className="w-full rounded-lg border border-gray-700 bg-gray-900 px-4 py-2.5 text-center text-2xl font-mono tracking-[0.5em] text-gray-100 placeholder-gray-600 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          />
+          <button
+            type="submit"
+            disabled={loading || code.length !== 6}
+            className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500 transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Verifying...' : 'Verify'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setStep('email');
+              setCode('');
+              setError(null);
+            }}
+            className="w-full text-sm text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            Use a different email
+          </button>
+          {error && <p className="text-sm text-red-400">{error}</p>}
         </form>
       )}
     </>
