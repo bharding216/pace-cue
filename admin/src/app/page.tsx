@@ -49,11 +49,11 @@ export default async function DashboardPage() {
         Usage
       </h2>
       <section className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="Total Users" value={stats.totalUsers} />
+        <StatCard label="Accounts" value={stats.totalUsers} detail="Registered users" />
         <StatCard
-          label="New Users"
+          label="New Accounts"
           value={stats.newUsersLast7d}
-          detail="Last 7 days"
+          detail="Registered in last 7 days"
         />
         <StatCard label="DAU" value={stats.dauToday} detail="Unique devices today (UTC)" />
         <StatCard label="WAU" value={stats.wau} detail="Unique devices, rolling 7 days" />
