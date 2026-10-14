@@ -146,6 +146,45 @@ returns numeric as $$
   from total, paid;
 $$ language sql security definer;
 
+-- Today's events broken down by anonymous user: who is generating the traffic?
+create or replace function todays_events_by_user()
+returns table(
+  anonymous_user_id text,
+  event_count int,
+  events jsonb
+) as $$
+  select
+    e.anonymous_user_id,
+    count(*)::int as event_count,
+    jsonb_agg(distinct e.event_name order by e.event_name) as events
+  from events e
+  where e.created_at::date = current_date
+  group by e.anonymous_user_id
+  order by event_count desc;
+$$ language sql security definer;
+
+-- AI generations broken down by user (last N days)
+-- Joins profiles to show display name / email where available.
+create or replace function ai_generations_by_user(num_days int default 7)
+returns table(
+  user_id uuid,
+  display_name text,
+  generation_count int,
+  latest_at timestamptz
+) as $$
+  select
+    ag.user_id,
+    coalesce(p.display_name, u.email, ag.user_id::text) as display_name,
+    count(*)::int as generation_count,
+    max(ag.created_at) as latest_at
+  from ai_generations ag
+  left join profiles p on p.id = ag.user_id
+  left join auth.users u on u.id = ag.user_id
+  where ag.created_at > now() - (num_days || ' days')::interval
+  group by ag.user_id, p.display_name, u.email
+  order by generation_count desc;
+$$ language sql security definer;
+
 -- Signups per day for the last N days
 create or replace function signups_per_day(num_days int default 30)
 returns table(date text, count int) as $$

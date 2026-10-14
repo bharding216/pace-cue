@@ -4,10 +4,14 @@ import {
   getEngagementStats,
   getSignupsOverTime,
   getEventsOverTime,
+  getTodaysEventsByUser,
+  getAIGenerationsByUser,
 } from '@/lib/queries';
 import StatCard from '@/components/StatCard';
 import SignupsChart from '@/components/SignupsChart';
 import EventsChart from '@/components/EventsChart';
+import TodaysActivity from '@/components/TodaysActivity';
+import AIUsageBreakdown from '@/components/AIUsageBreakdown';
 import SignOutButton from '@/components/SignOutButton';
 
 export const dynamic = 'force-dynamic';
@@ -16,11 +20,13 @@ export default async function DashboardPage() {
   const supabase = await createAuthServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [stats, engagement, signups, events] = await Promise.all([
+  const [stats, engagement, signups, events, todaysUsers, aiUsers] = await Promise.all([
     getOverviewStats(),
     getEngagementStats(),
     getSignupsOverTime(30),
     getEventsOverTime(30),
+    getTodaysEventsByUser(),
+    getAIGenerationsByUser(7),
   ]);
 
   return (
@@ -95,9 +101,18 @@ export default async function DashboardPage() {
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
         Trends
       </h2>
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <section className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SignupsChart data={signups} />
         <EventsChart data={events} />
+      </section>
+
+      {/* ── Drilldowns ─────────────────────────────────────── */}
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Drilldowns
+      </h2>
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <TodaysActivity data={todaysUsers} />
+        <AIUsageBreakdown data={aiUsers} />
       </section>
     </div>
   );

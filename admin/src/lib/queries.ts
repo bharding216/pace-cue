@@ -21,6 +21,19 @@ export type DailyCount = {
   count: number;
 };
 
+export type UserEventBreakdown = {
+  anonymous_user_id: string;
+  event_count: number;
+  events: string[];
+};
+
+export type AIUserBreakdown = {
+  user_id: string;
+  display_name: string;
+  generation_count: number;
+  latest_at: string;
+};
+
 /**
  * Fetch all overview metrics in parallel.
  * All queries use security-definer RPCs to bypass RLS reliably.
@@ -98,4 +111,24 @@ export async function getEventsOverTime(days = 30): Promise<DailyCount[]> {
 
   const { data } = await supabase.rpc('events_per_day', { num_days: days });
   return (data as DailyCount[]) ?? [];
+}
+
+/**
+ * Today's events broken down by anonymous user.
+ */
+export async function getTodaysEventsByUser(): Promise<UserEventBreakdown[]> {
+  const supabase = createServiceClient();
+
+  const { data } = await supabase.rpc('todays_events_by_user');
+  return (data as UserEventBreakdown[]) ?? [];
+}
+
+/**
+ * AI generations broken down by user (last N days).
+ */
+export async function getAIGenerationsByUser(days = 7): Promise<AIUserBreakdown[]> {
+  const supabase = createServiceClient();
+
+  const { data } = await supabase.rpc('ai_generations_by_user', { num_days: days });
+  return (data as AIUserBreakdown[]) ?? [];
 }
