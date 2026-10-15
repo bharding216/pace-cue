@@ -249,7 +249,10 @@ function generateShortCode(): string {
  * open the workout in the app or download from the store.
  * Falls back to the legacy base64-encoded deep link if the upload fails.
  */
-export async function createShareLink(def: WorkoutDefinition): Promise<string> {
+export async function createShareLink(
+  def: WorkoutDefinition,
+  shareType: 'structure' | 'results' = 'structure',
+): Promise<string> {
   const shareable: ShareableWorkout = {
     n: def.name,
     w: def.warmup,
@@ -259,10 +262,21 @@ export async function createShareLink(def: WorkoutDefinition): Promise<string> {
 
   const code = generateShortCode();
 
+  // Grab authenticated user ID if available (null for anonymous users)
+  const { data: { session } } = await supabase.auth.getSession();
+  const userId = session?.user?.id ?? null;
+
   try {
     const { error } = await supabase
       .from('shared_workouts')
-      .insert({ code, workout_data: shareable });
+      .insert({
+        code,
+        workout_data: shareable,
+        user_id: userId,
+        workout_id: def.id,
+        workout_name: def.name,
+        share_type: shareType,
+      });
 
     if (!error) {
       return `${SHARE_BASE_URL}/${code}`;
@@ -315,7 +329,7 @@ export async function shareWorkoutStructure(
   def: WorkoutDefinition,
 ): Promise<void> {
   const text = formatWorkoutText(def);
-  const link = await createShareLink(def);
+  const link = await createShareLink(def, 'structure');
 
   try {
     await Share.share(
@@ -354,7 +368,7 @@ export async function shareWorkoutResults(
   // Include import link if we have the definition
   let link: string | undefined;
   if (def) {
-    link = await createShareLink(def);
+    link = await createShareLink(def, 'results');
   }
 
   const textBody = parts.join('\n');

@@ -404,3 +404,70 @@ returns table(date text, count int) as $$
   group by d.day
   order by d.day;
 $$ language sql security definer;
+
+-- ── Sharing Analytics ────────────────────────────────────────
+
+-- Drop sharing functions whose return types may have changed
+drop function if exists shares_per_day(int);
+drop function if exists share_stats(int);
+drop function if exists shares_by_user(int);
+
+-- Shares per day for the last N days (structure vs results breakdown)
+create or replace function shares_per_day(num_days int default 30)
+returns table(date text, structure int, results int, total int) as $$
+  select
+    to_char(d.day, 'YYYY-MM-DD') as date,
+    coalesce(count(*) filter (where sw.share_type = 'structure'), 0)::int as structure,
+    coalesce(count(*) filter (where sw.share_type = 'results'), 0)::int as results,
+    coalesce(count(sw.code), 0)::int as total
+  from generate_series(
+    current_date - (num_days - 1),
+    current_date,
+    '1 day'::interval
+  ) as d(day)
+  left join shared_workouts sw on sw.created_at::date = d.day
+  group by d.day
+  order by d.day;
+$$ language sql security definer;
+
+-- Sharing summary stats for the last N days
+create or replace function share_stats(num_days int default 30)
+returns table(
+  total_shares int,
+  structure_shares int,
+  results_shares int,
+  unique_sharers int,
+  shares_today int
+) as $$
+  select
+    count(*)::int as total_shares,
+    count(*) filter (where share_type = 'structure')::int as structure_shares,
+    count(*) filter (where share_type = 'results')::int as results_shares,
+    count(distinct user_id)::int as unique_sharers,
+    count(*) filter (where created_at::date = current_date)::int as shares_today
+  from shared_workouts
+  where created_at > now() - (num_days || ' days')::interval;
+$$ language sql security definer;
+
+-- Shares broken down by user (last N days)
+-- Resolves to display name or email when user_id is available.
+create or replace function shares_by_user(num_days int default 7)
+returns table(
+  user_id uuid,
+  display_name text,
+  share_count int,
+  latest_at timestamptz
+) as $$
+  select
+    sw.user_id,
+    coalesce(p.display_name, u.email, sw.user_id::text) as display_name,
+    count(*)::int as share_count,
+    max(sw.created_at) as latest_at
+  from shared_workouts sw
+  left join profiles p on p.id = sw.user_id
+  left join auth.users u on u.id = sw.user_id
+  where sw.created_at > now() - (num_days || ' days')::interval
+    and sw.user_id is not null
+  group by sw.user_id, p.display_name, u.email
+  order by share_count desc;
+$$ language sql security definer;
