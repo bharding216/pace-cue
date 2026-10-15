@@ -17,6 +17,13 @@ export interface Announcement {
  *   2. Push an OTA update: `eas update --branch production --message "..."`.
  */
 export const ANNOUNCEMENTS: Announcement[] = [
+  {
+    id: '2026-10-gps-pace-tracking',
+    date: '2026-10-15',
+    expiresAt: '2026-11-15',
+    title: "New: GPS Pace Tracking",
+    body: 'Get real-time pace cues during your runs! Enable it in Settings → Pace.',
+  },
   // {
   //   id: '2026-10-widget-support',
   //   date: '2026-10-06',
