@@ -322,34 +322,35 @@ returns table(
 $$ language sql security definer;
 
 -- AI Workout Plan Adoption Rate:
--- Users who completed a workout after saving an AI workout / users who saved an AI workout
+-- Users who completed a workout / users who generated an AI workout plan.
+-- Uses ai_generations (authenticated) + cloud_history (authenticated) so
+-- both sides share user_id and work with existing data.
 create or replace function ai_adoption_rate(num_days int default 30)
 returns table(
   ai_users int,
   ai_users_completed int,
   adoption_rate numeric
 ) as $$
-  with ai_savers as (
-    select distinct anonymous_user_id
-    from events
-    where event_name = 'ai_workout_saved'
-      and created_at > now() - (num_days || ' days')::interval
+  with ai_users as (
+    select distinct user_id
+    from ai_generations
+    where created_at > now() - (num_days || ' days')::interval
   ),
   ai_completers as (
-    select distinct e.anonymous_user_id
-    from events e
-    inner join ai_savers a on a.anonymous_user_id = e.anonymous_user_id
-    where e.event_name = 'workout_completed'
-      and e.created_at > now() - (num_days || ' days')::interval
+    select distinct a.user_id
+    from ai_users a
+    inner join cloud_history ch
+      on ch.user_id = a.user_id
+      and ch.deleted_at is null
   )
   select
-    (select count(*) from ai_savers)::int as ai_users,
+    (select count(*) from ai_users)::int as ai_users,
     (select count(*) from ai_completers)::int as ai_users_completed,
     case
-      when (select count(*) from ai_savers) = 0 then 0
+      when (select count(*) from ai_users) = 0 then 0
       else round(
         (select count(*) from ai_completers)::numeric /
-        (select count(*) from ai_savers)::numeric * 100, 1
+        (select count(*) from ai_users)::numeric * 100, 1
       )
     end as adoption_rate;
 $$ language sql security definer;
