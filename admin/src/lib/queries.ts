@@ -2,7 +2,6 @@ import { createServiceClient } from './supabase-server';
 
 export type OverviewStats = {
   totalUsers: number;
-  newUsersLast7d: number;
   dauToday: number;
   wau: number;
   proSubscribers: number;
@@ -16,9 +15,35 @@ export type EngagementStats = {
   freeToPaidRate: number;
 };
 
+export type WorkoutCompletionStats = {
+  startedToday: number;
+  completedToday: number;
+  startedPeriod: number;
+  completedPeriod: number;
+  completionRate: number;
+};
+
+export type FunnelStep = {
+  step: string;
+  user_count: number;
+  pct: number;
+};
+
+export type AIAdoptionStats = {
+  aiUsers: number;
+  aiUsersCompleted: number;
+  adoptionRate: number;
+};
+
 export type DailyCount = {
   date: string;
   count: number;
+};
+
+export type DailyWorkoutCount = {
+  date: string;
+  started: number;
+  completed: number;
 };
 
 export type UserEventBreakdown = {
@@ -37,21 +62,18 @@ export type AIUserBreakdown = {
 
 /**
  * Fetch all overview metrics in parallel.
- * All queries use security-definer RPCs to bypass RLS reliably.
  */
 export async function getOverviewStats(): Promise<OverviewStats> {
   const supabase = createServiceClient();
 
   const [
     totalUsersRes,
-    newUsersRes,
     dauRes,
     wauRes,
     proSubsRes,
     aiGensRes,
   ] = await Promise.all([
     supabase.rpc('total_users'),
-    supabase.rpc('new_users', { num_days: 7 }),
     supabase.rpc('dau_today'),
     supabase.rpc('wau'),
     supabase.rpc('pro_subscribers'),
@@ -60,7 +82,6 @@ export async function getOverviewStats(): Promise<OverviewStats> {
 
   return {
     totalUsers: (totalUsersRes.data as number) ?? 0,
-    newUsersLast7d: (newUsersRes.data as number) ?? 0,
     dauToday: (dauRes.data as number) ?? 0,
     wau: (wauRes.data as number) ?? 0,
     proSubscribers: (proSubsRes.data as number) ?? 0,
@@ -74,17 +95,13 @@ export async function getOverviewStats(): Promise<OverviewStats> {
 export async function getEngagementStats(): Promise<EngagementStats> {
   const supabase = createServiceClient();
 
-  const [
-    activationRes,
-    retentionRes,
-    engagementRes,
-    conversionRes,
-  ] = await Promise.all([
-    supabase.rpc('activation_rate'),
-    supabase.rpc('week4_retention'),
-    supabase.rpc('core_engagement_rate'),
-    supabase.rpc('free_to_paid_rate'),
-  ]);
+  const [activationRes, retentionRes, engagementRes, conversionRes] =
+    await Promise.all([
+      supabase.rpc('activation_rate'),
+      supabase.rpc('week4_retention'),
+      supabase.rpc('core_engagement_rate'),
+      supabase.rpc('free_to_paid_rate'),
+    ]);
 
   return {
     activationRate: (activationRes.data as number) ?? 0,
@@ -92,6 +109,58 @@ export async function getEngagementStats(): Promise<EngagementStats> {
     coreEngagementRate: (engagementRes.data as number) ?? 0,
     freeToPaidRate: (conversionRes.data as number) ?? 0,
   };
+}
+
+/**
+ * Workout started/completed stats (today + last 7 days).
+ */
+export async function getWorkoutCompletionStats(): Promise<WorkoutCompletionStats> {
+  const supabase = createServiceClient();
+
+  const { data } = await supabase.rpc('workout_completion_stats', { num_days: 7 });
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    startedToday: row?.started_today ?? 0,
+    completedToday: row?.completed_today ?? 0,
+    startedPeriod: row?.started_period ?? 0,
+    completedPeriod: row?.completed_period ?? 0,
+    completionRate: row?.completion_rate ?? 0,
+  };
+}
+
+/**
+ * Onboarding funnel (last N days).
+ */
+export async function getOnboardingFunnel(days = 30): Promise<FunnelStep[]> {
+  const supabase = createServiceClient();
+
+  const { data } = await supabase.rpc('onboarding_funnel', { num_days: days });
+  return (data as FunnelStep[]) ?? [];
+}
+
+/**
+ * AI workout plan adoption rate (last N days).
+ */
+export async function getAIAdoptionRate(days = 30): Promise<AIAdoptionStats> {
+  const supabase = createServiceClient();
+
+  const { data } = await supabase.rpc('ai_adoption_rate', { num_days: days });
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    aiUsers: row?.ai_users ?? 0,
+    aiUsersCompleted: row?.ai_users_completed ?? 0,
+    adoptionRate: row?.adoption_rate ?? 0,
+  };
+}
+
+/**
+ * Workouts started and completed per day (last N days).
+ */
+export async function getWorkoutsOverTime(days = 30): Promise<DailyWorkoutCount[]> {
+  const supabase = createServiceClient();
+
+  const { data } = await supabase.rpc('workouts_per_day', { num_days: days });
+  return (data as DailyWorkoutCount[]) ?? [];
 }
 
 /**

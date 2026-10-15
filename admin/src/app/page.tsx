@@ -2,7 +2,11 @@ import { createAuthServerClient } from '@/lib/supabase-server-actions';
 import {
   getOverviewStats,
   getEngagementStats,
+  getWorkoutCompletionStats,
+  getOnboardingFunnel,
+  getAIAdoptionRate,
   getDAUOverTime,
+  getWorkoutsOverTime,
   getSignupsOverTime,
   getEventsOverTime,
   getTodaysEventsByUser,
@@ -10,8 +14,10 @@ import {
 } from '@/lib/queries';
 import StatCard from '@/components/StatCard';
 import DAUChart from '@/components/DAUChart';
+import WorkoutsChart from '@/components/WorkoutsChart';
 import SignupsChart from '@/components/SignupsChart';
 import EventsChart from '@/components/EventsChart';
+import OnboardingFunnel from '@/components/OnboardingFunnel';
 import TodaysActivity from '@/components/TodaysActivity';
 import AIUsageBreakdown from '@/components/AIUsageBreakdown';
 import SignOutButton from '@/components/SignOutButton';
@@ -22,10 +28,26 @@ export default async function DashboardPage() {
   const supabase = await createAuthServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [stats, engagement, dau, signups, events, todaysUsers, aiUsers] = await Promise.all([
+  const [
+    stats,
+    engagement,
+    workoutStats,
+    funnel,
+    aiAdoption,
+    dau,
+    workouts,
+    signups,
+    events,
+    todaysUsers,
+    aiUsers,
+  ] = await Promise.all([
     getOverviewStats(),
     getEngagementStats(),
+    getWorkoutCompletionStats(),
+    getOnboardingFunnel(30),
+    getAIAdoptionRate(30),
     getDAUOverTime(30),
+    getWorkoutsOverTime(30),
     getSignupsOverTime(30),
     getEventsOverTime(30),
     getTodaysEventsByUser(),
@@ -48,13 +70,8 @@ export default async function DashboardPage() {
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
         Usage
       </h2>
-      <section className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <section className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Accounts" value={stats.totalUsers} detail="Registered users" />
-        <StatCard
-          label="New Accounts"
-          value={stats.newUsersLast7d}
-          detail="Registered in last 7 days"
-        />
         <StatCard label="DAU" value={stats.dauToday} detail="Unique devices today (UTC)" />
         <StatCard label="WAU" value={stats.wau} detail="Unique devices, rolling 7 days" />
         <StatCard
@@ -69,11 +86,42 @@ export default async function DashboardPage() {
         />
       </section>
 
+      {/* ── Workouts ──────────────────────────────────────── */}
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Workouts
+      </h2>
+      <section className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard
+          label="Started Today"
+          value={workoutStats.startedToday}
+        />
+        <StatCard
+          label="Completed Today"
+          value={workoutStats.completedToday}
+        />
+        <StatCard
+          label="Started"
+          value={workoutStats.startedPeriod}
+          detail="Last 7 days"
+        />
+        <StatCard
+          label="Completed"
+          value={workoutStats.completedPeriod}
+          detail="Last 7 days"
+        />
+        <StatCard
+          label="Completion Rate"
+          value={workoutStats.completionRate}
+          format="percent"
+          detail="Completed ÷ started, last 7 days"
+        />
+      </section>
+
       {/* ── Growth & Engagement ───────────────────────────── */}
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
         Growth &amp; Engagement
       </h2>
-      <section className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <section className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-5">
         <StatCard
           label="Activation Rate"
           value={engagement.activationRate}
@@ -98,6 +146,20 @@ export default async function DashboardPage() {
           format="percent"
           detail="Registered users with pro subscription"
         />
+        <StatCard
+          label="AI Adoption"
+          value={aiAdoption.adoptionRate}
+          format="percent"
+          detail={`${aiAdoption.aiUsersCompleted}/${aiAdoption.aiUsers} AI users completed a workout`}
+        />
+      </section>
+
+      {/* ── Onboarding Funnel ─────────────────────────────── */}
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Onboarding Funnel
+      </h2>
+      <section className="mb-8">
+        <OnboardingFunnel data={funnel} />
       </section>
 
       {/* ── Trends ────────────────────────────────────────── */}
@@ -106,6 +168,9 @@ export default async function DashboardPage() {
       </h2>
       <section className="mb-4">
         <DAUChart data={dau} />
+      </section>
+      <section className="mb-4">
+        <WorkoutsChart data={workouts} />
       </section>
       <section className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SignupsChart data={signups} />

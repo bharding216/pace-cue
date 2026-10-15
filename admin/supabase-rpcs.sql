@@ -29,6 +29,10 @@ drop function if exists ai_generations_by_user(int);
 drop function if exists dau_per_day(int);
 drop function if exists signups_per_day(int);
 drop function if exists events_per_day(int);
+drop function if exists workouts_per_day(int);
+drop function if exists onboarding_funnel(int);
+drop function if exists workout_completion_stats(int);
+drop function if exists ai_adoption_rate(int);
 
 -- Total registered users
 create or replace function total_users()
@@ -207,6 +211,147 @@ returns table(
   where ag.created_at > now() - (num_days || ' days')::interval
   group by ag.user_id, p.display_name, u.email
   order by generation_count desc;
+$$ language sql security definer;
+
+-- Workout started vs completed stats (today + last 7 days)
+create or replace function workout_completion_stats(num_days int default 7)
+returns table(
+  started_today int,
+  completed_today int,
+  started_period int,
+  completed_period int,
+  completion_rate numeric
+) as $$
+  with counts as (
+    select
+      count(*) filter (
+        where event_name = 'workout_started' and created_at::date = current_date
+      )::int as started_today,
+      count(*) filter (
+        where event_name = 'workout_completed' and created_at::date = current_date
+      )::int as completed_today,
+      count(*) filter (
+        where event_name = 'workout_started'
+          and created_at > now() - (num_days || ' days')::interval
+      )::int as started_period,
+      count(*) filter (
+        where event_name = 'workout_completed'
+          and created_at > now() - (num_days || ' days')::interval
+      )::int as completed_period
+    from events
+    where event_name in ('workout_started', 'workout_completed')
+  )
+  select
+    started_today,
+    completed_today,
+    started_period,
+    completed_period,
+    case
+      when started_period = 0 then 0
+      else round(completed_period::numeric / started_period::numeric * 100, 1)
+    end as completion_rate
+  from counts;
+$$ language sql security definer;
+
+-- Workouts started and completed per day (overlaid chart)
+create or replace function workouts_per_day(num_days int default 30)
+returns table(date text, started int, completed int) as $$
+  select
+    to_char(d.day, 'YYYY-MM-DD') as date,
+    coalesce(count(*) filter (where e.event_name = 'workout_started'), 0)::int as started,
+    coalesce(count(*) filter (where e.event_name = 'workout_completed'), 0)::int as completed
+  from generate_series(
+    current_date - (num_days - 1),
+    current_date,
+    '1 day'::interval
+  ) as d(day)
+  left join events e
+    on e.created_at::date = d.day
+    and e.event_name in ('workout_started', 'workout_completed')
+  group by d.day
+  order by d.day;
+$$ language sql security definer;
+
+-- Onboarding funnel: % of users at each step (last N days)
+-- Tracks: app_opened → workout_saved/workout_created → workout_started → workout_completed
+create or replace function onboarding_funnel(num_days int default 30)
+returns table(
+  step text,
+  user_count int,
+  pct numeric
+) as $$
+  with base as (
+    select distinct anonymous_user_id
+    from events
+    where event_name = 'app_opened'
+      and created_at > now() - (num_days || ' days')::interval
+  ),
+  steps as (
+    select
+      (select count(*) from base)::int as opened,
+      (select count(distinct e.anonymous_user_id)
+       from events e
+       inner join base b on b.anonymous_user_id = e.anonymous_user_id
+       where e.event_name in ('workout_saved', 'workout_created')
+         and e.created_at > now() - (num_days || ' days')::interval
+      )::int as edited,
+      (select count(distinct e.anonymous_user_id)
+       from events e
+       inner join base b on b.anonymous_user_id = e.anonymous_user_id
+       where e.event_name = 'workout_started'
+         and e.created_at > now() - (num_days || ' days')::interval
+      )::int as started,
+      (select count(distinct e.anonymous_user_id)
+       from events e
+       inner join base b on b.anonymous_user_id = e.anonymous_user_id
+       where e.event_name = 'workout_completed'
+         and e.created_at > now() - (num_days || ' days')::interval
+      )::int as completed
+  )
+  select s.step, s.user_count,
+    case when steps.opened = 0 then 0
+      else round(s.user_count::numeric / steps.opened::numeric * 100, 1)
+    end as pct
+  from steps,
+  lateral (values
+    ('Opened App', steps.opened),
+    ('Edited/Created Workout', steps.edited),
+    ('Started Workout', steps.started),
+    ('Completed Workout', steps.completed)
+  ) as s(step, user_count);
+$$ language sql security definer;
+
+-- AI Workout Plan Adoption Rate:
+-- Users who completed a workout after saving an AI workout / users who saved an AI workout
+create or replace function ai_adoption_rate(num_days int default 30)
+returns table(
+  ai_users int,
+  ai_users_completed int,
+  adoption_rate numeric
+) as $$
+  with ai_savers as (
+    select distinct anonymous_user_id
+    from events
+    where event_name = 'ai_workout_saved'
+      and created_at > now() - (num_days || ' days')::interval
+  ),
+  ai_completers as (
+    select distinct e.anonymous_user_id
+    from events e
+    inner join ai_savers a on a.anonymous_user_id = e.anonymous_user_id
+    where e.event_name = 'workout_completed'
+      and e.created_at > now() - (num_days || ' days')::interval
+  )
+  select
+    (select count(*) from ai_savers)::int as ai_users,
+    (select count(*) from ai_completers)::int as ai_users_completed,
+    case
+      when (select count(*) from ai_savers) = 0 then 0
+      else round(
+        (select count(*) from ai_completers)::numeric /
+        (select count(*) from ai_savers)::numeric * 100, 1
+      )
+    end as adoption_rate;
 $$ language sql security definer;
 
 -- DAU per day for the last N days (unique devices that opened the app)
