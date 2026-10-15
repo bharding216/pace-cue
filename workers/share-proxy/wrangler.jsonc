@@ -2,6 +2,10 @@
   "name": "pacecue-share",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "none"
+  },
   "routes": [
     { "pattern": "pacecue.dev/*", "zone_name": "pacecue.dev" }
   ]

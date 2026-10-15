@@ -1,20 +1,33 @@
 /**
- * Cloudflare Worker — pacecue.dev share link proxy.
+ * Cloudflare Worker — pacecue.dev
+ *
+ * Serves the PaceCue marketing website, share-link proxy, and app deep-link configs.
  *
  * Routes:
- *   /w/<code>                                → proxy to Supabase share Edge Function
- *   /.well-known/apple-app-site-association  → iOS Universal Links config
- *   /.well-known/assetlinks.json             → Android App Links config
- *   /                                        → redirect to App Store
+ *   /                                        → homepage
+ *   /features/audio-pace-announcements        → feature page
+ *   /features/interval-running                → feature page
+ *   /features/ai-workout-builder              → feature page
+ *   /guides/maintain-running-pace             → guide page
+ *   /guides/hands-free-running                → guide page
+ *   /robots.txt                               → crawler rules
+ *   /sitemap.xml                              → sitemap
+ *   /llms.txt                                 → LLM-readable summary
+ *   /w/<code>                                 → proxy to Supabase share Edge Function
+ *   /.well-known/apple-app-site-association   → iOS Universal Links config
+ *   /.well-known/assetlinks.json              → Android App Links config
  */
+
+import { homePage } from './pages/home';
+import { audioPacePage } from './pages/audio-pace';
+import { intervalRunningPage } from './pages/interval-running';
+import { aiBuilderPage } from './pages/ai-builder';
+import { maintainPacePage } from './pages/maintain-pace';
+import { handsFreePage } from './pages/hands-free';
+import { robotsTxt, sitemapXml, llmsTxt } from './static';
 
 const SUPABASE_SHARE_FN =
   'https://oakhqqrxsavmoeqlzcny.supabase.co/functions/v1/share';
-
-const APP_STORE_URL =
-  'https://apps.apple.com/us/app/pacecue-interval-timer/id6809834816';
-const PLAY_STORE_URL =
-  'https://play.google.com/store/apps/details?id=com.toddly.runningintervals';
 
 const BUNDLE_ID = 'com.toddly.runningintervals';
 const TEAM_ID = 'XXXXXXXXXX'; // TODO: Replace with your Apple Team ID
@@ -51,14 +64,47 @@ const ASSET_LINKS = JSON.stringify([
   },
 ]);
 
+// ── HTML page helper ────────────────────────────────────────────────
+
+function htmlResponse(html: string, status = 200): Response {
+  return new Response(html, {
+    status,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600, s-maxage=86400',
+    },
+  });
+}
+
+// ── Page routes (path → HTML generator) ─────────────────────────────
+
+const PAGE_ROUTES: Record<string, () => string> = {
+  '/': homePage,
+  '/features/audio-pace-announcements': audioPacePage,
+  '/features/interval-running': intervalRunningPage,
+  '/features/ai-workout-builder': aiBuilderPage,
+  '/guides/maintain-running-pace': maintainPacePage,
+  '/guides/hands-free-running': handsFreePage,
+};
+
 // ── Worker ───────────────────────────────────────────────────────────
 
 export default {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const { pathname } = url;
+    let { pathname } = url;
 
-    // Shared workout link — proxy to Supabase Edge Function
+    // Normalize trailing slash (except root)
+    if (pathname.length > 1 && pathname.endsWith('/')) {
+      pathname = pathname.slice(0, -1);
+    }
+
+    // ── Static text files ────────────────────────────────────────
+    if (pathname === '/robots.txt') return robotsTxt();
+    if (pathname === '/sitemap.xml') return sitemapXml();
+    if (pathname === '/llms.txt') return llmsTxt();
+
+    // ── Shared workout link — proxy to Supabase Edge Function ────
     const workoutMatch = pathname.match(/^\/w\/([A-Za-z0-9]{4,16})$/);
     if (workoutMatch) {
       const code = workoutMatch[1];
@@ -76,7 +122,7 @@ export default {
       });
     }
 
-    // iOS Universal Links
+    // ── iOS Universal Links ──────────────────────────────────────
     if (pathname === '/.well-known/apple-app-site-association') {
       return new Response(AASA, {
         headers: {
@@ -86,7 +132,7 @@ export default {
       });
     }
 
-    // Android App Links
+    // ── Android App Links ────────────────────────────────────────
     if (pathname === '/.well-known/assetlinks.json') {
       return new Response(ASSET_LINKS, {
         headers: {
@@ -96,9 +142,39 @@ export default {
       });
     }
 
-    // Root → redirect to App Store (or a future marketing page)
-    const ua = request.headers.get('User-Agent') || '';
-    const isAndroid = /Android/i.test(ua);
-    return Response.redirect(isAndroid ? PLAY_STORE_URL : APP_STORE_URL, 302);
+    // ── Marketing pages ──────────────────────────────────────────
+    const pageGenerator = PAGE_ROUTES[pathname];
+    if (pageGenerator) {
+      return htmlResponse(pageGenerator());
+    }
+
+    // ── 404 ──────────────────────────────────────────────────────
+    return htmlResponse(notFoundPage(), 404);
   },
 } satisfies ExportedHandler;
+
+function notFoundPage(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Page Not Found — PaceCue</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0f0f0f; color: #e0e0e0; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    .box { text-align: center; }
+    h1 { font-size: 48px; color: #4ADE80; margin-bottom: 8px; }
+    p { color: #888; margin-bottom: 24px; }
+    a { color: #4ADE80; text-decoration: none; font-weight: 600; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>404</h1>
+    <p>This page doesn't exist.</p>
+    <a href="/">Back to PaceCue</a>
+  </div>
+</body>
+</html>`;
+}
