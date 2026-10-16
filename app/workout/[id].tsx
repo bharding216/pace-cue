@@ -4,8 +4,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { WorkoutDefinition, generateId } from '../../src/workout/workoutTypes';
 import { loadWorkouts, saveWorkout } from '../../src/workout/workoutStorage';
 import { WorkoutEditorForm } from '../../src/components/WorkoutEditorForm';
@@ -33,36 +33,47 @@ export default function EditWorkoutScreen() {
   }
 
   return (
-    <WorkoutEditorForm
-      initial={workout}
-      autoSave
-      onSave={async (updated) => {
-        await saveWorkout({ ...updated, updatedAt: Date.now() });
-        track('workout_saved', {
-          workout_id: updated.id,
-          workout_name: updated.name,
-          is_copy: false,
-        });
-      }}
-      onSaveAsNew={async (updated) => {
-        const now = Date.now();
-        const newId = generateId();
-        await saveWorkout({
-          ...updated,
-          id: newId,
-          name: updated.name.replace(/\s*\(copy\)$/i, '') + ' (Copy)',
-          createdAt: now,
-          updatedAt: now,
-        });
-        track('workout_saved', {
-          workout_id: newId,
-          workout_name: updated.name,
-          is_copy: true,
-        });
-        router.back();
-      }}
-      onCancel={() => router.back()}
-    />
+    <>
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <TouchableOpacity onPress={() => router.back()} activeOpacity={0.7}>
+              <Text style={styles.doneButton}>Done</Text>
+            </TouchableOpacity>
+          ),
+        }}
+      />
+      <WorkoutEditorForm
+        initial={workout}
+        autoSave
+        onSave={async (updated) => {
+          await saveWorkout({ ...updated, updatedAt: Date.now() });
+          track('workout_saved', {
+            workout_id: updated.id,
+            workout_name: updated.name,
+            is_copy: false,
+          });
+        }}
+        onSaveAsNew={async (updated) => {
+          const now = Date.now();
+          const newId = generateId();
+          await saveWorkout({
+            ...updated,
+            id: newId,
+            name: updated.name.replace(/\s*\(copy\)$/i, '') + ' (Copy)',
+            createdAt: now,
+            updatedAt: now,
+          });
+          track('workout_saved', {
+            workout_id: newId,
+            workout_name: updated.name,
+            is_copy: true,
+          });
+          router.back();
+        }}
+        onCancel={() => router.back()}
+      />
+    </>
   );
 }
 
@@ -72,5 +83,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: Colors.background,
+  },
+  doneButton: {
+    color: Colors.primary,
+    fontSize: 17,
+    fontWeight: '600',
   },
 });

@@ -1083,10 +1083,15 @@ function DurationPicker({
       <TouchableOpacity onPress={() => step(-15)} style={dpStyles.btn}>
         <Text style={dpStyles.btnText}>−</Text>
       </TouchableOpacity>
-      <TouchableOpacity onPress={startEdit} activeOpacity={0.7}>
+      <TouchableOpacity
+        onPress={startEdit}
+        activeOpacity={0.7}
+        style={dpStyles.editableValue}
+      >
         <Text style={[dpStyles.value, { color }]}>
           {mins}:{secs.toString().padStart(2, '0')}
         </Text>
+        <Ionicons name="pencil" size={10} color={Colors.textMuted} style={dpStyles.editHintIcon} />
       </TouchableOpacity>
       <TouchableOpacity onPress={() => step(15)} style={dpStyles.btn}>
         <Text style={dpStyles.btnText}>+</Text>
@@ -1115,12 +1120,25 @@ const dpStyles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 22,
   },
+  editableValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderStyle: 'dashed',
+    borderBottomColor: Colors.textMuted,
+    paddingBottom: 2,
+    gap: 3,
+  },
   value: {
     fontSize: FontSize.lg,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
     minWidth: 56,
     textAlign: 'center',
+  },
+  editHintIcon: {
+    opacity: 0.6,
+    marginTop: 1,
   },
   editContainer: {
     flexDirection: 'row',

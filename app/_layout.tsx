@@ -70,13 +70,19 @@ function RootLayoutInner() {
 
   // Handle incoming deep links for shared workout imports.
   useEffect(() => {
-    const handleUrl = async (url: string) => {
+    const handleUrl = async (url: string, { isInitial }: { isInitial?: boolean } = {}) => {
       // Support HTTPS links (pacecue.dev/w/<code>), custom-scheme short links
       // (pacecue://w/<code>), and legacy base64 links (pacecue://workout/import?d=...)
       const shortMatch = url.match(/\/w\/([A-Za-z0-9]{4,16})$/);
       const isLegacy = url.includes('workout/import');
 
       if (!shortMatch && !isLegacy) return;
+
+      // On cold start the URL doesn't match any app route, so Expo Router
+      // renders an unmatched/404 screen. Navigate to home first to clear it.
+      if (isInitial) {
+        router.replace('/');
+      }
 
       const workout = shortMatch
         ? await resolveShareCode(shortMatch[1])
@@ -109,7 +115,7 @@ function RootLayoutInner() {
 
     // Handle URL that launched the app (cold start)
     Linking.getInitialURL().then((url) => {
-      if (url) handleUrl(url);
+      if (url) handleUrl(url, { isInitial: true });
     });
 
     // Handle URLs while the app is already open (warm start)
