@@ -133,6 +133,15 @@ export interface EngineState {
   startedAt: number;
 }
 
+/** A single point on the recorded GPS route (abbreviated keys for storage). */
+export interface RoutePoint {
+  lat: number;
+  lng: number;
+  alt: number | null; // meters above sea level
+  ts: number; // epoch ms
+  dist: number; // cumulative distance in meters
+}
+
 /** Per-interval performance data captured during a workout. */
 export interface IntervalSplit {
   label: string;
@@ -154,6 +163,7 @@ export interface CompletedWorkout {
   totalDurationMs: number;
   splits?: IntervalSplit[];
   totalDistanceMeters?: number;
+  route?: RoutePoint[]; // full GPS track with elevation (null if pace tracking was off)
 }
 
 /** Audio cue preference. */

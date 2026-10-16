@@ -15,6 +15,7 @@ import {
   GpsSample,
   PaceState,
   PaceWindowSize,
+  MAX_ACCURACY_METERS,
   createPaceState,
 } from '../pace/paceTypes';
 import { addSample, resetPaceState } from '../pace/paceTracker';
@@ -41,6 +42,8 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
         timestamp: loc.timestamp,
         accuracy: loc.coords.accuracy ?? 999,
         speed: loc.coords.speed,
+        altitude: loc.coords.altitude ?? null,
+        altitudeAccuracy: loc.coords.altitudeAccuracy ?? null,
       });
     }
   }
@@ -50,6 +53,8 @@ export interface PaceTrackerResult {
   paceState: PaceState;
   isTracking: boolean;
   permissionStatus: 'undetermined' | 'granted' | 'denied';
+  /** Full unpruned GPS track accumulated during the workout. */
+  getFullTrack: () => GpsSample[];
   start: () => Promise<void>;
   stop: () => Promise<void>;
   reset: () => void;
@@ -71,9 +76,13 @@ export function usePaceTracker(
   windowRef.current = windowSeconds;
   const foregroundSubRef = useRef<Location.LocationSubscription | null>(null);
   const trackingRef = useRef(false);
+  const fullTrackRef = useRef<GpsSample[]>([]);
 
   /** Process a single location object into pace state. */
   const processSample = useCallback((sample: GpsSample) => {
+    if (sample.accuracy <= MAX_ACCURACY_METERS) {
+      fullTrackRef.current.push(sample);
+    }
     const next = addSample(paceStateRef.current, sample, windowRef.current);
     paceStateRef.current = next;
     setPaceState(next);
@@ -86,6 +95,9 @@ export function usePaceTracker(
     backgroundSampleBuffer = [];
     let state = paceStateRef.current;
     for (const sample of buffered) {
+      if (sample.accuracy <= MAX_ACCURACY_METERS) {
+        fullTrackRef.current.push(sample);
+      }
       state = addSample(state, sample, windowRef.current);
     }
     paceStateRef.current = state;
@@ -131,6 +143,8 @@ export function usePaceTracker(
           timestamp: loc.timestamp,
           accuracy: loc.coords.accuracy ?? 999,
           speed: loc.coords.speed,
+          altitude: loc.coords.altitude ?? null,
+          altitudeAccuracy: loc.coords.altitudeAccuracy ?? null,
         });
       },
     );
@@ -184,7 +198,11 @@ export function usePaceTracker(
     paceStateRef.current = fresh;
     setPaceState(fresh);
     backgroundSampleBuffer = [];
+    fullTrackRef.current = [];
   }, []);
+
+  /** Return a snapshot of the full GPS track accumulated during this workout. */
+  const getFullTrack = useCallback(() => [...fullTrackRef.current], []);
 
   // Drain background buffer when app comes to foreground
   useEffect(() => {
@@ -210,6 +228,7 @@ export function usePaceTracker(
     paceState,
     isTracking,
     permissionStatus,
+    getFullTrack,
     start,
     stop,
     reset,

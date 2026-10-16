@@ -16,6 +16,7 @@ import {
   AppSettings,
   CompletedWorkout,
   IntervalSplit,
+  RoutePoint,
   generateId,
   IntervalType,
 } from '../workout/workoutTypes';
@@ -47,7 +48,8 @@ import {
   type CueContext,
 } from '../audio/audioManager';
 import { usePaceTracker, type PaceTrackerResult } from './usePaceTracker';
-import type { PaceState } from '../pace/paceTypes';
+import type { GpsSample, PaceState } from '../pace/paceTypes';
+import { haversineMeters } from '../pace/paceTracker';
 import {
   hapticIntervalChange,
   hapticWarning,
@@ -93,6 +95,32 @@ function buildVerboseCueContext(
     targetPace: ci.targetPace,
     paceUnit: settings?.paceUnit,
   };
+}
+
+/** Convert raw GPS samples into compact RoutePoints with cumulative distance. */
+function samplesToRoute(samples: GpsSample[]): RoutePoint[] {
+  if (samples.length === 0) return [];
+  let cumDist = 0;
+  const route: RoutePoint[] = [
+    {
+      lat: samples[0].latitude,
+      lng: samples[0].longitude,
+      alt: samples[0].altitude,
+      ts: samples[0].timestamp,
+      dist: 0,
+    },
+  ];
+  for (let i = 1; i < samples.length; i++) {
+    cumDist += haversineMeters(samples[i - 1], samples[i]);
+    route.push({
+      lat: samples[i].latitude,
+      lng: samples[i].longitude,
+      alt: samples[i].altitude,
+      ts: samples[i].timestamp,
+      dist: cumDist,
+    });
+  }
+  return route;
 }
 
 export interface WorkoutRunnerControls {
@@ -257,6 +285,7 @@ export function useWorkoutRunner(
           if (!historySaved.current) {
             historySaved.current = true;
             const ps = paceTrackerRef.current.paceState;
+            const fullTrack = paceTrackerRef.current.getFullTrack();
             const entry: CompletedWorkout = {
               id: generateId(),
               workoutId: workout.id,
@@ -265,6 +294,7 @@ export function useWorkoutRunner(
               totalDurationMs: next.totalElapsedMs,
               splits: [...splitsRef.current],
               totalDistanceMeters: ps.totalDistanceMeters > 0 ? ps.totalDistanceMeters : undefined,
+              route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
             };
             saveCompletedWorkout(entry).catch((e) =>
               console.warn('Failed to save workout history:', e)
@@ -510,6 +540,7 @@ export function useWorkoutRunner(
       if (!historySaved.current) {
         historySaved.current = true;
         const ps = paceTrackerRef.current.paceState;
+        const fullTrack = paceTrackerRef.current.getFullTrack();
         const entry: CompletedWorkout = {
           id: generateId(),
           workoutId: workout.id,
@@ -518,6 +549,7 @@ export function useWorkoutRunner(
           totalDurationMs: next.totalElapsedMs,
           splits: [...splitsRef.current],
           totalDistanceMeters: ps.totalDistanceMeters > 0 ? ps.totalDistanceMeters : undefined,
+          route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
         };
         saveCompletedWorkout(entry).catch((e) =>
           console.warn('Failed to save workout history:', e)
@@ -547,6 +579,7 @@ export function useWorkoutRunner(
     if (next.totalElapsedMs > 0 && !historySaved.current) {
       historySaved.current = true;
       const ps = paceTrackerRef.current.paceState;
+      const fullTrack = paceTrackerRef.current.getFullTrack();
       const entry: CompletedWorkout = {
         id: generateId(),
         workoutId: workout.id,
@@ -555,6 +588,7 @@ export function useWorkoutRunner(
         totalDurationMs: next.totalElapsedMs,
         splits: [...splitsRef.current],
         totalDistanceMeters: ps.totalDistanceMeters > 0 ? ps.totalDistanceMeters : undefined,
+        route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
       };
       saveCompletedWorkout(entry).catch((e) =>
         console.warn('Failed to save workout history:', e)

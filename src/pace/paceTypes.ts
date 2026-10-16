@@ -9,6 +9,8 @@ export interface GpsSample {
   timestamp: number; // epoch ms
   accuracy: number; // meters
   speed: number | null; // m/s from the OS
+  altitude: number | null; // meters above sea level
+  altitudeAccuracy: number | null; // vertical accuracy in meters
 }
 
 /** Rolling pace state maintained during a workout. */

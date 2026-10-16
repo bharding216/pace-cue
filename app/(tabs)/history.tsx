@@ -2,7 +2,7 @@
  * History screen — shows completed workouts.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  useWindowDimensions,
 } from 'react-native';
 import ReanimatedSwipeable, {
   type SwipeableMethods,
@@ -21,11 +22,16 @@ import ReanimatedSwipeable, {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { CompletedWorkout, WorkoutDefinition, IntervalSplit, formatTime } from '../../src/workout/workoutTypes';
-import { loadHistory, clearHistory, deleteHistoryEntry, loadWorkouts } from '../../src/workout/workoutStorage';
+import { loadHistory, clearHistory, deleteHistoryEntry, loadWorkouts, loadSettings } from '../../src/workout/workoutStorage';
 import { exportData, importData } from '../../src/workout/backupManager';
 import { shareWorkoutResults } from '../../src/sharing/shareWorkout';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { onSyncStatusChange } from '../../src/sync/cloudSync';
+import { analyzeElevation, aggregateByTerrain } from '../../src/pace/elevationAnalysis';
+import { ElevationProfile } from '../../src/components/ElevationProfile';
+import { TerrainSummary } from '../../src/components/TerrainSummary';
+import { DEFAULT_SETTINGS } from '../../src/workout/workoutTypes';
+import type { PaceUnit } from '../../src/pace/paceTypes';
 import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../../src/constants/theme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -230,20 +236,60 @@ const splitStyles = StyleSheet.create({
   },
 });
 
+function ElevationSection({
+  item,
+  paceUnit,
+  chartWidth,
+}: {
+  item: CompletedWorkout;
+  paceUnit: PaceUnit;
+  chartWidth: number;
+}) {
+  const analysis = useMemo(() => {
+    if (!item.route || item.route.length < 2) return null;
+    return analyzeElevation(item.route);
+  }, [item.route]);
+
+  const aggregates = useMemo(() => {
+    if (!analysis) return [];
+    return aggregateByTerrain(analysis.segments);
+  }, [analysis]);
+
+  if (!analysis || aggregates.length === 0) return null;
+
+  return (
+    <View>
+      <ElevationProfile
+        route={item.route!}
+        summary={analysis}
+        paceUnit={paceUnit}
+        width={chartWidth}
+      />
+      <TerrainSummary aggregates={aggregates} paceUnit={paceUnit} />
+    </View>
+  );
+}
+
 export default function HistoryScreen() {
   const router = useRouter();
+  const { width: screenWidth } = useWindowDimensions();
   const [history, setHistory] = useState<CompletedWorkout[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [paceUnit, setPaceUnit] = useState<PaceUnit>(DEFAULT_SETTINGS.paceUnit);
   const swipeableRefs = useRef<Map<string, SwipeableMethods>>(new Map());
   const workoutsRef = useRef<WorkoutDefinition[]>([]);
+
+  // Chart width = screen width minus container padding, card padding, and accent bar
+  const chartWidth = screenWidth - Spacing.md * 2 - Spacing.md * 2 - 4;
 
   const { user } = useAuth();
 
   const reload = useCallback(() => {
     loadHistory().then(setHistory);
     loadWorkouts().then((w) => { workoutsRef.current = w; });
+    loadSettings().then((s) => setPaceUnit(s.paceUnit));
   }, []);
 
   useFocusEffect(
@@ -479,6 +525,14 @@ export default function HistoryScreen() {
 
                     {item.splits && item.splits.length > 0 && (
                       <SplitsTable splits={item.splits} />
+                    )}
+
+                    {item.route && item.route.length >= 2 && (
+                      <ElevationSection
+                        item={item}
+                        paceUnit={paceUnit}
+                        chartWidth={chartWidth}
+                      />
                     )}
 
                     <View style={styles.expandedActions}>
