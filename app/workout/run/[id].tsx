@@ -28,6 +28,9 @@ import {
   DEFAULT_SETTINGS,
   AudioCueMode,
   TimeRemainingInterval,
+  isDistanceInterval,
+  formatDistanceShort,
+  hasDistanceFeature,
 } from '../../../src/workout/workoutTypes';
 import type { PaceCueFrequency } from '../../../src/pace/paceTypes';
 import { loadWorkouts, loadSettings, saveSettings } from '../../../src/workout/workoutStorage';
@@ -142,11 +145,15 @@ function ActiveWorkoutInner({
       <View style={[styles.container, styles.centered]}>
         <Text style={styles.workoutName}>{workout.name}</Text>
         <Text style={styles.intervalCount}>
-          {state.intervals.length} intervals ·{' '}
-          {formatTime(
-            state.intervals.reduce((s, i) => s + i.durationSeconds, 0)
-          )}
+          {state.intervals.length} intervals
+          {workout.targetDistanceMeters
+            ? ` · ${formatDistanceShort(workout.targetDistanceMeters, settings.paceUnit)} goal`
+            : ` · ${formatTime(state.intervals.reduce((s, i) => s + i.durationSeconds, 0))}`
+          }
         </Text>
+        {hasDistanceFeature(workout) && (
+          <Text style={styles.gpsNote}>📍 GPS pace tracking will auto-enable</Text>
+        )}
 
         {/* Preview list */}
         <View style={styles.previewList}>
@@ -160,7 +167,10 @@ function ActiveWorkoutInner({
               />
               <Text style={styles.previewLabel}>{int.label}</Text>
               <Text style={styles.previewTime}>
-                {formatTime(int.durationSeconds)}
+                {isDistanceInterval(int)
+                  ? formatDistanceShort(int.distanceMeters!, settings.paceUnit)
+                  : formatTime(int.durationSeconds)
+                }
               </Text>
             </View>
           ))}
@@ -268,13 +278,27 @@ function ActiveWorkoutInner({
         onClose={() => setSettingsVisible(false)}
       />
 
-      {/* Main timer */}
+      {/* Main timer — or distance display for distance-based intervals */}
       <View style={styles.timerArea}>
-        <Timer
-          remainingSeconds={runner.remaining}
-          intervalType={runner.currentType}
-          label={runner.currentLabel}
-        />
+        {runner.isDistanceInterval ? (
+          <View style={styles.distanceTimerArea}>
+            <Text style={styles.distLabel}>{runner.currentLabel}</Text>
+            <Text style={[styles.distRemaining, { color }]}>
+              {formatDistanceShort(runner.intervalDistanceRemaining ?? 0, settings.paceUnit)}
+            </Text>
+            <Text style={styles.distSubLabel}>remaining</Text>
+            {/* Also show elapsed time for distance intervals */}
+            <Text style={styles.distElapsed}>
+              {formatTime(Math.floor((Date.now() - state.startedAt) / 1000))} elapsed
+            </Text>
+          </View>
+        ) : (
+          <Timer
+            remainingSeconds={runner.remaining}
+            intervalType={runner.currentType}
+            label={runner.currentLabel}
+          />
+        )}
       </View>
 
       {/* Progress bar */}
@@ -285,8 +309,32 @@ function ActiveWorkoutInner({
         />
       </View>
 
+      {/* Workout distance target progress */}
+      {runner.workoutDistanceTarget != null && (
+        <View style={styles.distTargetBar}>
+          <View style={styles.distTargetInfo}>
+            <Text style={styles.distTargetLabel}>DISTANCE GOAL</Text>
+            <Text style={styles.distTargetValue}>
+              {formatDistanceShort(runner.paceState.totalDistanceMeters, settings.paceUnit)}
+              {' / '}
+              {formatDistanceShort(runner.workoutDistanceTarget, settings.paceUnit)}
+            </Text>
+          </View>
+          <View style={styles.distProgressTrack}>
+            <View
+              style={[
+                styles.distProgressFill,
+                {
+                  width: `${Math.min(100, (runner.paceState.totalDistanceMeters / runner.workoutDistanceTarget) * 100)}%`,
+                },
+              ]}
+            />
+          </View>
+        </View>
+      )}
+
       {/* Pace display (when tracking) */}
-      {settings.paceTrackingEnabled && runner.isPaceTracking && (
+      {(settings.paceTrackingEnabled || hasDistanceFeature(workout)) && runner.isPaceTracking && (
         <PaceDisplay
           paceState={runner.paceState}
           paceUnit={settings.paceUnit}
@@ -302,7 +350,10 @@ function ActiveWorkoutInner({
 
       {/* Total remaining */}
       <Text style={styles.totalRemaining}>
-        {formatTime(runner.totalRemaining)} remaining
+        {runner.workoutDistanceTarget != null && runner.workoutDistanceRemaining != null
+          ? `${formatDistanceShort(runner.workoutDistanceRemaining, settings.paceUnit)} to go`
+          : `${formatTime(runner.totalRemaining)} remaining`
+        }
       </Text>
 
       {/* Controls */}
@@ -1009,7 +1060,7 @@ function WorkoutTimeline({
             </Text>
           )}
 
-          {/* Duration */}
+          {/* Duration or distance */}
           <Text
             style={[
               tlStyles.time,
@@ -1017,7 +1068,10 @@ function WorkoutTimeline({
               isCurrent && { color: intervalColor(item.type) },
             ]}
           >
-            {formatTime(item.durationSeconds)}
+            {isDistanceInterval(item)
+              ? formatDistanceShort(item.distanceMeters!, 'minPerMile')
+              : formatTime(item.durationSeconds)
+            }
           </Text>
         </View>
       );
@@ -1130,7 +1184,13 @@ const styles = StyleSheet.create({
   intervalCount: {
     fontSize: FontSize.md,
     color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
+  gpsNote: {
+    fontSize: FontSize.sm,
+    color: Colors.accent,
     marginBottom: Spacing.xl,
+    fontWeight: '600',
   },
   previewList: {
     width: '100%',
@@ -1212,6 +1272,68 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: Spacing.lg,
     fontVariant: ['tabular-nums'],
+  },
+  distanceTimerArea: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  distLabel: {
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
+  distRemaining: {
+    fontSize: FontSize.timer,
+    fontWeight: '200',
+    fontVariant: ['tabular-nums'],
+  },
+  distSubLabel: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    marginTop: Spacing.xs,
+  },
+  distElapsed: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontVariant: ['tabular-nums'],
+    marginTop: Spacing.sm,
+  },
+  distTargetBar: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+  },
+  distTargetInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  distTargetLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.textMuted,
+    letterSpacing: 1,
+  },
+  distTargetValue: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.accent,
+    fontVariant: ['tabular-nums'],
+  },
+  distProgressTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.surfaceLight,
+    overflow: 'hidden',
+  },
+  distProgressFill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: Colors.accent,
   },
   controls: {
     flexDirection: 'row',

@@ -10,8 +10,11 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   WorkoutDefinition,
   totalWorkoutSeconds,
+  totalWorkoutDistanceMeters,
   formatTime,
   flattenWorkout,
+  formatDistanceShort,
+  hasDistanceFeature,
 } from '../workout/workoutTypes';
 import {
   Colors,
@@ -41,6 +44,8 @@ export function WorkoutCard({
 }: WorkoutCardProps) {
   const totalSecs = totalWorkoutSeconds(workout);
   const intervals = flattenWorkout(workout);
+  const distMeters = totalWorkoutDistanceMeters(workout);
+  const isDistance = hasDistanceFeature(workout);
 
   const handleDelete = () => {
     Alert.alert(
@@ -63,7 +68,13 @@ export function WorkoutCard({
     >
       <View style={styles.header}>
         <Text style={styles.name}>{workout.name}</Text>
-        <Text style={styles.duration}>{formatTime(totalSecs)}</Text>
+        {isDistance && distMeters ? (
+          <Text style={styles.distanceBadge}>
+            {formatDistanceShort(distMeters, 'minPerMile')}
+          </Text>
+        ) : (
+          <Text style={styles.duration}>{formatTime(totalSecs)}</Text>
+        )}
       </View>
 
       {/* Mini preview of interval structure */}
@@ -84,10 +95,12 @@ export function WorkoutCard({
 
       {/* Summary */}
       <Text style={styles.summary}>
+        {isDistance ? '📍 GPS ' : ''}
         {intervals.length} interval{intervals.length !== 1 ? 's' : ''}
         {workout.blocks.length > 0 &&
           workout.blocks[0].repeatCount > 1 &&
           ` · ${workout.blocks[0].repeatCount}× repeat`}
+        {isDistance && !workout.targetDistanceMeters && ' · distance-based'}
       </Text>
 
       <View style={styles.actions}>
@@ -161,6 +174,12 @@ const styles = StyleSheet.create({
   duration: {
     fontSize: FontSize.md,
     color: Colors.textSecondary,
+    fontVariant: ['tabular-nums'],
+  },
+  distanceBadge: {
+    fontSize: FontSize.md,
+    color: Colors.accent,
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
   preview: {

@@ -11,7 +11,7 @@ import {
   type AudioPlayer,
 } from 'expo-audio';
 import * as Speech from 'expo-speech';
-import { AudioCueMode, formatDurationForSpeech } from '../workout/workoutTypes';
+import { AudioCueMode, formatDurationForSpeech, formatDistanceForSpeech, isDistanceInterval } from '../workout/workoutTypes';
 import type { PaceUnit } from '../pace/paceTypes';
 import { formatPaceForSpeech } from '../pace/paceTracker';
 
@@ -318,32 +318,38 @@ function announceInterval(
 ): void {
   switch (cue) {
     case 'intervalStart': {
-      if (!ctx?.currentDuration) {
+      const hasDuration = ctx?.currentDuration && ctx.currentDuration > 0;
+      const hasDistance = ctx?.currentDistanceMeters && ctx.currentDistanceMeters > 0;
+      if (!hasDuration && !hasDistance) {
         if (currentLabel) speak(`Beginning ${currentLabel}`);
         return;
       }
       const parts: string[] = [];
-      const duration = formatDurationForSpeech(ctx.currentDuration);
-      const effortSuffix = ctx.effort ? `, ${ctx.effort} out of 10 effort` : '';
+      const measure = hasDistance && !hasDuration
+        ? formatDistanceForSpeech(ctx!.currentDistanceMeters!)
+        : hasDuration
+          ? formatDurationForSpeech(ctx!.currentDuration!)
+          : '';
+      const effortSuffix = ctx?.effort ? `, ${ctx.effort} out of 10 effort` : '';
 
-      if (ctx.isFirstInBlock && ctx.totalSets && ctx.totalSets > 1) {
+      if (ctx?.isFirstInBlock && ctx.totalSets && ctx.totalSets > 1) {
         const name = ctx.blockName || `interval ${ctx.blockNumber}`;
         parts.push(`Beginning ${name}`);
         if (ctx.blockSummary) parts.push(ctx.blockSummary);
         parts.push(`${ctx.totalSets} sets`);
-      } else if (ctx.isFirstInBlock && (ctx.blockIntervalCount ?? 0) > 1) {
+      } else if (ctx?.isFirstInBlock && (ctx.blockIntervalCount ?? 0) > 1) {
         const name = ctx.blockName || `interval ${ctx.blockNumber}`;
         parts.push(`Beginning ${name}`);
-      } else if (ctx.isFirstInSet && ctx.totalSets && ctx.totalSets > 1) {
+      } else if (ctx?.isFirstInSet && ctx.totalSets && ctx.totalSets > 1) {
         parts.push(
           `Beginning set ${ctx.setNumber} of ${ctx.totalSets}`,
         );
       }
 
-      parts.push(`Starting ${currentLabel} for ${duration}${effortSuffix}`);
+      parts.push(`Starting ${currentLabel} for ${measure}${effortSuffix}`);
 
       // Announce target pace at the start of each interval/set
-      if (ctx.targetPace != null && isFinite(ctx.targetPace)) {
+      if (ctx?.targetPace != null && isFinite(ctx.targetPace)) {
         const tgtStr = formatPaceForSpeech(ctx.targetPace);
         const unitLabel = ctx.paceUnit === 'minPerKm' ? 'per K' : 'per mile';
         parts.push(`Target pace ${tgtStr} ${unitLabel}`);
@@ -357,10 +363,16 @@ function announceInterval(
       if (ctx?.warningSeconds) {
         parts.push(`${ctx.warningSeconds} seconds`);
       }
-      if (ctx?.nextLabel && ctx?.nextDuration) {
-        const nextDur = formatDurationForSpeech(ctx.nextDuration);
+      const nextHasDuration = ctx?.nextDuration && ctx.nextDuration > 0;
+      const nextHasDistance = ctx?.nextDistanceMeters && ctx.nextDistanceMeters > 0;
+      if (ctx?.nextLabel && (nextHasDuration || nextHasDistance)) {
+        const nextMeasure = nextHasDistance && !nextHasDuration
+          ? formatDistanceForSpeech(ctx.nextDistanceMeters!)
+          : nextHasDuration
+            ? formatDurationForSpeech(ctx.nextDuration!)
+            : '';
         const nextEffort = ctx?.nextEffort ? `, ${ctx.nextEffort} out of 10` : '';
-        parts.push(`Next up, ${ctx.nextLabel} for ${nextDur}${nextEffort}`);
+        parts.push(`Next up, ${ctx.nextLabel} for ${nextMeasure}${nextEffort}`);
         if (ctx.nextTargetPace != null && isFinite(ctx.nextTargetPace)) {
           const tgtStr = formatPaceForSpeech(ctx.nextTargetPace);
           const unitLabel = ctx.paceUnit === 'minPerKm' ? 'per K' : 'per mile';
@@ -422,7 +434,8 @@ export interface CueContext {
   /** The label of the interval that just ended. */
   previousLabel?: string;
   // Verbose cue fields
-  currentDuration?: number; // seconds
+  currentDuration?: number; // seconds (0 for distance-based)
+  currentDistanceMeters?: number; // set for distance-based intervals
   effort?: number; // 1-10 perceived effort rating
   blockName?: string;
   blockNumber?: number;
@@ -434,6 +447,7 @@ export interface CueContext {
   blockIntervalCount?: number;
   nextLabel?: string;
   nextDuration?: number;
+  nextDistanceMeters?: number; // distance for next interval (if distance-based)
   nextEffort?: number; // effort for the next interval
   nextTargetPace?: number; // target pace in min/unit for the next interval
   warningSeconds?: number;

@@ -73,7 +73,8 @@ export const INTERVAL_LABEL_OPTIONS: Record<IntervalType, readonly string[]> = {
 
 export interface WorkoutInterval {
   type: IntervalType;
-  durationSeconds: number;
+  durationSeconds: number; // 0 for purely distance-based intervals
+  distanceMeters?: number; // if set and > 0, interval ends on GPS distance
   label?: string; // optional user-facing label override
   effort?: number; // optional perceived effort 1-10 (e.g. 7 = "7/10 effort")
   targetPace?: number; // optional target pace in min/mile (e.g. 8.5 = 8:30/mile)
@@ -91,6 +92,7 @@ export interface WorkoutDefinition {
   warmup: WorkoutRepeatBlock[];
   blocks: WorkoutRepeatBlock[];
   cooldown: WorkoutRepeatBlock[];
+  targetDistanceMeters?: number; // if set, workout auto-finishes at this GPS distance
   createdAt: number; // epoch ms
   updatedAt: number;
 }
@@ -98,7 +100,8 @@ export interface WorkoutDefinition {
 /** A flattened interval ready for the engine to execute sequentially. */
 export interface FlatInterval {
   type: IntervalType;
-  durationSeconds: number;
+  durationSeconds: number; // 0 for purely distance-based intervals
+  distanceMeters?: number; // if set, interval ends on GPS distance
   label: string;
   effort?: number; // 1-10 perceived effort rating
   targetPace?: number; // min/mile target pace
@@ -243,7 +246,7 @@ function flattenBlocks(
     const summary = block.intervals
       .map(
         (i) => {
-          const base = `${formatDurationForSpeech(i.durationSeconds)} ${i.label || defaultLabel(i.type)}`;
+          const base = formatIntervalDescription(i);
           return i.effort ? `${base} at ${i.effort} out of 10` : base;
         },
       )
@@ -254,6 +257,7 @@ function flattenBlocks(
         items.push({
           type: interval.type,
           durationSeconds: interval.durationSeconds,
+          distanceMeters: interval.distanceMeters,
           label: interval.label || defaultLabel(interval.type),
           effort: interval.effort,
           targetPace: interval.targetPace,
@@ -301,4 +305,99 @@ export function formatTime(totalSeconds: number): string {
 /** Generate a simple unique ID. */
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// ── Distance helpers ─────────────────────────────────────────────────
+
+export const METERS_PER_MILE = 1609.344;
+export const METERS_PER_KM = 1000;
+
+/** Maximum engine duration for distance-based intervals (12 hours in ms). */
+export const DISTANCE_INTERVAL_MAX_MS = 12 * 60 * 60 * 1000;
+
+/** Common race distances in meters. */
+export const RACE_DISTANCES = {
+  '5K': 5000,
+  '10K': 10000,
+  'Half Marathon': 21097,
+  'Marathon': 42195,
+} as const;
+
+/** Whether an interval is purely distance-based (no time limit). */
+export function isDistanceInterval(interval: { durationSeconds: number; distanceMeters?: number }): boolean {
+  return !!(interval.distanceMeters && interval.distanceMeters > 0 && !interval.durationSeconds);
+}
+
+/** Whether a workout has any distance-based features. */
+export function hasDistanceFeature(def: WorkoutDefinition): boolean {
+  if (def.targetDistanceMeters) return true;
+  const allBlocks = [...def.warmup, ...def.blocks, ...def.cooldown];
+  return allBlocks.some(b =>
+    b.intervals.some(i => i.distanceMeters && i.distanceMeters > 0)
+  );
+}
+
+/**
+ * Format meters into natural speech. Uses common names for well-known
+ * distances; falls back to miles/km/meters as appropriate.
+ */
+export function formatDistanceForSpeech(meters: number): string {
+  if (Math.abs(meters - METERS_PER_MILE) < 10) return '1 mile';
+  if (Math.abs(meters - METERS_PER_MILE * 0.5) < 10) return 'half mile';
+  if (Math.abs(meters - METERS_PER_MILE * 0.25) < 10) return 'quarter mile';
+  if (Math.abs(meters - 400) < 5) return '400 meters';
+  if (Math.abs(meters - 800) < 5) return '800 meters';
+  if (Math.abs(meters - 1000) < 5) return '1 kilometer';
+  if (Math.abs(meters - 5000) < 50) return '5 K';
+  if (Math.abs(meters - 10000) < 100) return '10 K';
+  if (Math.abs(meters - 21097) < 100) return 'half marathon';
+  if (Math.abs(meters - 42195) < 200) return 'marathon';
+  if (meters >= METERS_PER_MILE) {
+    const miles = meters / METERS_PER_MILE;
+    const rounded = Math.round(miles * 10) / 10;
+    return `${rounded} ${rounded === 1 ? 'mile' : 'miles'}`;
+  }
+  if (meters >= 1000) {
+    const km = meters / METERS_PER_KM;
+    return `${Math.round(km * 10) / 10} kilometers`;
+  }
+  return `${Math.round(meters)} meters`;
+}
+
+/** Format meters for compact UI display (e.g. "1.00 mi" or "5.00 km"). */
+export function formatDistanceShort(meters: number, unit: 'minPerMile' | 'minPerKm'): string {
+  if (unit === 'minPerMile') {
+    return `${(meters / METERS_PER_MILE).toFixed(2)} mi`;
+  }
+  return `${(meters / METERS_PER_KM).toFixed(2)} km`;
+}
+
+/** Format the description of an interval for block summaries (speech). */
+function formatIntervalDescription(i: WorkoutInterval): string {
+  const label = i.label || defaultLabel(i.type);
+  if (isDistanceInterval(i)) {
+    return `${formatDistanceForSpeech(i.distanceMeters!)} ${label}`;
+  }
+  return `${formatDurationForSpeech(i.durationSeconds)} ${label}`;
+}
+
+// ── Workout categorization ───────────────────────────────────────────
+
+export type WorkoutCategory = 'distance' | 'timed' | 'intervals';
+
+/** Auto-detect the category of a workout based on its structure. */
+export function categorizeWorkout(def: WorkoutDefinition): WorkoutCategory {
+  if (hasDistanceFeature(def)) return 'distance';
+  const hasRepeats = def.blocks.some(b => b.repeatCount > 1);
+  const hasMultipleIntervalTypes = def.blocks.some(b => b.intervals.length > 1);
+  if (hasRepeats || def.blocks.length > 1 || hasMultipleIntervalTypes) return 'intervals';
+  return 'timed';
+}
+
+/** Total target distance for the workout (if any). */
+export function totalWorkoutDistanceMeters(def: WorkoutDefinition): number | null {
+  if (def.targetDistanceMeters) return def.targetDistanceMeters;
+  const flattened = flattenWorkout(def);
+  const totalDist = flattened.reduce((sum, i) => sum + (i.distanceMeters || 0), 0);
+  return totalDist > 0 ? totalDist : null;
 }

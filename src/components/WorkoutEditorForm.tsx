@@ -21,8 +21,17 @@ import {
   IntervalType,
   formatTime,
   totalWorkoutSeconds,
+  totalWorkoutDistanceMeters,
   INTERVAL_LABEL_OPTIONS,
+  isDistanceInterval,
+  formatDistanceShort,
+  METERS_PER_MILE,
+  METERS_PER_KM,
+  RACE_DISTANCES,
+  hasDistanceFeature,
 } from '../workout/workoutTypes';
+import { loadSettings } from '../workout/workoutStorage';
+import type { PaceUnit } from '../pace/paceTypes';
 import { formatPaceDisplay } from '../pace/paceTracker';
 import {
   Colors,
@@ -48,9 +57,16 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
   const [warmup, setWarmup] = useState(initial.warmup);
   const [blocks, setBlocks] = useState(initial.blocks);
   const [cooldown, setCooldown] = useState(initial.cooldown);
+  const [targetDistance, setTargetDistance] = useState(initial.targetDistanceMeters ?? 0);
+  const [paceUnit, setPaceUnit] = useState<PaceUnit>('minPerMile');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstRender = useRef(true);
+
+  // Load user's pace unit preference
+  useEffect(() => {
+    loadSettings().then(s => setPaceUnit(s.paceUnit));
+  }, []);
 
   const current: WorkoutDefinition = {
     ...initial,
@@ -58,6 +74,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
     warmup,
     blocks,
     cooldown,
+    targetDistanceMeters: targetDistance > 0 ? targetDistance : undefined,
   };
 
   // Auto-save with debounce when editing existing workouts
@@ -74,7 +91,14 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
 
     debounceRef.current = setTimeout(() => {
       if (!name.trim()) return;
-      onSave({ ...initial, name, warmup, blocks, cooldown });
+      onSave({
+        ...initial,
+        name,
+        warmup,
+        blocks,
+        cooldown,
+        targetDistanceMeters: targetDistance > 0 ? targetDistance : undefined,
+      });
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 1500);
     }, 600);
@@ -82,7 +106,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [name, warmup, blocks, cooldown, autoSave]);
+  }, [name, warmup, blocks, cooldown, targetDistance, autoSave]);
 
   const handleSave = () => {
     if (!name.trim()) {
@@ -237,6 +261,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
         sectionLabel="Warm Up"
         addBlockLabel="+ Add Warm Up Block"
         addIntervalLabel="+ Add Interval"
+        paceUnit={paceUnit}
         updateBlockRepeat={updateBlockRepeat}
         updateInterval={updateInterval}
         addIntervalToBlock={addIntervalToBlock}
@@ -255,6 +280,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
         sectionLabel="Block"
         addBlockLabel="+ Add Block"
         addIntervalLabel="+ Add Interval"
+        paceUnit={paceUnit}
         updateBlockRepeat={updateBlockRepeat}
         updateInterval={updateInterval}
         addIntervalToBlock={addIntervalToBlock}
@@ -273,12 +299,24 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
         sectionLabel="Cool Down"
         addBlockLabel="+ Add Cool Down Block"
         addIntervalLabel="+ Add Interval"
+        paceUnit={paceUnit}
         updateBlockRepeat={updateBlockRepeat}
         updateInterval={updateInterval}
         addIntervalToBlock={addIntervalToBlock}
         removeInterval={removeInterval}
         swapIntervals={swapIntervals}
         addBlock={addBlock}
+      />
+
+      {/* Target Distance */}
+      <Text style={styles.sectionTitle}>Target Distance</Text>
+      <Text style={styles.targetDistHint}>
+        Optional — workout auto-finishes when this GPS distance is reached
+      </Text>
+      <TargetDistancePicker
+        meters={targetDistance}
+        onChange={setTargetDistance}
+        paceUnit={paceUnit}
       />
 
       {/* Total */}
@@ -288,6 +326,14 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
           {formatTime(totalWorkoutSeconds(current))}
         </Text>
       </View>
+      {totalWorkoutDistanceMeters(current) != null && (
+        <View style={[styles.totalRow, { marginTop: Spacing.sm }]}>
+          <Text style={styles.totalLabel}>Target Distance</Text>
+          <Text style={[styles.totalValue, { color: Colors.accent }]}>
+            {formatDistanceShort(totalWorkoutDistanceMeters(current)!, paceUnit)}
+          </Text>
+        </View>
+      )}
 
       {/* Actions — only shown for new workout creation */}
       {!autoSave && (
@@ -347,6 +393,7 @@ interface BlockListProps {
   sectionLabel: string;
   addBlockLabel: string;
   addIntervalLabel: string;
+  paceUnit: PaceUnit;
   updateBlockRepeat: (setter: BlockSetter, blockIdx: number, count: number) => void;
   updateInterval: (setter: BlockSetter, blockIdx: number, intIdx: number, partial: Partial<WorkoutInterval>) => void;
   addIntervalToBlock: (setter: BlockSetter, blockIdx: number, defaultType: IntervalType) => void;
@@ -363,6 +410,7 @@ function BlockList({
   sectionLabel,
   addBlockLabel,
   addIntervalLabel,
+  paceUnit,
   updateBlockRepeat: updateRepeat,
   updateInterval: updateInt,
   addIntervalToBlock: addInt,
@@ -488,19 +536,82 @@ function BlockList({
                     </Text>
                   </TouchableOpacity>
 
-                  <DurationPicker
-                    seconds={interval.durationSeconds}
-                    onChange={(s) =>
-                      updateInt(setter, bi, ii, { durationSeconds: s })
-                    }
-                    color={intervalColor(interval.type)}
-                  />
+                  {isDistanceInterval(interval) ? (
+                    <DistancePicker
+                      meters={interval.distanceMeters || 1609}
+                      onChange={(m) =>
+                        updateInt(setter, bi, ii, { distanceMeters: m, durationSeconds: 0 })
+                      }
+                      color={intervalColor(interval.type)}
+                      paceUnit={paceUnit}
+                    />
+                  ) : (
+                    <DurationPicker
+                      seconds={interval.durationSeconds}
+                      onChange={(s) =>
+                        updateInt(setter, bi, ii, { durationSeconds: s })
+                      }
+                      color={intervalColor(interval.type)}
+                    />
+                  )}
 
                   <TouchableOpacity
                     onPress={() => removeInt(setter, bi, ii)}
                     style={styles.removeBtn}
                   >
                     <Ionicons name="close-outline" size={18} color={Colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Time / Distance toggle */}
+                <View style={styles.measureToggleRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.measureToggle,
+                      !isDistanceInterval(interval) && styles.measureToggleActive,
+                    ]}
+                    onPress={() => {
+                      hapticTap();
+                      updateInt(setter, bi, ii, {
+                        durationSeconds: interval.durationSeconds || 120,
+                        distanceMeters: undefined,
+                      });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="time-outline"
+                      size={12}
+                      color={!isDistanceInterval(interval) ? Colors.primary : Colors.textMuted}
+                    />
+                    <Text style={[
+                      styles.measureToggleText,
+                      !isDistanceInterval(interval) && { color: Colors.primary },
+                    ]}>Time</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.measureToggle,
+                      isDistanceInterval(interval) && styles.measureToggleActive,
+                    ]}
+                    onPress={() => {
+                      hapticTap();
+                      updateInt(setter, bi, ii, {
+                        durationSeconds: 0,
+                        distanceMeters: interval.distanceMeters || 1609,
+                      });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="navigate-outline"
+                      size={12}
+                      color={isDistanceInterval(interval) ? Colors.accent : Colors.textMuted}
+                    />
+                    <Text style={[
+                      styles.measureToggleText,
+                      isDistanceInterval(interval) && { color: Colors.accent },
+                    ]}>Distance</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -1009,6 +1120,277 @@ const ipStyles = StyleSheet.create({
   },
 });
 
+// ── Target distance picker ───────────────────────────────────────────
+
+const DISTANCE_PRESETS: { label: string; meters: number }[] = [
+  { label: '5K', meters: 5000 },
+  { label: '10K', meters: 10000 },
+  { label: 'Half', meters: 21097 },
+  { label: 'Marathon', meters: 42195 },
+];
+
+function TargetDistancePicker({
+  meters,
+  onChange,
+  paceUnit,
+}: {
+  meters: number;
+  onChange: (m: number) => void;
+  paceUnit: PaceUnit;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+
+  const divisor = paceUnit === 'minPerMile' ? METERS_PER_MILE : METERS_PER_KM;
+  const unitLabel = paceUnit === 'minPerMile' ? 'mi' : 'km';
+
+  const startEdit = () => {
+    setEditValue(meters > 0 ? (meters / divisor).toFixed(1) : '');
+    setEditing(true);
+  };
+
+  const confirmEdit = () => {
+    const val = parseFloat(editValue);
+    if (isNaN(val) || val <= 0) {
+      onChange(0);
+    } else {
+      onChange(Math.round(val * divisor));
+    }
+    setEditing(false);
+  };
+
+  const clear = () => {
+    hapticTap();
+    onChange(0);
+  };
+
+  return (
+    <View style={tdStyles.container}>
+      <View style={tdStyles.presetRow}>
+        {DISTANCE_PRESETS.map(p => {
+          const isActive = Math.abs(meters - p.meters) < 100;
+          return (
+            <TouchableOpacity
+              key={p.label}
+              style={[tdStyles.chip, isActive && tdStyles.chipActive]}
+              onPress={() => {
+                hapticTap();
+                onChange(isActive ? 0 : p.meters);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[tdStyles.chipText, isActive && tdStyles.chipTextActive]}>
+                {p.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+        <TouchableOpacity
+          style={[tdStyles.chip, meters > 0 && !DISTANCE_PRESETS.some(p => Math.abs(meters - p.meters) < 100) && tdStyles.chipActive]}
+          onPress={startEdit}
+          activeOpacity={0.7}
+        >
+          <Text style={[tdStyles.chipText, meters > 0 && !DISTANCE_PRESETS.some(p => Math.abs(meters - p.meters) < 100) && tdStyles.chipTextActive]}>
+            Custom
+          </Text>
+        </TouchableOpacity>
+      </View>
+      {editing && (
+        <View style={tdStyles.editRow}>
+          <TextInput
+            style={tdStyles.editInput}
+            value={editValue}
+            onChangeText={setEditValue}
+            keyboardType="decimal-pad"
+            maxLength={6}
+            autoFocus
+            placeholder="0.0"
+            placeholderTextColor={Colors.textMuted}
+          />
+          <Text style={tdStyles.editUnit}>{unitLabel}</Text>
+          <TouchableOpacity onPress={confirmEdit} style={tdStyles.doneBtn}>
+            <Ionicons name="checkmark" size={18} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
+      )}
+      {meters > 0 && !editing && (
+        <View style={tdStyles.valueRow}>
+          <Text style={tdStyles.valueText}>
+            {formatDistanceShort(meters, paceUnit)}
+          </Text>
+          <TouchableOpacity onPress={clear} hitSlop={8}>
+            <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const tdStyles = StyleSheet.create({
+  container: {
+    marginBottom: Spacing.md,
+  },
+  presetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  chip: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+    backgroundColor: Colors.surfaceLight,
+  },
+  chipActive: {
+    borderColor: Colors.accent,
+    backgroundColor: Colors.accent + '22',
+  },
+  chipText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  chipTextActive: {
+    color: Colors.accent,
+  },
+  editRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  editInput: {
+    backgroundColor: Colors.surfaceLight,
+    color: Colors.textPrimary,
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    width: 72,
+    height: 36,
+    borderRadius: BorderRadius.sm,
+    textAlign: 'center',
+    padding: 0,
+    borderWidth: 1,
+    borderColor: Colors.accent,
+  },
+  editUnit: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  doneBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.primary + '22',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  valueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  valueText: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.accent,
+    fontVariant: ['tabular-nums'],
+  },
+});
+
+// ── Interval distance picker ─────────────────────────────────────────
+
+const INTERVAL_DISTANCE_PRESETS: { label: string; meters: number }[] = [
+  { label: '400m', meters: 400 },
+  { label: '800m', meters: 800 },
+  { label: '1 mi', meters: 1609 },
+  { label: '1 km', meters: 1000 },
+  { label: '2 mi', meters: 3219 },
+];
+
+function DistancePicker({
+  meters,
+  onChange,
+  color,
+  paceUnit,
+}: {
+  meters: number;
+  onChange: (m: number) => void;
+  color: string;
+  paceUnit: PaceUnit;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+
+  const divisor = paceUnit === 'minPerMile' ? METERS_PER_MILE : METERS_PER_KM;
+  const unitLabel = paceUnit === 'minPerMile' ? 'mi' : 'km';
+
+  const startEdit = () => {
+    setEditValue(meters > 0 ? (meters / divisor).toFixed(2) : '');
+    setEditing(true);
+  };
+
+  const confirmEdit = () => {
+    const val = parseFloat(editValue);
+    if (isNaN(val) || val <= 0) {
+      onChange(400); // minimum 400m
+    } else {
+      onChange(Math.round(val * divisor));
+    }
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <View style={dpStyles.editContainer}>
+        <TextInput
+          style={dpStyles.editInput}
+          value={editValue}
+          onChangeText={setEditValue}
+          keyboardType="decimal-pad"
+          maxLength={5}
+          selectTextOnFocus
+          autoFocus
+          placeholder="0.0"
+          placeholderTextColor={Colors.textMuted}
+        />
+        <Text style={{ fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '600' }}>{unitLabel}</Text>
+        <TouchableOpacity onPress={confirmEdit} style={dpStyles.doneBtn}>
+          <Ionicons name="checkmark" size={18} color={Colors.primary} />
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <View style={dpStyles.container}>
+      <TouchableOpacity onPress={() => {
+        hapticTap();
+        onChange(Math.max(100, meters - (paceUnit === 'minPerMile' ? 161 : 100)));
+      }} style={dpStyles.btn}>
+        <Text style={dpStyles.btnText}>−</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={startEdit} activeOpacity={0.7} style={dpStyles.editableValue}>
+        <Text style={[dpStyles.value, { color }]}>
+          {formatDistanceShort(meters, paceUnit)}
+        </Text>
+        <Ionicons name="pencil" size={10} color={Colors.textMuted} style={dpStyles.editHintIcon} />
+      </TouchableOpacity>
+      <TouchableOpacity onPress={() => {
+        hapticTap();
+        onChange(meters + (paceUnit === 'minPerMile' ? 161 : 100));
+      }} style={dpStyles.btn}>
+        <Text style={dpStyles.btnText}>+</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // ── Duration picker sub-component ────────────────────────────────────
 
 function DurationPicker({
@@ -1401,5 +1783,35 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: FontSize.md,
     fontWeight: '600',
+  },
+  targetDistHint: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginBottom: Spacing.sm,
+  },
+  measureToggleRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    marginTop: 4,
+  },
+  measureToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: Spacing.xs - 1,
+    paddingHorizontal: Spacing.sm - 2,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    backgroundColor: Colors.surfaceLight,
+  },
+  measureToggleActive: {
+    borderColor: Colors.primary + '44',
+    backgroundColor: Colors.primary + '12',
+  },
+  measureToggleText: {
+    fontSize: FontSize.xs - 1,
+    fontWeight: '600',
+    color: Colors.textMuted,
   },
 });

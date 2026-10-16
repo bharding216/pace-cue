@@ -19,6 +19,8 @@ import {
   RoutePoint,
   generateId,
   IntervalType,
+  isDistanceInterval,
+  hasDistanceFeature,
 } from '../workout/workoutTypes';
 import {
   createEngineState,
@@ -28,6 +30,7 @@ import {
   skipInterval,
   advanceInterval,
   stopWorkout,
+  finishWorkout,
   currentInterval,
   remainingSeconds,
   remainingMs,
@@ -77,6 +80,7 @@ function buildVerboseCueContext(
   return {
     currentLabel: ci.label,
     currentDuration: ci.durationSeconds,
+    currentDistanceMeters: ci.distanceMeters,
     effort: ci.effort,
     blockName: ci.blockName,
     blockNumber: ci.blockNumber,
@@ -88,6 +92,7 @@ function buildVerboseCueContext(
     blockIntervalCount: ci.blockIntervalCount,
     nextLabel: ni?.label,
     nextDuration: ni?.durationSeconds,
+    nextDistanceMeters: ni?.distanceMeters,
     nextEffort: ni?.effort,
     nextTargetPace: ni?.targetPace,
     warningSeconds:
@@ -137,6 +142,13 @@ export interface WorkoutRunnerControls {
   // Pace tracking
   paceState: PaceState;
   isPaceTracking: boolean;
+
+  // Distance tracking
+  isDistanceInterval: boolean; // whether the current interval is distance-based
+  intervalDistanceRemaining: number | null; // meters remaining for current distance interval
+  intervalDistanceProgress: number; // 0..1 for distance intervals
+  workoutDistanceTarget: number | null; // workout-level target distance (meters)
+  workoutDistanceRemaining: number | null; // meters remaining for workout target
 
   start: () => void;
   pause: () => void;
@@ -322,6 +334,103 @@ export function useWorkoutRunner(
           lastLAIndex.current = next.currentIndex;
         }
       } else {
+        // ── Distance-based interval completion ──
+        const ci_dist = currentInterval(s);
+        if (ci_dist && isDistanceInterval(ci_dist)) {
+          const ps = paceTrackerRef.current.paceState;
+          const intervalDist = ps.totalDistanceMeters - intervalStartDistanceRef.current;
+          if (intervalDist >= ci_dist.distanceMeters!) {
+            captureSplit(s);
+            let next = advanceInterval(s);
+            engineRef.current = next;
+            setEngine(next);
+            if (next.phase === 'finished') {
+              playCue('workoutComplete', settingsRef.current.audioCueMode, {});
+              if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
+              stopBackgroundLoop();
+              endLiveActivity();
+              paceTrackerRef.current.stop();
+              if (!historySaved.current) {
+                historySaved.current = true;
+                const psFinal = paceTrackerRef.current.paceState;
+                const fullTrack = paceTrackerRef.current.getFullTrack();
+                const entry: CompletedWorkout = {
+                  id: generateId(),
+                  workoutId: workout.id,
+                  workoutName: workout.name,
+                  completedAt: Date.now(),
+                  totalDurationMs: next.totalElapsedMs,
+                  splits: [...splitsRef.current],
+                  totalDistanceMeters: psFinal.totalDistanceMeters > 0 ? psFinal.totalDistanceMeters : undefined,
+                  route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
+                };
+                saveCompletedWorkout(entry).catch((e) =>
+                  console.warn('Failed to save workout history:', e)
+                );
+                onWorkoutCompleted();
+                track('workout_completed', {
+                  workout_id: workout.id,
+                  workout_name: workout.name,
+                  total_duration_ms: next.totalElapsedMs,
+                });
+              }
+            } else {
+              markIntervalStart();
+              const cueCtx = buildVerboseCueContext(next, 'intervalStart', settingsRef.current);
+              playCue('intervalStart', settingsRef.current.audioCueMode, cueCtx);
+              if (settingsRef.current.hapticEnabled) hapticIntervalChange();
+              firedWarnings.current.clear();
+              firedCountdowns.current.clear();
+              firedTimeAnnouncements.current.clear();
+              firedPaceCues.current.clear();
+              updateLiveActivity(buildLAProps(next, false));
+              lastLAUpdate.current = Date.now();
+              lastLAIndex.current = next.currentIndex;
+            }
+          }
+        }
+
+        // ── Workout-level distance target ──
+        if (
+          workout.targetDistanceMeters &&
+          paceTrackerRef.current.paceState.totalDistanceMeters >= workout.targetDistanceMeters &&
+          s.phase === 'running'
+        ) {
+          captureSplit(s);
+          const finished = finishWorkout(s);
+          engineRef.current = finished;
+          setEngine(finished);
+          playCue('workoutComplete', settingsRef.current.audioCueMode, {});
+          if (settingsRef.current.hapticEnabled) hapticWorkoutComplete();
+          stopBackgroundLoop();
+          endLiveActivity();
+          paceTrackerRef.current.stop();
+          if (!historySaved.current) {
+            historySaved.current = true;
+            const psFinal = paceTrackerRef.current.paceState;
+            const fullTrack = paceTrackerRef.current.getFullTrack();
+            const entry: CompletedWorkout = {
+              id: generateId(),
+              workoutId: workout.id,
+              workoutName: workout.name,
+              completedAt: Date.now(),
+              totalDurationMs: finished.totalElapsedMs,
+              splits: [...splitsRef.current],
+              totalDistanceMeters: psFinal.totalDistanceMeters > 0 ? psFinal.totalDistanceMeters : undefined,
+              route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
+            };
+            saveCompletedWorkout(entry).catch((e) =>
+              console.warn('Failed to save workout history:', e)
+            );
+            onWorkoutCompleted();
+            track('workout_completed', {
+              workout_id: workout.id,
+              workout_name: workout.name,
+              total_duration_ms: finished.totalElapsedMs,
+            });
+          }
+        }
+
         // Check for interval-progress announcements, warning, and countdown cues
         const secs = remainingSeconds(s);
         const ci = currentInterval(s);
@@ -468,8 +577,9 @@ export function useWorkoutRunner(
     playCue('intervalStart', settingsRef.current.audioCueMode, startCueCtx);
     if (settingsRef.current.hapticEnabled) hapticIntervalChange();
 
-    // Start pace tracking if enabled
-    if (settingsRef.current.paceTrackingEnabled) {
+    // Start pace tracking if enabled, or force-start for distance workouts
+    const needsGps = settingsRef.current.paceTrackingEnabled || hasDistanceFeature(workout);
+    if (needsGps) {
       paceTrackerRef.current.reset();
       paceTrackerRef.current.start();
     }
@@ -618,11 +728,24 @@ export function useWorkoutRunner(
   const ci = currentInterval(engine);
   const ni = nextInterval(engine);
 
+  // Distance tracking derivations
+  const ciIsDistance = !!(ci && isDistanceInterval(ci));
+  const intervalDistRemaining = ciIsDistance
+    ? Math.max(0, ci!.distanceMeters! - (paceTracker.paceState.totalDistanceMeters - intervalStartDistanceRef.current))
+    : null;
+  const intervalDistProgress = ciIsDistance && ci!.distanceMeters! > 0
+    ? Math.min(1, Math.max(0, (paceTracker.paceState.totalDistanceMeters - intervalStartDistanceRef.current) / ci!.distanceMeters!))
+    : 0;
+  const wkTargetDist = workout.targetDistanceMeters ?? null;
+  const wkDistRemaining = wkTargetDist
+    ? Math.max(0, wkTargetDist - paceTracker.paceState.totalDistanceMeters)
+    : null;
+
   return {
     state: engine,
     remaining: remainingSeconds(engine),
     remainingMillis: remainingMs(engine),
-    progress: intervalProgress(engine),
+    progress: ciIsDistance ? intervalDistProgress : intervalProgress(engine),
     totalRemaining: totalRemainingSeconds(engine),
     currentLabel: ci?.label || '',
     currentType: ci?.type || 'easy',
@@ -635,6 +758,13 @@ export function useWorkoutRunner(
     // Pace tracking
     paceState: paceTracker.paceState,
     isPaceTracking: paceTracker.isTracking,
+
+    // Distance tracking
+    isDistanceInterval: ciIsDistance,
+    intervalDistanceRemaining: intervalDistRemaining,
+    intervalDistanceProgress: intervalDistProgress,
+    workoutDistanceTarget: wkTargetDist,
+    workoutDistanceRemaining: wkDistRemaining,
 
     start,
     pause,

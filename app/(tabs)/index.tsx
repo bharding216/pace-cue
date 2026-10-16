@@ -1,9 +1,9 @@
 /**
- * Home screen — list of saved workouts with a big "New Workout" button.
- * Workouts can be reordered by long-pressing and dragging.
+ * Home screen — categorized workout list with collapsible sections.
+ * Categories: Distance Runs, Timed Runs, Intervals.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,14 +11,19 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  ScrollView,
+  Animated,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import DraggableFlatList, {
-  ScaleDecorator,
-  RenderItemParams,
-} from 'react-native-draggable-flatlist';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { WorkoutDefinition } from '../../src/workout/workoutTypes';
+import {
+  WorkoutDefinition,
+  categorizeWorkout,
+  WorkoutCategory,
+} from '../../src/workout/workoutTypes';
 import { loadWorkouts, deleteWorkout, saveWorkouts } from '../../src/workout/workoutStorage';
 import { createPresets } from '../../src/workout/presets';
 import { WorkoutCard } from '../../src/components/WorkoutCard';
@@ -26,11 +31,48 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { onSyncStatusChange } from '../../src/sync/cloudSync';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+interface CategoryConfig {
+  key: WorkoutCategory;
+  title: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  description: string;
+  color: string;
+}
+
+const CATEGORIES: CategoryConfig[] = [
+  {
+    key: 'distance',
+    title: 'Distance Runs',
+    icon: 'navigate',
+    description: 'GPS-tracked runs by distance',
+    color: Colors.accent,
+  },
+  {
+    key: 'timed',
+    title: 'Timed Runs',
+    icon: 'timer-outline',
+    description: 'Steady runs by time',
+    color: Colors.primary,
+  },
+  {
+    key: 'intervals',
+    title: 'Intervals',
+    icon: 'repeat',
+    description: 'Structured interval training',
+    color: Colors.warning,
+  },
+];
+
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<Set<WorkoutCategory>>(new Set());
 
   const reload = useCallback(async () => {
     let data = await loadWorkouts();
@@ -48,7 +90,6 @@ export default function HomeScreen() {
     }, [user?.id, reload])
   );
 
-  // Reload after cloud sync finishes so new-user data appears immediately
   useEffect(() => {
     return onSyncStatusChange((status) => {
       if (status === 'success') reload();
@@ -60,25 +101,27 @@ export default function HomeScreen() {
     setWorkouts((prev) => prev.filter((w) => w.id !== id));
   };
 
-  const handleDragEnd = async ({ data }: { data: WorkoutDefinition[] }) => {
-    setWorkouts(data);
-    await saveWorkouts(data);
+  const toggleCategory = (cat: WorkoutCategory) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) {
+        next.delete(cat);
+      } else {
+        next.add(cat);
+      }
+      return next;
+    });
   };
 
-  const renderItem = useCallback(
-    ({ item, drag, isActive }: RenderItemParams<WorkoutDefinition>) => (
-      <ScaleDecorator>
-        <WorkoutCard
-          workout={item}
-          onStart={() => router.push(`/workout/run/${item.id}`)}
-          onEdit={() => router.push(`/workout/${item.id}`)}
-          onDelete={() => handleDelete(item.id)}
-          drag={drag}
-          isActive={isActive}
-        />
-      </ScaleDecorator>
-    ),
-    [router]
+  // Group workouts by category
+  const grouped = workouts.reduce<Record<WorkoutCategory, WorkoutDefinition[]>>(
+    (acc, w) => {
+      const cat = categorizeWorkout(w);
+      acc[cat].push(w);
+      return acc;
+    },
+    { distance: [], timed: [], intervals: [] }
   );
 
   if (loading) {
@@ -91,62 +134,110 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <DraggableFlatList
-        data={workouts}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        onDragEnd={handleDragEnd}
+      <ScrollView
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        activationDistance={0}
-        ListHeaderComponent={
-          <>
-            {/* Compact hero */}
-            <View style={styles.hero}>
-              <Image
-                source={require('../../assets/icon.png')}
-                style={styles.heroLogo}
-              />
-              <View>
-                <Text style={styles.heroTitle}>PaceCue</Text>
-                <Text style={styles.heroSub}>Interval running, your way.</Text>
-              </View>
-            </View>
+      >
+        {/* Compact hero */}
+        <View style={styles.hero}>
+          <Image
+            source={require('../../assets/icon.png')}
+            style={styles.heroLogo}
+          />
+          <View>
+            <Text style={styles.heroTitle}>PaceCue</Text>
+            <Text style={styles.heroSub}>Interval running, your way.</Text>
+          </View>
+        </View>
 
-            {/* Action buttons */}
-            <View style={styles.actionRow}>
+        {/* Action buttons */}
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={styles.aiFab}
+            onPress={() => {
+              if (!user) {
+                router.push('/login' as any);
+              } else {
+                router.push('/ai-builder' as any);
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="sparkles" size={16} color={Colors.black} />
+            <Text style={styles.aiFabText}>AI Builder</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.newBtn}
+            onPress={() => router.push('/workout/new')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="add" size={18} color={Colors.black} />
+            <Text style={styles.newBtnText}>New Workout</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Category sections */}
+        {CATEGORIES.map((cat) => {
+          const items = grouped[cat.key];
+          const isExpanded = expanded.has(cat.key);
+          return (
+            <View key={cat.key} style={styles.categorySection}>
               <TouchableOpacity
-                style={styles.aiFab}
-                onPress={() => {
-                  if (!user) {
-                    router.push('/login' as any);
-                  } else {
-                    router.push('/ai-builder' as any);
-                  }
-                }}
-                activeOpacity={0.8}
+                style={styles.categoryHeader}
+                onPress={() => toggleCategory(cat.key)}
+                activeOpacity={0.7}
               >
-                <Ionicons name="sparkles" size={16} color={Colors.black} />
-                <Text style={styles.aiFabText}>AI Builder</Text>
+                <View style={[styles.categoryIcon, { backgroundColor: cat.color + '22' }]}>
+                  <Ionicons name={cat.icon} size={20} color={cat.color} />
+                </View>
+                <View style={styles.categoryInfo}>
+                  <Text style={styles.categoryTitle}>{cat.title}</Text>
+                  <Text style={styles.categoryDesc}>{cat.description}</Text>
+                </View>
+                <View style={styles.categoryRight}>
+                  <View style={[styles.countBadge, { backgroundColor: cat.color + '22' }]}>
+                    <Text style={[styles.countText, { color: cat.color }]}>{items.length}</Text>
+                  </View>
+                  <Ionicons
+                    name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={18}
+                    color={Colors.textMuted}
+                  />
+                </View>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.newBtn}
-                onPress={() => router.push('/workout/new')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="add" size={18} color={Colors.black} />
-                <Text style={styles.newBtnText}>New Workout</Text>
-              </TouchableOpacity>
+              {isExpanded && (
+                <View style={styles.categoryBody}>
+                  {items.length === 0 ? (
+                    <Text style={styles.emptyCategory}>
+                      No workouts in this category yet
+                    </Text>
+                  ) : (
+                    items.map((item) => (
+                      <WorkoutCard
+                        key={item.id}
+                        workout={item}
+                        onStart={() => router.push(`/workout/run/${item.id}`)}
+                        onEdit={() => router.push(`/workout/${item.id}`)}
+                        onDelete={() => handleDelete(item.id)}
+                        drag={() => {}}
+                        isActive={false}
+                      />
+                    ))
+                  )}
+                </View>
+              )}
             </View>
-          </>
-        }
-        ListEmptyComponent={
+          );
+        })}
+
+        {workouts.length === 0 && (
           <Text style={styles.emptyText}>
             No workouts yet. Create one to get started!
           </Text>
-        }
-      />
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -223,6 +314,69 @@ const styles = StyleSheet.create({
     color: Colors.black,
     fontSize: FontSize.sm,
     fontWeight: '800',
+  },
+
+  // ── Category sections ──
+  categorySection: {
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.card,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    overflow: 'hidden',
+  },
+  categoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    gap: Spacing.md,
+  },
+  categoryIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  categoryInfo: {
+    flex: 1,
+  },
+  categoryTitle: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  categoryDesc: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    marginTop: 1,
+  },
+  categoryRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  countBadge: {
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.sm,
+  },
+  countText: {
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+  },
+  categoryBody: {
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.md,
+  },
+  emptyCategory: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    paddingVertical: Spacing.md,
   },
   emptyText: {
     color: Colors.textMuted,

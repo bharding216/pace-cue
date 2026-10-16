@@ -13,6 +13,8 @@ import {
   FlatInterval,
   WorkoutDefinition,
   flattenWorkout,
+  DISTANCE_INTERVAL_MAX_MS,
+  isDistanceInterval,
 } from './workoutTypes';
 
 /** Create a fresh engine state for a workout. */
@@ -31,6 +33,12 @@ export function createEngineState(
   };
 }
 
+/** Compute the engine duration for an interval (distance-based use a large sentinel). */
+function intervalDurationMs(interval: FlatInterval): number {
+  if (isDistanceInterval(interval)) return DISTANCE_INTERVAL_MAX_MS;
+  return interval.durationSeconds * 1000;
+}
+
 /** Start the workout. */
 export function startWorkout(state: EngineState): EngineState {
   if (state.intervals.length === 0) return state;
@@ -40,7 +48,7 @@ export function startWorkout(state: EngineState): EngineState {
     ...state,
     phase: 'running',
     currentIndex: 0,
-    intervalEndsAt: now + first.durationSeconds * 1000,
+    intervalEndsAt: now + intervalDurationMs(first),
     pausedRemaining: 0,
     startedAt: now,
   };
@@ -83,7 +91,7 @@ export function skipInterval(state: EngineState): EngineState {
     ...state,
     phase: 'running',
     currentIndex: nextIndex,
-    intervalEndsAt: now + next.durationSeconds * 1000,
+    intervalEndsAt: now + intervalDurationMs(next),
     pausedRemaining: 0,
   };
 }
@@ -99,12 +107,17 @@ export function advanceInterval(state: EngineState): EngineState {
   if (nextIndex >= state.intervals.length) {
     return finishWorkout(state);
   }
+  const now = Date.now();
   const next = state.intervals[nextIndex];
+  const prevWasDistance = isDistanceInterval(state.intervals[state.currentIndex]);
+  // For time-based intervals, chain from the previous intervalEndsAt to prevent drift.
+  // For distance-based intervals, anchor to now since they end on distance, not time.
+  const anchor = prevWasDistance ? now : state.intervalEndsAt;
   return {
     ...state,
     phase: 'running',
     currentIndex: nextIndex,
-    intervalEndsAt: state.intervalEndsAt + next.durationSeconds * 1000,
+    intervalEndsAt: anchor + intervalDurationMs(next),
     pausedRemaining: 0,
   };
 }
@@ -164,9 +177,11 @@ export function intervalProgress(state: EngineState): number {
   return Math.max(0, Math.min(1, 1 - rem / totalMs));
 }
 
-/** Whether the current interval has expired. */
+/** Whether the current interval has expired by time. Distance-based intervals never expire by time. */
 export function isIntervalExpired(state: EngineState): boolean {
   if (state.phase !== 'running') return false;
+  const ci = currentInterval(state);
+  if (ci && isDistanceInterval(ci)) return false;
   return Date.now() >= state.intervalEndsAt;
 }
 

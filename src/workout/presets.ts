@@ -1,5 +1,6 @@
 /**
  * Default workout presets so the app isn't empty on first launch.
+ * Organized into three categories: distance, timed, and intervals.
  */
 
 import { WorkoutDefinition, generateId } from './workoutTypes';
@@ -8,6 +9,149 @@ export function createPresets(): WorkoutDefinition[] {
   const now = Date.now();
 
   return [
+    // ── Distance Runs (GPS-tracked by distance) ────────────────────
+
+    {
+      id: generateId(),
+      name: 'Half Marathon Run/Walk',
+      targetDistanceMeters: 21097,
+      warmup: [
+        { intervals: [{ type: 'warmup', durationSeconds: 300, label: 'Walk' }], repeatCount: 1 },
+      ],
+      blocks: [
+        {
+          intervals: [
+            { type: 'easy', durationSeconds: 600, label: 'Run' },
+            { type: 'easy', durationSeconds: 60, label: 'Walk' },
+          ],
+          repeatCount: 15,
+        },
+      ],
+      cooldown: [],
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: generateId(),
+      name: '5K Easy Run',
+      targetDistanceMeters: 5000,
+      warmup: [
+        { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
+      ],
+      blocks: [
+        {
+          intervals: [
+            { type: 'easy', durationSeconds: 3600, label: 'Easy Run' },
+          ],
+          repeatCount: 1,
+        },
+      ],
+      cooldown: [
+        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: generateId(),
+      name: '10K Steady',
+      targetDistanceMeters: 10000,
+      warmup: [
+        { intervals: [{ type: 'warmup', durationSeconds: 480 }], repeatCount: 1 },
+      ],
+      blocks: [
+        {
+          intervals: [
+            { type: 'hard', durationSeconds: 5400, label: 'Steady' },
+          ],
+          repeatCount: 1,
+        },
+      ],
+      cooldown: [
+        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: generateId(),
+      name: 'Mile Repeats (Distance)',
+      warmup: [
+        { intervals: [{ type: 'warmup', durationSeconds: 600 }], repeatCount: 1 },
+      ],
+      blocks: [
+        {
+          intervals: [
+            { type: 'hard', durationSeconds: 0, distanceMeters: 1609, label: 'Race Pace' },
+            { type: 'easy', durationSeconds: 120, label: 'Recovery' },
+          ],
+          repeatCount: 4,
+        },
+      ],
+      cooldown: [
+        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    },
+
+    // ── Timed Runs ─────────────────────────────────────────────────
+
+    {
+      id: generateId(),
+      name: 'Easy 30 Min',
+      warmup: [],
+      blocks: [
+        {
+          intervals: [
+            { type: 'easy', durationSeconds: 1800, label: 'Easy Run' },
+          ],
+          repeatCount: 1,
+        },
+      ],
+      cooldown: [],
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: generateId(),
+      name: 'Easy 45 Min',
+      warmup: [],
+      blocks: [
+        {
+          intervals: [
+            { type: 'easy', durationSeconds: 2700, label: 'Easy Run' },
+          ],
+          repeatCount: 1,
+        },
+      ],
+      cooldown: [],
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: generateId(),
+      name: 'Long Run 60 Min',
+      warmup: [
+        { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
+      ],
+      blocks: [
+        {
+          intervals: [
+            { type: 'easy', durationSeconds: 3300, label: 'Endurance' },
+          ],
+          repeatCount: 1,
+        },
+      ],
+      cooldown: [
+        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    },
+
+    // ── Interval Workouts ──────────────────────────────────────────
+
     {
       id: generateId(),
       name: '5K Speed',
@@ -123,22 +267,6 @@ export function createPresets(): WorkoutDefinition[] {
       cooldown: [
         { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
       ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: 'Easy 30 Min',
-      warmup: [],
-      blocks: [
-        {
-          intervals: [
-            { type: 'easy', durationSeconds: 1800, label: 'Easy Run' },
-          ],
-          repeatCount: 1,
-        },
-      ],
-      cooldown: [],
       createdAt: now,
       updatedAt: now,
     },
