@@ -1421,7 +1421,7 @@ function DistancePicker({
     return (
       <View style={dpStyles.editContainer}>
         <TextInput
-          style={dpStyles.editInput}
+          style={[dpStyles.editInput, { width: 72 }]}
           value={editValue}
           onChangeText={setEditValue}
           keyboardType="decimal-pad"

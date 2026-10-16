@@ -10,6 +10,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useRef,
 } from 'react';
 import { useAuth } from './AuthContext';
 import type { TrainingPlan, PlanWorkout } from '../types/database';
@@ -92,9 +93,10 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
   const [planWorkouts, setPlanWorkouts] = useState<PlanWorkout[]>([]);
   const [history, setHistory] = useState<CompletedWorkout[]>([]);
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnce = useRef(false);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedOnce.current) setLoading(true);
     try {
       // Load history from local storage (works for all users)
       const historyData = await loadHistory();
@@ -121,6 +123,7 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
       console.warn('Failed to load training data:', err);
     } finally {
       setLoading(false);
+      hasLoadedOnce.current = true;
     }
   }, [user?.id]);
 

@@ -27,6 +27,8 @@ import { computeStats } from '../../../src/stats/personalRecords';
 import type { StatsSnapshot } from '../../../src/stats/personalRecords';
 import { RecordsGrid, AwardsList, LifetimeStats } from '../../../src/components/PersonalBests';
 import { ProgressChart } from '../../../src/components/ProgressChart';
+import { WorkoutPickerModal } from '../../../src/components/WorkoutPickerModal';
+import { addWorkoutToCalendar } from '../../../src/ai/planService';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 
 type ViewMode = 'calendar' | 'list' | 'stats';
@@ -44,6 +46,7 @@ export default function TrainingScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>('calendar');
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>('month');
   const [selectedDate, setSelectedDate] = useState(todayKey());
+  const [pickerDate, setPickerDate] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -97,13 +100,24 @@ export default function TrainingScreen() {
     await skipWorkout(workoutId);
   }, [skipWorkout]);
 
-  const handleViewRun = useCallback((workoutId: string) => {
-    router.push(`/workout/${workoutId}`);
+  const handleViewRun = useCallback((historyEntryId: string) => {
+    router.push(`/run/${historyEntryId}`);
   }, [router]);
 
   const handleRunAgain = useCallback((workoutId: string) => {
     router.push(`/workout/run/${workoutId}`);
   }, [router]);
+
+  const handleAddWorkout = useCallback((date: string) => {
+    setPickerDate(date);
+  }, []);
+
+  const handleWorkoutPicked = useCallback(async (workout: WorkoutDefinition) => {
+    if (!plan || !user || !pickerDate) return;
+    setPickerDate(null);
+    await addWorkoutToCalendar(plan.id, user.id, pickerDate, workout, plan.start_date);
+    await refresh();
+  }, [plan, user, pickerDate, refresh]);
 
   if (loading) {
     return (
@@ -155,7 +169,44 @@ export default function TrainingScreen() {
             />
           )}
 
-          {/* Create plan banner */}
+          {/* AI Coach promo — unauthenticated users */}
+          {!user && (
+            <View style={styles.coachCard}>
+              <View style={styles.coachIconRow}>
+                <View style={styles.coachIconBg}>
+                  <Ionicons name="sparkles" size={22} color={Colors.accent} />
+                </View>
+                <Text style={styles.coachBadge}>AI-Powered</Text>
+              </View>
+              <Text style={styles.coachTitle}>Meet Your AI Running Coach</Text>
+              <Text style={styles.coachDesc}>
+                Chat with our AI coach to set your goals, dial in your preferences, and get a personalized training plan built just for you.
+              </Text>
+              <View style={styles.coachFeatures}>
+                {[
+                  { icon: 'chatbubbles-outline' as const, text: 'Chat naturally about your goals' },
+                  { icon: 'body-outline' as const, text: 'Personalized to your fitness level' },
+                  { icon: 'calendar-outline' as const, text: 'Full training plans for any race' },
+                  { icon: 'refresh-outline' as const, text: 'Adjust your plan anytime via chat' },
+                ].map((f) => (
+                  <View key={f.text} style={styles.coachFeatureRow}>
+                    <Ionicons name={f.icon} size={16} color={Colors.primary} />
+                    <Text style={styles.coachFeatureText}>{f.text}</Text>
+                  </View>
+                ))}
+              </View>
+              <TouchableOpacity
+                style={styles.coachCta}
+                onPress={() => router.push('/login' as any)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="log-in-outline" size={18} color={Colors.black} />
+                <Text style={styles.coachCtaText}>Sign In to Get Started</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Create plan banner — authenticated, no plan yet */}
           {!plan && user && (
             <TouchableOpacity
               style={styles.planBanner}
@@ -190,6 +241,7 @@ export default function TrainingScreen() {
             onSkipWorkout={handleSkipWorkout}
             onViewRun={handleViewRun}
             onRunAgain={handleRunAgain}
+            onAddWorkout={plan ? handleAddWorkout : undefined}
           />
 
           {/* AI Chat FAB (when plan exists) */}
@@ -215,6 +267,28 @@ export default function TrainingScreen() {
           showsVerticalScrollIndicator={false}
           ListHeaderComponent={
             <>
+              {!user && (
+                <View style={styles.coachCard}>
+                  <View style={styles.coachIconRow}>
+                    <View style={styles.coachIconBg}>
+                      <Ionicons name="sparkles" size={22} color={Colors.accent} />
+                    </View>
+                    <Text style={styles.coachBadge}>AI-Powered</Text>
+                  </View>
+                  <Text style={styles.coachTitle}>Meet Your AI Running Coach</Text>
+                  <Text style={styles.coachDesc}>
+                    Chat with our AI coach to set your goals, dial in your preferences, and get a personalized training plan built just for you.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.coachCta}
+                    onPress={() => router.push('/login' as any)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="log-in-outline" size={18} color={Colors.black} />
+                    <Text style={styles.coachCtaText}>Sign In to Get Started</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               {!plan && user && (
                 <TouchableOpacity
                   style={styles.planBanner}
@@ -241,7 +315,7 @@ export default function TrainingScreen() {
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.listCard}
-              onPress={() => handleViewRun(item.workoutId)}
+              onPress={() => handleViewRun(item.id)}
               activeOpacity={0.7}
             >
               <View style={styles.listCardAccent} />
@@ -334,6 +408,14 @@ export default function TrainingScreen() {
           )}
         </ScrollView>
       )}
+
+      {/* Workout picker modal */}
+      <WorkoutPickerModal
+        visible={pickerDate !== null}
+        date={pickerDate ?? selectedDate}
+        onSelect={handleWorkoutPicked}
+        onClose={() => setPickerDate(null)}
+      />
     </View>
   );
 }
@@ -381,6 +463,81 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: Spacing.md,
     paddingBottom: Spacing.xxl * 2,
+  },
+
+  // AI Coach promo card
+  coachCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.accent + '30',
+  },
+  coachIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  coachIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.accent + '18',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coachBadge: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.accent,
+    backgroundColor: Colors.accent + '15',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+    overflow: 'hidden',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  coachTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  coachDesc: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: Spacing.md,
+  },
+  coachFeatures: {
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
+  coachFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  coachFeatureText: {
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+  },
+  coachCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm + 4,
+    gap: Spacing.xs,
+  },
+  coachCtaText: {
+    color: Colors.black,
+    fontSize: FontSize.md,
+    fontWeight: '800',
   },
 
   // Plan banner

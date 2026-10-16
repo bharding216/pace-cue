@@ -89,14 +89,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   doneButton: {
-    backgroundColor: Colors.primary,
     paddingVertical: Spacing.xs + 2,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.sm,
   },
   doneButtonText: {
-    color: Colors.black,
-    fontSize: FontSize.sm,
+    color: Colors.primary,
+    fontSize: FontSize.md,
     fontWeight: '700',
   },
 });

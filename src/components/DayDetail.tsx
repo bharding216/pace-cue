@@ -28,8 +28,11 @@ interface DayDetailProps {
   selectedDate: string;
   onStartWorkout: (workoutData: WorkoutDefinition) => void;
   onSkipWorkout: (workoutId: string) => void;
-  onViewRun: (workoutId: string) => void;
+  /** Called with the history entry ID to view run details. */
+  onViewRun: (historyEntryId: string) => void;
   onRunAgain: (workoutId: string) => void;
+  /** When provided, shows an "Add Workout" button on days without a planned workout. */
+  onAddWorkout?: (date: string) => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -108,6 +111,7 @@ export function DayDetail({
   onSkipWorkout,
   onViewRun,
   onRunAgain,
+  onAddWorkout,
 }: DayDetailProps) {
   const dateDisplay = formatDateDisplay(selectedDate);
 
@@ -120,6 +124,16 @@ export function DayDetail({
           <Ionicons name="sunny-outline" size={24} color={Colors.textMuted} />
           <Text style={styles.emptyText}>No activity</Text>
         </View>
+        {onAddWorkout && (
+          <TouchableOpacity
+            style={styles.addWorkoutBtn}
+            onPress={() => onAddWorkout(selectedDate)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
+            <Text style={styles.addWorkoutBtnText}>Add Workout to This Day</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }
@@ -179,6 +193,18 @@ export function DayDetail({
         </View>
       )}
 
+      {/* Add workout button — show when there's no planned workout for this day */}
+      {!entry.planWorkout && onAddWorkout && (
+        <TouchableOpacity
+          style={styles.addWorkoutBtn}
+          onPress={() => onAddWorkout(selectedDate)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
+          <Text style={styles.addWorkoutBtnText}>Add Workout to This Day</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Completed runs */}
       {entry.completedRuns.map((run) => (
         <View key={run.id} style={styles.runCard}>
@@ -211,20 +237,20 @@ export function DayDetail({
 
           <View style={styles.actionRow}>
             <TouchableOpacity
+              style={styles.primaryBtn}
+              onPress={() => onViewRun(run.id)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="eye-outline" size={14} color={Colors.black} />
+              <Text style={styles.primaryBtnText}>Details</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               style={styles.secondaryBtn}
               onPress={() => onRunAgain(run.workoutId)}
               activeOpacity={0.7}
             >
               <Ionicons name="play" size={14} color={Colors.textPrimary} />
               <Text style={styles.secondaryBtnText}>Run Again</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.secondaryBtn}
-              onPress={() => onViewRun(run.workoutId)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="eye-outline" size={14} color={Colors.textPrimary} />
-              <Text style={styles.secondaryBtnText}>Details</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -390,6 +416,24 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 
+  // Add workout button
+  addWorkoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.primary + '44',
+    borderStyle: 'dashed',
+  },
+  addWorkoutBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+
   // Run card
   runCard: {
     backgroundColor: Colors.surface,
@@ -426,6 +470,21 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  primaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+  },
+  primaryBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.black,
   },
   secondaryBtn: {
     flex: 1,

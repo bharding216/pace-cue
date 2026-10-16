@@ -25,6 +25,8 @@ import {
   RunningPreference,
   RunningPreferenceCategory,
   ExperienceLevel,
+  RaceTimes,
+  RaceTimeEntry,
 } from '../../../src/types/database';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 import { hapticTap } from '../../../src/audio/haptics';
@@ -63,7 +65,12 @@ const EXPERIENCE_LEVELS: { value: ExperienceLevel; label: string; desc: string }
   { value: 'advanced', label: 'Advanced', desc: 'Experienced runner, training seriously' },
 ];
 
-const DURATION_OPTIONS = [20, 30, 45, 60, 90];
+const DURATION_PRESETS = [
+  { label: '20–30 min', min: 20, max: 30 },
+  { label: '30–45 min', min: 30, max: 45 },
+  { label: '45–60 min', min: 45, max: 60 },
+  { label: '60–90 min', min: 60, max: 90 },
+];
 
 // ── Pace helpers (decimal ↔ MM:SS) ──────────────────────────
 
@@ -84,6 +91,119 @@ function mmSSToPace(text: string): number | null {
   if (secs >= 60) return null;
   const decimal = mins + secs / 60;
   return decimal > 0 ? parseFloat(decimal.toFixed(2)) : null;
+}
+
+// ── Race time helpers ────────────────────────────────────────
+
+/** Convert total seconds → display string (M:SS, MM:SS, or H:MM:SS) */
+function secondsToDisplay(totalSec: number): string {
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = Math.round(totalSec % 60);
+  if (h > 0) {
+    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+/** Parse "M:SS", "MM:SS", or "H:MM:SS" → total seconds, or null if invalid */
+function displayToSeconds(text: string): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  // H:MM:SS
+  const hms = trimmed.match(/^(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
+  if (hms) {
+    const h = parseInt(hms[1], 10);
+    const m = parseInt(hms[2], 10);
+    const s = parseInt(hms[3], 10);
+    if (m >= 60 || s >= 60) return null;
+    const total = h * 3600 + m * 60 + s;
+    return total > 0 ? total : null;
+  }
+
+  // M:SS or MM:SS
+  const ms = trimmed.match(/^(\d{1,3}):(\d{1,2})$/);
+  if (ms) {
+    const m = parseInt(ms[1], 10);
+    const s = parseInt(ms[2], 10);
+    if (s >= 60) return null;
+    const total = m * 60 + s;
+    return total > 0 ? total : null;
+  }
+
+  return null;
+}
+
+const RACE_DISTANCES: { key: string; label: string; placeholder: string }[] = [
+  { key: 'mile', label: 'Mile', placeholder: 'e.g. 8:00' },
+  { key: '5k', label: '5K', placeholder: 'e.g. 25:00' },
+  { key: '10k', label: '10K', placeholder: 'e.g. 52:00' },
+  { key: 'half_marathon', label: 'Half Marathon', placeholder: 'e.g. 1:55:00' },
+  { key: 'marathon', label: 'Marathon', placeholder: 'e.g. 4:00:00' },
+];
+
+const PACE_TIERS: { key: keyof RaceTimeEntry; label: string }[] = [
+  { key: 'slow', label: 'Slow' },
+  { key: 'avg', label: 'Avg' },
+  { key: 'fast', label: 'Fast' },
+];
+
+// ── Race Time Row ───────────────────────────────────────────
+
+function RaceTimeRow({
+  distance,
+  entry,
+  onChange,
+}: {
+  distance: { key: string; label: string; placeholder: string };
+  entry: RaceTimeEntry;
+  onChange: (tier: keyof RaceTimeEntry, seconds: number | null) => void;
+}) {
+  const [texts, setTexts] = useState<Record<string, string>>({
+    slow: entry.slow != null ? secondsToDisplay(entry.slow) : '',
+    avg: entry.avg != null ? secondsToDisplay(entry.avg) : '',
+    fast: entry.fast != null ? secondsToDisplay(entry.fast) : '',
+  });
+
+  const handleBlur = (tier: keyof RaceTimeEntry) => {
+    const text = texts[tier]?.trim();
+    if (!text) {
+      onChange(tier, null);
+      return;
+    }
+    const secs = displayToSeconds(text);
+    if (secs != null) {
+      onChange(tier, secs);
+      setTexts((prev) => ({ ...prev, [tier]: secondsToDisplay(secs) }));
+    } else {
+      Alert.alert('Invalid time', `Enter time as M:SS, MM:SS, or H:MM:SS`);
+    }
+  };
+
+  return (
+    <View style={styles.raceTimeRow}>
+      <Text style={styles.raceTimeLabel}>{distance.label}</Text>
+      <View style={styles.raceTimeFields}>
+        {PACE_TIERS.map((tier) => (
+          <View key={tier.key} style={styles.raceTimeFieldWrap}>
+            <Text style={styles.raceTimeTierLabel}>{tier.label}</Text>
+            <TextInput
+              style={styles.raceTimeField}
+              value={texts[tier.key]}
+              onChangeText={(v) => setTexts((prev) => ({ ...prev, [tier.key]: v }))}
+              onBlur={() => handleBlur(tier.key)}
+              onSubmitEditing={() => handleBlur(tier.key)}
+              placeholder={distance.placeholder}
+              placeholderTextColor={Colors.textMuted}
+              keyboardType="numbers-and-punctuation"
+              returnKeyType="done"
+            />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
 }
 
 // ── Preference Section ──────────────────────────────────────
@@ -244,8 +364,10 @@ export default function RunningProfileScreen() {
             user_id: user.id,
             experience_level: 'beginner' as ExperienceLevel,
             typical_run_minutes: null,
+            typical_run_minutes_max: null,
             easy_pace: null,
             fast_pace: null,
+            race_times: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             ...updates,
@@ -281,6 +403,16 @@ export default function RunningProfileScreen() {
     } else {
       Alert.alert('Invalid pace', 'Enter pace as M:SS or MM:SS (e.g. 8:30)');
     }
+  };
+
+  const updateRaceTime = (distanceKey: string, tier: keyof RaceTimeEntry, seconds: number | null) => {
+    const current: RaceTimes = profile?.race_times ?? {};
+    const entry = current[distanceKey] ?? { slow: null, avg: null, fast: null };
+    const updated: RaceTimes = {
+      ...current,
+      [distanceKey]: { ...entry, [tier]: seconds },
+    };
+    updateProfile({ race_times: updated } as Partial<RunningProfile>);
   };
 
   if (!user) {
@@ -380,32 +512,63 @@ export default function RunningProfileScreen() {
       {/* Typical Run Duration */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Typical Run Duration</Text>
+        <Text style={styles.sectionSub}>
+          How long are your usual runs? Pick a preset or enter a custom range.
+        </Text>
         <View style={styles.chipRow}>
-          {DURATION_OPTIONS.map((min) => (
-            <TouchableOpacity
-              key={min}
-              style={[
-                styles.durationChip,
-                profile?.typical_run_minutes === min &&
-                  styles.durationChipActive,
-              ]}
-              onPress={() => {
-                hapticTap();
-                updateProfile({ typical_run_minutes: min });
-              }}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  styles.durationChipText,
-                  profile?.typical_run_minutes === min &&
-                    styles.durationChipTextActive,
-                ]}
+          {DURATION_PRESETS.map((preset) => {
+            const isActive =
+              profile?.typical_run_minutes === preset.min &&
+              profile?.typical_run_minutes_max === preset.max;
+            return (
+              <TouchableOpacity
+                key={preset.label}
+                style={[styles.durationChip, isActive && styles.durationChipActive]}
+                onPress={() => {
+                  hapticTap();
+                  updateProfile({
+                    typical_run_minutes: preset.min,
+                    typical_run_minutes_max: preset.max,
+                  } as Partial<RunningProfile>);
+                }}
+                activeOpacity={0.7}
               >
-                {min} min
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Text style={[styles.durationChipText, isActive && styles.durationChipTextActive]}>
+                  {preset.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <View style={styles.durationRangeRow}>
+          <TextInput
+            style={styles.durationField}
+            value={profile?.typical_run_minutes != null ? String(profile.typical_run_minutes) : ''}
+            onChangeText={(v) => {
+              const n = parseInt(v, 10);
+              if (!v.trim()) updateProfile({ typical_run_minutes: null } as Partial<RunningProfile>);
+              else if (!isNaN(n) && n > 0) updateProfile({ typical_run_minutes: n } as Partial<RunningProfile>);
+            }}
+            placeholder="Min"
+            placeholderTextColor={Colors.textMuted}
+            keyboardType="number-pad"
+            maxLength={3}
+          />
+          <Text style={styles.durationDash}>–</Text>
+          <TextInput
+            style={styles.durationField}
+            value={profile?.typical_run_minutes_max != null ? String(profile.typical_run_minutes_max) : ''}
+            onChangeText={(v) => {
+              const n = parseInt(v, 10);
+              if (!v.trim()) updateProfile({ typical_run_minutes_max: null } as Partial<RunningProfile>);
+              else if (!isNaN(n) && n > 0) updateProfile({ typical_run_minutes_max: n } as Partial<RunningProfile>);
+            }}
+            placeholder="Max"
+            placeholderTextColor={Colors.textMuted}
+            keyboardType="number-pad"
+            maxLength={3}
+          />
+          <Text style={styles.durationUnit}>minutes</Text>
         </View>
       </View>
 
@@ -445,6 +608,23 @@ export default function RunningProfileScreen() {
             />
           </View>
         </View>
+      </View>
+
+      {/* Race Times */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Race Times</Text>
+        <Text style={styles.sectionSub}>
+          Know your times? Fill in any you have — even just one helps the AI
+          calibrate your plan. Enter as M:SS, MM:SS, or H:MM:SS.
+        </Text>
+        {RACE_DISTANCES.map((dist) => (
+          <RaceTimeRow
+            key={dist.key}
+            distance={dist}
+            entry={profile?.race_times?.[dist.key] ?? { slow: null, avg: null, fast: null }}
+            onChange={(tier, seconds) => updateRaceTime(dist.key, tier, seconds)}
+          />
+        ))}
       </View>
 
       {/* Goals */}
@@ -623,6 +803,35 @@ const styles = StyleSheet.create({
   durationChipTextActive: {
     color: Colors.primary,
   },
+  durationRangeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  durationField: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    fontSize: FontSize.lg,
+    color: Colors.textPrimary,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+  },
+  durationDash: {
+    fontSize: FontSize.lg,
+    color: Colors.textMuted,
+    fontWeight: '700',
+  },
+  durationUnit: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
 
   // Pace
   paceRow: {
@@ -646,6 +855,47 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Colors.textPrimary,
     fontVariant: ['tabular-nums'],
+  },
+
+  // Race times
+  raceTimeRow: {
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  raceTimeLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.sm,
+  },
+  raceTimeFields: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  raceTimeFieldWrap: {
+    flex: 1,
+  },
+  raceTimeTierLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    marginBottom: Spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  raceTimeField: {
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
   },
 
   // Preference chips

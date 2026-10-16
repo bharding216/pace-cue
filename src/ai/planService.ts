@@ -15,8 +15,10 @@ export interface PlanGenerationInput {
   profile: {
     experience_level?: string;
     typical_run_minutes?: number;
+    typical_run_minutes_max?: number;
     easy_pace?: number;
     fast_pace?: number;
+    race_times?: Record<string, { slow: number | null; avg: number | null; fast: number | null }> | null;
   };
   goals: string[];
   preferences: string[];
@@ -77,8 +79,10 @@ export async function generatePlan(input: PlanGenerationInput): Promise<PlanGene
       profile: {
         experience_level: input.profile.experience_level,
         typical_run_minutes: input.profile.typical_run_minutes,
+        typical_run_minutes_max: input.profile.typical_run_minutes_max,
         easy_pace: input.profile.easy_pace,
         fast_pace: input.profile.fast_pace,
+        race_times: input.profile.race_times,
       },
       goals: input.goals,
       preferences: input.preferences,
@@ -126,8 +130,10 @@ export interface PlanAdjustmentInput {
   profile?: {
     experience_level?: string;
     typical_run_minutes?: number;
+    typical_run_minutes_max?: number;
     easy_pace?: number;
     fast_pace?: number;
+    race_times?: Record<string, { slow: number | null; avg: number | null; fast: number | null }> | null;
   };
   conversation?: { role: 'user' | 'assistant'; content: string }[];
 }
@@ -373,6 +379,50 @@ export async function applyPlanModifications(
         .eq('date', mod.date);
     }
   }
+}
+
+/** Add a custom workout to the plan calendar on a specific date. */
+export async function addWorkoutToCalendar(
+  planId: string,
+  userId: string,
+  date: string,
+  workout: import('../workout/workoutTypes').WorkoutDefinition,
+  startDate: string,
+): Promise<PlanWorkout> {
+  const start = new Date(startDate);
+  const target = new Date(date);
+  const diffMs = target.getTime() - start.getTime();
+  const weekNumber = Math.max(1, Math.ceil(diffMs / (7 * 24 * 60 * 60 * 1000)));
+
+  const { data, error } = await supabase
+    .from('plan_workouts')
+    .insert({
+      plan_id: planId,
+      user_id: userId,
+      date,
+      week_number: weekNumber,
+      day_label: workout.name,
+      description: 'Custom workout added to calendar',
+      workout_data: {
+        id: workout.id,
+        name: workout.name,
+        warmup: workout.warmup ?? [],
+        blocks: workout.blocks ?? [],
+        cooldown: workout.cooldown ?? [],
+        targetDistanceMeters: workout.targetDistanceMeters ?? null,
+        createdAt: workout.createdAt ?? Date.now(),
+        updatedAt: Date.now(),
+      },
+      status: 'planned' as const,
+    })
+    .select()
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Failed to add workout to calendar');
+  }
+
+  return data as PlanWorkout;
 }
 
 /** Archive (soft-delete) a plan. */

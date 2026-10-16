@@ -150,13 +150,17 @@ export default function PlanSetupScreen() {
         ? serializeHistorySummary(buildHistorySummary(historyData))
         : null;
 
+      const profilePayload = {
+        experience_level: profile?.experience_level,
+        typical_run_minutes: profile?.typical_run_minutes ?? undefined,
+        typical_run_minutes_max: profile?.typical_run_minutes_max ?? undefined,
+        easy_pace: profile?.easy_pace ?? undefined,
+        fast_pace: profile?.fast_pace ?? undefined,
+        race_times: profile?.race_times ?? undefined,
+      };
+
       const result = await generatePlan({
-        profile: {
-          experience_level: profile?.experience_level,
-          typical_run_minutes: profile?.typical_run_minutes ?? undefined,
-          easy_pace: profile?.easy_pace ?? undefined,
-          fast_pace: profile?.fast_pace ?? undefined,
-        },
+        profile: profilePayload,
         goals,
         preferences,
         raceType,
@@ -168,12 +172,7 @@ export default function PlanSetupScreen() {
       });
 
       await savePlan(user.id, {
-        profile: {
-          experience_level: profile?.experience_level,
-          typical_run_minutes: profile?.typical_run_minutes ?? undefined,
-          easy_pace: profile?.easy_pace ?? undefined,
-          fast_pace: profile?.fast_pace ?? undefined,
-        },
+        profile: profilePayload,
         goals,
         preferences,
         raceType,
@@ -230,7 +229,11 @@ export default function PlanSetupScreen() {
             <>
               <Text style={styles.profileName}>
                 {profile.experience_level?.charAt(0).toUpperCase()}{profile.experience_level?.slice(1)} runner
-                {profile.typical_run_minutes ? ` · ${profile.typical_run_minutes} min` : ''}
+                {profile.typical_run_minutes
+                  ? profile.typical_run_minutes_max
+                    ? ` · ${profile.typical_run_minutes}–${profile.typical_run_minutes_max} min`
+                    : ` · ${profile.typical_run_minutes} min`
+                  : ''}
               </Text>
               <Text style={styles.profilePaces}>
                 {profile.easy_pace ? `Easy: ${paceToMMSS(profile.easy_pace)}/mi` : ''}
@@ -270,25 +273,44 @@ export default function PlanSetupScreen() {
       {/* Race date */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Race Date</Text>
-        <TouchableOpacity
-          style={styles.dateBtn}
-          onPress={() => setShowRaceDatePicker(true)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
-          <Text style={styles.dateBtnText}>{formatDateShort(raceDate)}</Text>
-        </TouchableOpacity>
-        {showRaceDatePicker && (
-          <DateTimePicker
-            value={raceDate}
-            mode="date"
-            minimumDate={new Date()}
-            onChange={(_, date) => {
-              setShowRaceDatePicker(Platform.OS === 'ios');
-              if (date) setRaceDate(date);
-            }}
-            themeVariant="dark"
-          />
+        {Platform.OS === 'ios' ? (
+          <View style={styles.datePickerRow}>
+            <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
+            <DateTimePicker
+              value={raceDate}
+              mode="date"
+              display="compact"
+              minimumDate={new Date()}
+              onChange={(_, date) => {
+                if (date) setRaceDate(date);
+              }}
+              themeVariant="dark"
+              accentColor={Colors.primary}
+            />
+          </View>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.dateBtn}
+              onPress={() => setShowRaceDatePicker(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
+              <Text style={styles.dateBtnText}>{formatDateShort(raceDate)}</Text>
+            </TouchableOpacity>
+            {showRaceDatePicker && (
+              <DateTimePicker
+                value={raceDate}
+                mode="date"
+                minimumDate={new Date()}
+                onChange={(_, date) => {
+                  setShowRaceDatePicker(false);
+                  if (date) setRaceDate(date);
+                }}
+                themeVariant="dark"
+              />
+            )}
+          </>
         )}
       </View>
 
@@ -345,25 +367,44 @@ export default function PlanSetupScreen() {
       {/* Start date */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Start Date</Text>
-        <TouchableOpacity
-          style={styles.dateBtn}
-          onPress={() => setShowStartDatePicker(true)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
-          <Text style={styles.dateBtnText}>{formatDateShort(startDate)}</Text>
-        </TouchableOpacity>
-        {showStartDatePicker && (
-          <DateTimePicker
-            value={startDate}
-            mode="date"
-            minimumDate={new Date()}
-            onChange={(_, date) => {
-              setShowStartDatePicker(Platform.OS === 'ios');
-              if (date) setStartDate(date);
-            }}
-            themeVariant="dark"
-          />
+        {Platform.OS === 'ios' ? (
+          <View style={styles.datePickerRow}>
+            <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
+            <DateTimePicker
+              value={startDate}
+              mode="date"
+              display="compact"
+              minimumDate={new Date()}
+              onChange={(_, date) => {
+                if (date) setStartDate(date);
+              }}
+              themeVariant="dark"
+              accentColor={Colors.primary}
+            />
+          </View>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.dateBtn}
+              onPress={() => setShowStartDatePicker(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
+              <Text style={styles.dateBtnText}>{formatDateShort(startDate)}</Text>
+            </TouchableOpacity>
+            {showStartDatePicker && (
+              <DateTimePicker
+                value={startDate}
+                mode="date"
+                minimumDate={new Date()}
+                onChange={(_, date) => {
+                  setShowStartDatePicker(false);
+                  if (date) setStartDate(date);
+                }}
+                themeVariant="dark"
+              />
+            )}
+          </>
         )}
       </View>
 
@@ -504,6 +545,16 @@ const styles = StyleSheet.create({
   },
 
   // Date buttons
+  datePickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
   dateBtn: {
     flexDirection: 'row',
     alignItems: 'center',

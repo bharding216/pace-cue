@@ -156,6 +156,10 @@ function RootLayoutInner() {
           options={{ headerShown: false }}
         />
         <Stack.Screen
+          name="run/[id]"
+          options={{ title: 'Run Details' }}
+        />
+        <Stack.Screen
           name="workout/[id]"
           options={{ title: 'Edit Workout', presentation: 'modal' }}
         />

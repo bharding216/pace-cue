@@ -50,13 +50,25 @@ export type RunningPreferenceCategory =
 
 export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced';
 
+/** Per-distance benchmark: slow / avg / fast in total seconds. */
+export type RaceTimeEntry = {
+  slow: number | null;
+  avg: number | null;
+  fast: number | null;
+};
+
+/** Keys are distance identifiers: mile, 5k, 10k, half_marathon, marathon. */
+export type RaceTimes = Record<string, RaceTimeEntry>;
+
 export type RunningProfile = {
   id: string;
   user_id: string;
   experience_level: ExperienceLevel;
-  typical_run_minutes: number | null; // e.g. 30
+  typical_run_minutes: number | null; // e.g. 30 (range lower bound)
+  typical_run_minutes_max: number | null; // e.g. 60 (range upper bound)
   easy_pace: number | null; // min/mile e.g. 10.0
   fast_pace: number | null; // min/mile e.g. 7.5
+  race_times: RaceTimes | null;
   created_at: string;
   updated_at: string;
 };
