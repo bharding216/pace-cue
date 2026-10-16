@@ -3,7 +3,31 @@
  * Organized into three categories: distance, timed, and intervals.
  */
 
-import { WorkoutDefinition, generateId } from './workoutTypes';
+import { WorkoutDefinition, generateId, categorizeWorkout } from './workoutTypes';
+
+/** Names of the distance-run presets, used to detect missing ones during backfill. */
+const DISTANCE_PRESET_NAMES = [
+  '2 Mile Easy',
+  '5K Easy Run',
+  '10K Steady',
+  'Half Marathon Run/Walk',
+  'Mile Repeats (Distance)',
+] as const;
+
+/**
+ * Return any distance-run presets that are missing from `existing`.
+ * Used to backfill existing users who installed before distance presets existed.
+ */
+export function getMissingDistancePresets(existing: WorkoutDefinition[]): WorkoutDefinition[] {
+  const existingNames = new Set(existing.map((w) => w.name));
+  const hasAnyDistance = existing.some((w) => categorizeWorkout(w) === 'distance');
+  if (hasAnyDistance) return [];
+  return createPresets().filter(
+    (p) =>
+      (DISTANCE_PRESET_NAMES as readonly string[]).includes(p.name) &&
+      !existingNames.has(p.name),
+  );
+}
 
 export function createPresets(): WorkoutDefinition[] {
   const now = Date.now();
@@ -13,21 +37,22 @@ export function createPresets(): WorkoutDefinition[] {
 
     {
       id: generateId(),
-      name: 'Half Marathon Run/Walk',
-      targetDistanceMeters: 21097,
+      name: '2 Mile Easy',
+      targetDistanceMeters: 3219,
       warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 300, label: 'Walk' }], repeatCount: 1 },
+        { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
       ],
       blocks: [
         {
           intervals: [
-            { type: 'easy', durationSeconds: 600, label: 'Run' },
-            { type: 'easy', durationSeconds: 60, label: 'Walk' },
+            { type: 'easy', durationSeconds: 1800, label: 'Easy Run' },
           ],
-          repeatCount: 15,
+          repeatCount: 1,
         },
       ],
-      cooldown: [],
+      cooldown: [
+        { intervals: [{ type: 'cooldown', durationSeconds: 180 }], repeatCount: 1 },
+      ],
       createdAt: now,
       updatedAt: now,
     },
@@ -70,6 +95,26 @@ export function createPresets(): WorkoutDefinition[] {
       cooldown: [
         { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
       ],
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: generateId(),
+      name: 'Half Marathon Run/Walk',
+      targetDistanceMeters: 21097,
+      warmup: [
+        { intervals: [{ type: 'warmup', durationSeconds: 300, label: 'Walk' }], repeatCount: 1 },
+      ],
+      blocks: [
+        {
+          intervals: [
+            { type: 'easy', durationSeconds: 600, label: 'Run' },
+            { type: 'easy', durationSeconds: 60, label: 'Walk' },
+          ],
+          repeatCount: 15,
+        },
+      ],
+      cooldown: [],
       createdAt: now,
       updatedAt: now,
     },

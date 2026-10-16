@@ -25,7 +25,7 @@ import {
   WorkoutCategory,
 } from '../../src/workout/workoutTypes';
 import { loadWorkouts, deleteWorkout, saveWorkouts } from '../../src/workout/workoutStorage';
-import { createPresets } from '../../src/workout/presets';
+import { createPresets, getMissingDistancePresets } from '../../src/workout/presets';
 import { WorkoutCard } from '../../src/components/WorkoutCard';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { onSyncStatusChange } from '../../src/sync/cloudSync';
@@ -79,6 +79,12 @@ export default function HomeScreen() {
     if (data.length === 0) {
       data = createPresets();
       await saveWorkouts(data);
+    } else {
+      const missing = getMissingDistancePresets(data);
+      if (missing.length > 0) {
+        data = [...missing, ...data];
+        await saveWorkouts(data);
+      }
     }
     setWorkouts(data);
     setLoading(false);
@@ -158,7 +164,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
           >
             <Ionicons name="add" size={18} color={Colors.black} />
-            <Text style={styles.newBtnText}>New Workout</Text>
+            <Text style={styles.newBtnText}>Create Custom Workout</Text>
           </TouchableOpacity>
         </View>
 

@@ -18,6 +18,7 @@ import {
   WorkoutDefinition,
   WorkoutInterval,
   WorkoutRepeatBlock,
+  WorkoutCategory,
   IntervalType,
   formatTime,
   totalWorkoutSeconds,
@@ -29,6 +30,7 @@ import {
   METERS_PER_KM,
   RACE_DISTANCES,
   hasDistanceFeature,
+  categorizeWorkout,
 } from '../workout/workoutTypes';
 import { loadSettings } from '../workout/workoutStorage';
 import type { PaceUnit } from '../pace/paceTypes';
@@ -58,6 +60,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
   const [blocks, setBlocks] = useState(initial.blocks);
   const [cooldown, setCooldown] = useState(initial.cooldown);
   const [targetDistance, setTargetDistance] = useState(initial.targetDistanceMeters ?? 0);
+  const [category, setCategory] = useState<WorkoutCategory | undefined>(initial.category);
   const [paceUnit, setPaceUnit] = useState<PaceUnit>('minPerMile');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -75,6 +78,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
     blocks,
     cooldown,
     targetDistanceMeters: targetDistance > 0 ? targetDistance : undefined,
+    category,
   };
 
   // Auto-save with debounce when editing existing workouts
@@ -98,6 +102,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
         blocks,
         cooldown,
         targetDistanceMeters: targetDistance > 0 ? targetDistance : undefined,
+        category,
       });
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 1500);
@@ -106,7 +111,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [name, warmup, blocks, cooldown, targetDistance, autoSave]);
+  }, [name, warmup, blocks, cooldown, targetDistance, category, autoSave]);
 
   const handleSave = () => {
     if (!name.trim()) {
@@ -250,6 +255,10 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
         placeholder="e.g. 5K Speed"
         placeholderTextColor={Colors.textMuted}
       />
+
+      {/* Category */}
+      <Text style={styles.label}>Category</Text>
+      <CategoryPicker value={category ?? categorizeWorkout(current)} onChange={setCategory} />
 
       {/* Warmup */}
       <Text style={styles.sectionTitle}>Warm Up</Text>
@@ -563,58 +572,62 @@ function BlockList({
                   </TouchableOpacity>
                 </View>
 
-                {/* Time / Distance toggle */}
-                <View style={styles.measureToggleRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.measureToggle,
-                      !isDistanceInterval(interval) && styles.measureToggleActive,
-                    ]}
-                    onPress={() => {
-                      hapticTap();
-                      updateInt(setter, bi, ii, {
-                        durationSeconds: interval.durationSeconds || 120,
-                        distanceMeters: undefined,
-                      });
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name="time-outline"
-                      size={12}
-                      color={!isDistanceInterval(interval) ? Colors.primary : Colors.textMuted}
-                    />
-                    <Text style={[
-                      styles.measureToggleText,
-                      !isDistanceInterval(interval) && { color: Colors.primary },
-                    ]}>Time</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.measureToggle,
-                      isDistanceInterval(interval) && styles.measureToggleActive,
-                    ]}
-                    onPress={() => {
-                      hapticTap();
-                      updateInt(setter, bi, ii, {
-                        durationSeconds: 0,
-                        distanceMeters: interval.distanceMeters || 1609,
-                      });
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name="navigate-outline"
-                      size={12}
-                      color={isDistanceInterval(interval) ? Colors.accent : Colors.textMuted}
-                    />
-                    <Text style={[
-                      styles.measureToggleText,
-                      isDistanceInterval(interval) && { color: Colors.accent },
-                    ]}>Distance</Text>
-                  </TouchableOpacity>
+                {/* ── Measure: Time vs Distance (mutually exclusive) ── */}
+                <View style={styles.toggleGroupBox}>
+                  <Text style={styles.toggleGroupLabel}>MEASURE</Text>
+                  <View style={styles.segmentedControl}>
+                    <TouchableOpacity
+                      style={[
+                        styles.segmentBtn,
+                        !isDistanceInterval(interval) && styles.segmentBtnActive,
+                      ]}
+                      onPress={() => {
+                        hapticTap();
+                        updateInt(setter, bi, ii, {
+                          durationSeconds: interval.durationSeconds || 120,
+                          distanceMeters: undefined,
+                        });
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="time-outline"
+                        size={14}
+                        color={!isDistanceInterval(interval) ? Colors.primary : Colors.textMuted}
+                      />
+                      <Text style={[
+                        styles.segmentBtnText,
+                        !isDistanceInterval(interval) && styles.segmentBtnTextActive,
+                      ]}>Time</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.segmentBtn,
+                        isDistanceInterval(interval) && styles.segmentBtnActiveAlt,
+                      ]}
+                      onPress={() => {
+                        hapticTap();
+                        updateInt(setter, bi, ii, {
+                          durationSeconds: 0,
+                          distanceMeters: interval.distanceMeters || 1609,
+                        });
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="navigate-outline"
+                        size={14}
+                        color={isDistanceInterval(interval) ? Colors.accent : Colors.textMuted}
+                      />
+                      <Text style={[
+                        styles.segmentBtnText,
+                        isDistanceInterval(interval) && styles.segmentBtnTextActiveAlt,
+                      ]}>Distance</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
+                {/* ── Intensity: Effort vs Pace (mutually exclusive) ── */}
                 <IntensityPicker
                   effort={interval.effort}
                   targetPace={interval.targetPace}
@@ -857,58 +870,61 @@ function IntensityPicker({
   return (
     <View style={ipStyles.container}>
       {/* Mode toggle */}
-      <View style={ipStyles.toggleRow}>
-        <TouchableOpacity
-          style={[
-            ipStyles.toggleBtn,
-            mode === 'effort' && {
-              borderColor: Colors.warning,
-              backgroundColor: Colors.warning + '18',
-            },
-          ]}
-          onPress={() => toggleMode('effort')}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name="flame-outline"
-            size={12}
-            color={mode === 'effort' ? Colors.warning : Colors.textMuted}
-          />
-          <Text
+      <View style={styles.toggleGroupBox}>
+        <Text style={styles.toggleGroupLabel}>INTENSITY</Text>
+        <View style={styles.segmentedControl}>
+          <TouchableOpacity
             style={[
-              ipStyles.toggleText,
-              mode === 'effort' && { color: Colors.warning },
+              styles.segmentBtn,
+              mode === 'effort' && {
+                backgroundColor: Colors.warning + '18',
+                borderColor: Colors.warning + '44',
+              },
             ]}
+            onPress={() => toggleMode('effort')}
+            activeOpacity={0.7}
           >
-            Effort
-          </Text>
-        </TouchableOpacity>
+            <Ionicons
+              name="flame-outline"
+              size={14}
+              color={mode === 'effort' ? Colors.warning : Colors.textMuted}
+            />
+            <Text
+              style={[
+                styles.segmentBtnText,
+                mode === 'effort' && { color: Colors.warning },
+              ]}
+            >
+              Effort
+            </Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            ipStyles.toggleBtn,
-            mode === 'pace' && {
-              borderColor: Colors.accent,
-              backgroundColor: Colors.accent + '18',
-            },
-          ]}
-          onPress={() => toggleMode('pace')}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name="speedometer-outline"
-            size={12}
-            color={mode === 'pace' ? Colors.accent : Colors.textMuted}
-          />
-          <Text
+          <TouchableOpacity
             style={[
-              ipStyles.toggleText,
-              mode === 'pace' && { color: Colors.accent },
+              styles.segmentBtn,
+              mode === 'pace' && {
+                backgroundColor: Colors.accent + '18',
+                borderColor: Colors.accent + '44',
+              },
             ]}
+            onPress={() => toggleMode('pace')}
+            activeOpacity={0.7}
           >
-            Pace
-          </Text>
-        </TouchableOpacity>
+            <Ionicons
+              name="speedometer-outline"
+              size={14}
+              color={mode === 'pace' ? Colors.accent : Colors.textMuted}
+            />
+            <Text
+              style={[
+                styles.segmentBtnText,
+                mode === 'pace' && { color: Colors.accent },
+              ]}
+            >
+              Pace
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Effort chips */}
@@ -1022,26 +1038,6 @@ const ipStyles = StyleSheet.create({
   container: {
     marginTop: 4,
   },
-  toggleRow: {
-    flexDirection: 'row',
-    gap: Spacing.xs,
-  },
-  toggleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-    backgroundColor: Colors.surfaceLight,
-  },
-  toggleText: {
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    color: Colors.textMuted,
-  },
   pickerContent: {
     marginTop: Spacing.xs,
   },
@@ -1117,6 +1113,82 @@ const ipStyles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.accent,
     fontVariant: ['tabular-nums'],
+  },
+});
+
+// ── Category picker ──────────────────────────────────────────────────
+
+const CATEGORY_OPTIONS: { value: WorkoutCategory; label: string; icon: string }[] = [
+  { value: 'distance', label: 'Distance', icon: 'navigate-outline' },
+  { value: 'timed', label: 'Timed', icon: 'time-outline' },
+  { value: 'intervals', label: 'Intervals', icon: 'repeat-outline' },
+];
+
+function CategoryPicker({
+  value,
+  onChange,
+}: {
+  value: WorkoutCategory;
+  onChange: (c: WorkoutCategory) => void;
+}) {
+  return (
+    <View style={catStyles.row}>
+      {CATEGORY_OPTIONS.map((opt) => {
+        const isActive = value === opt.value;
+        return (
+          <TouchableOpacity
+            key={opt.value}
+            style={[catStyles.chip, isActive && catStyles.chipActive]}
+            onPress={() => {
+              hapticTap();
+              onChange(opt.value);
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={opt.icon as any}
+              size={16}
+              color={isActive ? Colors.primary : Colors.textMuted}
+            />
+            <Text style={[catStyles.chipText, isActive && catStyles.chipTextActive]}>
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+const catStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
+  chip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+    backgroundColor: Colors.surfaceLight,
+  },
+  chipActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '18',
+  },
+  chipText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  chipTextActive: {
+    color: Colors.primary,
   },
 });
 
@@ -1338,7 +1410,7 @@ function DistancePicker({
   const confirmEdit = () => {
     const val = parseFloat(editValue);
     if (isNaN(val) || val <= 0) {
-      onChange(400); // minimum 400m
+      onChange(400);
     } else {
       onChange(Math.round(val * divisor));
     }
@@ -1368,26 +1440,18 @@ function DistancePicker({
   }
 
   return (
-    <View style={dpStyles.container}>
-      <TouchableOpacity onPress={() => {
-        hapticTap();
-        onChange(Math.max(100, meters - (paceUnit === 'minPerMile' ? 161 : 100)));
-      }} style={dpStyles.btn}>
-        <Text style={dpStyles.btnText}>−</Text>
-      </TouchableOpacity>
-      <TouchableOpacity onPress={startEdit} activeOpacity={0.7} style={dpStyles.editableValue}>
-        <Text style={[dpStyles.value, { color }]}>
-          {formatDistanceShort(meters, paceUnit)}
-        </Text>
-        <Ionicons name="pencil" size={10} color={Colors.textMuted} style={dpStyles.editHintIcon} />
-      </TouchableOpacity>
-      <TouchableOpacity onPress={() => {
-        hapticTap();
-        onChange(meters + (paceUnit === 'minPerMile' ? 161 : 100));
-      }} style={dpStyles.btn}>
-        <Text style={dpStyles.btnText}>+</Text>
-      </TouchableOpacity>
-    </View>
+    <TouchableOpacity
+      onPress={startEdit}
+      activeOpacity={0.7}
+      style={dpStyles.tapToEdit}
+    >
+      <Text style={[dpStyles.value, { color }]}>
+        {formatDistanceShort(meters, paceUnit)}
+      </Text>
+      <View style={dpStyles.editIconCircle}>
+        <Ionicons name="pencil" size={14} color={Colors.textSecondary} />
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -1408,11 +1472,6 @@ function DurationPicker({
 
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
-
-  const step = (delta: number) => {
-    hapticTap();
-    onChange(Math.max(5, seconds + delta));
-  };
 
   const startEdit = () => {
     setEditMins(mins.toString());
@@ -1461,55 +1520,31 @@ function DurationPicker({
   }
 
   return (
-    <View style={dpStyles.container}>
-      <TouchableOpacity onPress={() => step(-15)} style={dpStyles.btn}>
-        <Text style={dpStyles.btnText}>−</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        onPress={startEdit}
-        activeOpacity={0.7}
-        style={dpStyles.editableValue}
-      >
-        <Text style={[dpStyles.value, { color }]}>
-          {mins}:{secs.toString().padStart(2, '0')}
-        </Text>
-        <Ionicons name="pencil" size={10} color={Colors.textMuted} style={dpStyles.editHintIcon} />
-      </TouchableOpacity>
-      <TouchableOpacity onPress={() => step(15)} style={dpStyles.btn}>
-        <Text style={dpStyles.btnText}>+</Text>
-      </TouchableOpacity>
-    </View>
+    <TouchableOpacity
+      onPress={startEdit}
+      activeOpacity={0.7}
+      style={dpStyles.tapToEdit}
+    >
+      <Text style={[dpStyles.value, { color }]}>
+        {mins}:{secs.toString().padStart(2, '0')}
+      </Text>
+      <View style={dpStyles.editIconCircle}>
+        <Ionicons name="pencil" size={14} color={Colors.textSecondary} />
+      </View>
+    </TouchableOpacity>
   );
 }
 
 const dpStyles = StyleSheet.create({
-  container: {
+  tapToEdit: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-  },
-  btn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
     backgroundColor: Colors.surfaceLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  btnText: {
-    color: Colors.textPrimary,
-    fontSize: 20,
-    fontWeight: '600',
-    lineHeight: 22,
-  },
-  editableValue: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderStyle: 'dashed',
-    borderBottomColor: Colors.textMuted,
-    paddingBottom: 2,
-    gap: 3,
+    paddingVertical: Spacing.xs + 2,
+    paddingLeft: Spacing.md,
+    paddingRight: Spacing.sm,
+    borderRadius: BorderRadius.md,
   },
   value: {
     fontSize: FontSize.lg,
@@ -1518,9 +1553,13 @@ const dpStyles = StyleSheet.create({
     minWidth: 56,
     textAlign: 'center',
   },
-  editHintIcon: {
-    opacity: 0.6,
-    marginTop: 1,
+  editIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   editContainer: {
     flexDirection: 'row',
@@ -1789,29 +1828,52 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginBottom: Spacing.sm,
   },
-  measureToggleRow: {
+  toggleGroupBox: {
+    marginTop: Spacing.sm,
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm,
+  },
+  toggleGroupLabel: {
+    fontSize: FontSize.xs - 1,
+    fontWeight: '800',
+    color: Colors.textMuted,
+    letterSpacing: 1.2,
+    marginBottom: Spacing.xs,
+  },
+  segmentedControl: {
     flexDirection: 'row',
     gap: Spacing.xs,
-    marginTop: 4,
   },
-  measureToggle: {
+  segmentBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingVertical: Spacing.xs - 1,
-    paddingHorizontal: Spacing.sm - 2,
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.sm,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: Colors.surfaceLight,
     backgroundColor: Colors.surfaceLight,
   },
-  measureToggleActive: {
-    borderColor: Colors.primary + '44',
-    backgroundColor: Colors.primary + '12',
+  segmentBtnActive: {
+    borderColor: Colors.primary + '55',
+    backgroundColor: Colors.primary + '18',
   },
-  measureToggleText: {
-    fontSize: FontSize.xs - 1,
-    fontWeight: '600',
+  segmentBtnActiveAlt: {
+    borderColor: Colors.accent + '55',
+    backgroundColor: Colors.accent + '18',
+  },
+  segmentBtnText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
     color: Colors.textMuted,
+  },
+  segmentBtnTextActive: {
+    color: Colors.primary,
+  },
+  segmentBtnTextActiveAlt: {
+    color: Colors.accent,
   },
 });

@@ -9,7 +9,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { WorkoutDefinition, generateId } from '../../src/workout/workoutTypes';
 import { loadWorkouts, saveWorkout } from '../../src/workout/workoutStorage';
 import { WorkoutEditorForm } from '../../src/components/WorkoutEditorForm';
-import { Colors } from '../../src/constants/theme';
+import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 import { track } from '../../src/analytics/track';
 
 export default function EditWorkoutScreen() {
@@ -37,8 +37,12 @@ export default function EditWorkoutScreen() {
       <Stack.Screen
         options={{
           headerRight: () => (
-            <TouchableOpacity onPress={() => router.back()} activeOpacity={0.7}>
-              <Text style={styles.doneButton}>Done</Text>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              activeOpacity={0.8}
+              style={styles.doneButton}
+            >
+              <Text style={styles.doneButtonText}>Done</Text>
             </TouchableOpacity>
           ),
         }}
@@ -85,8 +89,14 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   doneButton: {
-    color: Colors.primary,
-    fontSize: 17,
-    fontWeight: '600',
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.xs + 2,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.sm,
+  },
+  doneButtonText: {
+    color: Colors.black,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
   },
 });

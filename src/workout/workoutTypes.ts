@@ -93,6 +93,7 @@ export interface WorkoutDefinition {
   blocks: WorkoutRepeatBlock[];
   cooldown: WorkoutRepeatBlock[];
   targetDistanceMeters?: number; // if set, workout auto-finishes at this GPS distance
+  category?: WorkoutCategory; // user-assigned category override (auto-detected if omitted)
   createdAt: number; // epoch ms
   updatedAt: number;
 }
@@ -445,8 +446,9 @@ function formatIntervalDescription(i: WorkoutInterval): string {
 
 export type WorkoutCategory = 'distance' | 'timed' | 'intervals';
 
-/** Auto-detect the category of a workout based on its structure. */
+/** Return the category of a workout: user-assigned override, or auto-detected. */
 export function categorizeWorkout(def: WorkoutDefinition): WorkoutCategory {
+  if (def.category) return def.category;
   if (hasDistanceFeature(def)) return 'distance';
   const hasRepeats = def.blocks.some(b => b.repeatCount > 1);
   const hasMultipleIntervalTypes = def.blocks.some(b => b.intervals.length > 1);

@@ -199,12 +199,14 @@ export function TrainingCalendar({
         </View>
       </View>
 
-      {/* Weekday headers */}
-      <View style={styles.weekdayRow}>
-        {WEEKDAY_LABELS.map((label) => (
-          <Text key={label} style={styles.weekdayLabel}>{label}</Text>
-        ))}
-      </View>
+      {/* Weekday headers (month view only — week view cards have their own labels) */}
+      {viewMode === 'month' && (
+        <View style={styles.weekdayRow}>
+          {WEEKDAY_LABELS.map((label) => (
+            <Text key={label} style={styles.weekdayLabel}>{label}</Text>
+          ))}
+        </View>
+      )}
 
       {/* Month view */}
       {viewMode === 'month' && monthGrid.map((week, wi) => (

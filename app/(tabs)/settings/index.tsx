@@ -50,7 +50,7 @@ const CARDS: SettingsCard[] = [
   },
   {
     icon: 'chatbubble-ellipses-outline',
-    title: 'About & Feedback',
+    title: 'Share & Feedback',
     description: 'Rate, share, send feedback',
     route: '/(tabs)/settings/about',
   },

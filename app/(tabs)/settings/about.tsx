@@ -1,5 +1,5 @@
 /**
- * About & Feedback — rate, share, send feedback, version info.
+ * Share & Feedback — rate, share, send feedback, version info.
  */
 
 import React from 'react';

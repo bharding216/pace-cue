@@ -19,7 +19,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="general" options={{ title: 'General' }} />
       <Stack.Screen name="data" options={{ title: 'Backup & Restore' }} />
       <Stack.Screen name="account" options={{ title: 'Account' }} />
-      <Stack.Screen name="about" options={{ title: 'About & Feedback' }} />
+      <Stack.Screen name="about" options={{ title: 'Share & Feedback' }} />
     </Stack>
   );
 }

@@ -61,6 +61,7 @@ export function WorkoutCard({
   return (
     <TouchableOpacity
       activeOpacity={0.9}
+      onPress={onEdit}
       onLongPress={drag}
       delayLongPress={200}
       disabled={isActive}
