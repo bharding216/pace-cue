@@ -127,6 +127,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     [
+      'react-native-maps',
+      {
+        ...(process.env.GOOGLE_MAPS_API_KEY
+          ? { googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY }
+          : {}),
+      },
+    ],
+    [
       'expo-widgets',
       {
         bundleIdentifier: `${BUNDLE_ID}.widgets`,

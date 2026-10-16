@@ -158,6 +158,65 @@ export interface IntervalSplit {
   effort: number | undefined;
 }
 
+// ── Workout Tags ─────────────────────────────────────────────────────
+
+export type WorkoutTagCategory = 'type' | 'feel' | 'effort' | 'weather' | 'social';
+
+export interface WorkoutTagGroup {
+  category: WorkoutTagCategory;
+  label: string;
+  icon: string; // Ionicons name
+  tags: readonly string[];
+}
+
+export const WORKOUT_TAG_GROUPS: readonly WorkoutTagGroup[] = [
+  {
+    category: 'type',
+    label: 'Run Type',
+    icon: 'footsteps-outline',
+    tags: [
+      'Recovery',
+      'Easy Day',
+      'Long Run',
+      'Tempo',
+      'Speed Work',
+      'Race',
+      'Stroller Run',
+      'Trail',
+      'Treadmill',
+      'Track',
+      'Hill Training',
+    ],
+  },
+  {
+    category: 'feel',
+    label: 'How It Felt',
+    icon: 'heart-outline',
+    tags: ['Amazing', 'Strong', 'Good', 'OK', 'Tough', 'Sluggish', 'Exhausted'],
+  },
+  {
+    category: 'effort',
+    label: 'Overall Effort',
+    icon: 'flame-outline',
+    tags: ['Easy', 'Moderate', 'Hard', 'All-Out'],
+  },
+  {
+    category: 'weather',
+    label: 'Weather',
+    icon: 'partly-sunny-outline',
+    tags: ['Hot', 'Cold', 'Windy', 'Rainy', 'Humid', 'Perfect'],
+  },
+  {
+    category: 'social',
+    label: 'Social',
+    icon: 'people-outline',
+    tags: ['Solo', 'With Group', 'With Partner', 'Race Day'],
+  },
+] as const;
+
+/** All valid preset tags (flat list for validation). */
+export const ALL_PRESET_TAGS = WORKOUT_TAG_GROUPS.flatMap((g) => g.tags);
+
 export interface CompletedWorkout {
   id: string;
   workoutId: string;
@@ -167,6 +226,7 @@ export interface CompletedWorkout {
   splits?: IntervalSplit[];
   totalDistanceMeters?: number;
   route?: RoutePoint[]; // full GPS track with elevation (null if pace tracking was off)
+  tags?: string[]; // user-applied tags from WORKOUT_TAG_GROUPS
 }
 
 /** Audio cue preference. */

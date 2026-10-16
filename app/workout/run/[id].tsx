@@ -49,6 +49,9 @@ import {
 } from '../../../src/constants/theme';
 import { hapticTap } from '../../../src/audio/haptics';
 import { setDuckingEnabled, setVoiceIdentifier } from '../../../src/audio/audioManager';
+import { TagPicker } from '../../../src/components/TagPicker';
+import { RouteMap } from '../../../src/components/RouteMap';
+import { updateHistoryEntry } from '../../../src/workout/workoutStorage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -107,6 +110,23 @@ function ActiveWorkoutInner({
   const router = useRouter();
   const runner = useWorkoutRunner(workout, settings);
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+
+  const { state } = runner;
+
+  // Save tags to the completed history entry whenever they change
+  useEffect(() => {
+    if (
+      state.phase !== 'finished' ||
+      !runner.completedEntryId ||
+      selectedTags.length === 0
+    ) return;
+
+    updateHistoryEntry(runner.completedEntryId, (entry) => ({
+      ...entry,
+      tags: selectedTags,
+    })).catch(() => {});
+  }, [selectedTags, runner.completedEntryId, state.phase]);
 
   // Keep screen awake during workout
   useEffect(() => {
@@ -118,7 +138,6 @@ function ActiveWorkoutInner({
     };
   }, [settings.keepScreenOn]);
 
-  const { state } = runner;
   const color = intervalColor(runner.currentType);
 
   const handleStop = () => {
@@ -211,7 +230,11 @@ function ActiveWorkoutInner({
   // ── FINISHED state ──
   if (state.phase === 'finished') {
     return (
-      <View style={[styles.container, styles.centered]}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.finishedContent}
+        showsVerticalScrollIndicator={false}
+      >
         <Ionicons name="trophy" size={64} color={Colors.primary} style={styles.doneIcon} />
         <Text style={styles.doneTitle}>Workout Complete!</Text>
         <Text style={styles.doneWorkoutName}>{workout.name}</Text>
@@ -236,6 +259,27 @@ function ActiveWorkoutInner({
             </View>
           )}
 
+        {/* Route map */}
+        {runner.completedRoute && runner.completedRoute.length >= 2 && (
+          <View style={styles.routeMapSection}>
+            <RouteMap
+              route={runner.completedRoute}
+              splits={runner.completedSplits ?? undefined}
+              paceUnit={settings.paceUnit}
+              height={280}
+            />
+          </View>
+        )}
+
+        {/* Tag picker */}
+        <View style={styles.tagSection}>
+          <Text style={styles.tagSectionTitle}>Tag this workout</Text>
+          <Text style={styles.tagSectionHint}>
+            How was your run? Add tags so you can look back later.
+          </Text>
+          <TagPicker selected={selectedTags} onChange={setSelectedTags} />
+        </View>
+
         <TouchableOpacity
           style={styles.doneBtn}
           onPress={handleFinishedDone}
@@ -246,7 +290,7 @@ function ActiveWorkoutInner({
             <Text style={styles.doneBtnText}>View History</Text>
           </View>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
     );
   }
 
@@ -1372,6 +1416,36 @@ const styles = StyleSheet.create({
   },
 
   // ── Finished ──
+  finishedContent: {
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: 60,
+    paddingBottom: Spacing.xxl * 2,
+  },
+  routeMapSection: {
+    width: '100%',
+    marginBottom: Spacing.sm,
+  },
+  tagSection: {
+    width: '100%',
+    marginTop: Spacing.md,
+    padding: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  tagSectionTitle: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  tagSectionHint: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    marginBottom: Spacing.md,
+  },
   doneIcon: {
     marginBottom: Spacing.lg,
   },

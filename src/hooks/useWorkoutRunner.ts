@@ -138,6 +138,12 @@ export interface WorkoutRunnerControls {
   currentType: string;
   nextLabel: string | null;
   intervalNumber: string; // e.g. "3 / 12"
+  /** ID of the saved CompletedWorkout (available after finish). */
+  completedEntryId: string | null;
+  /** GPS route saved with the completed workout (available after finish). */
+  completedRoute: RoutePoint[] | null;
+  /** Interval splits captured during the workout (available after finish). */
+  completedSplits: IntervalSplit[] | null;
 
   // Pace tracking
   paceState: PaceState;
@@ -192,6 +198,9 @@ export function useWorkoutRunner(
 
   // Prevent saving history more than once per workout
   const historySaved = useRef(false);
+  const [completedEntryId, setCompletedEntryId] = useState<string | null>(null);
+  const [completedRoute, setCompletedRoute] = useState<RoutePoint[] | null>(null);
+  const [completedSplits, setCompletedSplits] = useState<IntervalSplit[] | null>(null);
 
   // ── Per-interval split tracking ──────────────────────────────────
   const splitsRef = useRef<IntervalSplit[]>([]);
@@ -235,6 +244,32 @@ export function useWorkoutRunner(
     intervalStartedAtRef.current = Date.now();
     intervalStartDistanceRef.current = paceTrackerRef.current.paceState.totalDistanceMeters;
   }, []);
+
+  /** Save a completed workout to history and expose its ID for tag editing. */
+  const saveHistoryEntry = useCallback((elapsedMs: number) => {
+    if (historySaved.current) return;
+    historySaved.current = true;
+    const ps = paceTrackerRef.current.paceState;
+    const fullTrack = paceTrackerRef.current.getFullTrack();
+    const entryId = generateId();
+    const entry: CompletedWorkout = {
+      id: entryId,
+      workoutId: workout.id,
+      workoutName: workout.name,
+      completedAt: Date.now(),
+      totalDurationMs: elapsedMs,
+      splits: [...splitsRef.current],
+      totalDistanceMeters: ps.totalDistanceMeters > 0 ? ps.totalDistanceMeters : undefined,
+      route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
+    };
+    setCompletedEntryId(entryId);
+    setCompletedRoute(entry.route ?? null);
+    setCompletedSplits(entry.splits ?? null);
+    saveCompletedWorkout(entry).catch((e) =>
+      console.warn('Failed to save workout history:', e),
+    );
+    return entryId;
+  }, [workout.id, workout.name]);
 
   // Live Activity: throttle updates to ~1/sec to stay within the system budget
   const lastLAUpdate = useRef(0);
@@ -294,30 +329,13 @@ export function useWorkoutRunner(
           paceTrackerRef.current.stop();
 
           // Save to history (guard against duplicate saves)
-          if (!historySaved.current) {
-            historySaved.current = true;
-            const ps = paceTrackerRef.current.paceState;
-            const fullTrack = paceTrackerRef.current.getFullTrack();
-            const entry: CompletedWorkout = {
-              id: generateId(),
-              workoutId: workout.id,
-              workoutName: workout.name,
-              completedAt: Date.now(),
-              totalDurationMs: next.totalElapsedMs,
-              splits: [...splitsRef.current],
-              totalDistanceMeters: ps.totalDistanceMeters > 0 ? ps.totalDistanceMeters : undefined,
-              route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
-            };
-            saveCompletedWorkout(entry).catch((e) =>
-              console.warn('Failed to save workout history:', e)
-            );
-            onWorkoutCompleted();
-            track('workout_completed', {
-              workout_id: workout.id,
-              workout_name: workout.name,
-              total_duration_ms: next.totalElapsedMs,
-            });
-          }
+          saveHistoryEntry(next.totalElapsedMs);
+          onWorkoutCompleted();
+          track('workout_completed', {
+            workout_id: workout.id,
+            workout_name: workout.name,
+            total_duration_ms: next.totalElapsedMs,
+          });
         } else {
           // New interval started — voice cue for the current interval only
           markIntervalStart();
@@ -350,30 +368,13 @@ export function useWorkoutRunner(
               stopBackgroundLoop();
               endLiveActivity();
               paceTrackerRef.current.stop();
-              if (!historySaved.current) {
-                historySaved.current = true;
-                const psFinal = paceTrackerRef.current.paceState;
-                const fullTrack = paceTrackerRef.current.getFullTrack();
-                const entry: CompletedWorkout = {
-                  id: generateId(),
-                  workoutId: workout.id,
-                  workoutName: workout.name,
-                  completedAt: Date.now(),
-                  totalDurationMs: next.totalElapsedMs,
-                  splits: [...splitsRef.current],
-                  totalDistanceMeters: psFinal.totalDistanceMeters > 0 ? psFinal.totalDistanceMeters : undefined,
-                  route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
-                };
-                saveCompletedWorkout(entry).catch((e) =>
-                  console.warn('Failed to save workout history:', e)
-                );
-                onWorkoutCompleted();
-                track('workout_completed', {
-                  workout_id: workout.id,
-                  workout_name: workout.name,
-                  total_duration_ms: next.totalElapsedMs,
-                });
-              }
+              saveHistoryEntry(next.totalElapsedMs);
+              onWorkoutCompleted();
+              track('workout_completed', {
+                workout_id: workout.id,
+                workout_name: workout.name,
+                total_duration_ms: next.totalElapsedMs,
+              });
             } else {
               markIntervalStart();
               const cueCtx = buildVerboseCueContext(next, 'intervalStart', settingsRef.current);
@@ -405,30 +406,13 @@ export function useWorkoutRunner(
           stopBackgroundLoop();
           endLiveActivity();
           paceTrackerRef.current.stop();
-          if (!historySaved.current) {
-            historySaved.current = true;
-            const psFinal = paceTrackerRef.current.paceState;
-            const fullTrack = paceTrackerRef.current.getFullTrack();
-            const entry: CompletedWorkout = {
-              id: generateId(),
-              workoutId: workout.id,
-              workoutName: workout.name,
-              completedAt: Date.now(),
-              totalDurationMs: finished.totalElapsedMs,
-              splits: [...splitsRef.current],
-              totalDistanceMeters: psFinal.totalDistanceMeters > 0 ? psFinal.totalDistanceMeters : undefined,
-              route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
-            };
-            saveCompletedWorkout(entry).catch((e) =>
-              console.warn('Failed to save workout history:', e)
-            );
-            onWorkoutCompleted();
-            track('workout_completed', {
-              workout_id: workout.id,
-              workout_name: workout.name,
-              total_duration_ms: finished.totalElapsedMs,
-            });
-          }
+          saveHistoryEntry(finished.totalElapsedMs);
+          onWorkoutCompleted();
+          track('workout_completed', {
+            workout_id: workout.id,
+            workout_name: workout.name,
+            total_duration_ms: finished.totalElapsedMs,
+          });
         }
 
         // Check for interval-progress announcements, warning, and countdown cues
@@ -517,7 +501,7 @@ export function useWorkoutRunner(
 
       setTick((t) => t + 1);
     }
-  }, [workout.id, workout.name, buildLAProps, captureSplit, markIntervalStart]);
+  }, [workout.id, workout.name, buildLAProps, captureSplit, markIntervalStart, saveHistoryEntry]);
 
   // Start/stop the tick loop based on engine phase.
   // Uses setInterval instead of requestAnimationFrame so ticks continue
@@ -647,32 +631,15 @@ export function useWorkoutRunner(
       stopBackgroundLoop();
       endLiveActivity();
       paceTrackerRef.current.stop();
-      if (!historySaved.current) {
-        historySaved.current = true;
-        const ps = paceTrackerRef.current.paceState;
-        const fullTrack = paceTrackerRef.current.getFullTrack();
-        const entry: CompletedWorkout = {
-          id: generateId(),
-          workoutId: workout.id,
-          workoutName: workout.name,
-          completedAt: Date.now(),
-          totalDurationMs: next.totalElapsedMs,
-          splits: [...splitsRef.current],
-          totalDistanceMeters: ps.totalDistanceMeters > 0 ? ps.totalDistanceMeters : undefined,
-          route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
-        };
-        saveCompletedWorkout(entry).catch((e) =>
-          console.warn('Failed to save workout history:', e)
-        );
-        onWorkoutCompleted();
-        track('workout_completed', {
-          workout_id: workout.id,
-          workout_name: workout.name,
-          total_duration_ms: next.totalElapsedMs,
-        });
-      }
+      saveHistoryEntry(next.totalElapsedMs);
+      onWorkoutCompleted();
+      track('workout_completed', {
+        workout_id: workout.id,
+        workout_name: workout.name,
+        total_duration_ms: next.totalElapsedMs,
+      });
     }
-  }, [workout.id, workout.name, buildLAProps, captureSplit, markIntervalStart]);
+  }, [workout.id, workout.name, buildLAProps, captureSplit, markIntervalStart, saveHistoryEntry]);
 
   const stop_ = useCallback(() => {
     // Capture split for the interval in progress when stopped
@@ -686,23 +653,8 @@ export function useWorkoutRunner(
     paceTrackerRef.current.stop();
 
     // Save partial workout to history
-    if (next.totalElapsedMs > 0 && !historySaved.current) {
-      historySaved.current = true;
-      const ps = paceTrackerRef.current.paceState;
-      const fullTrack = paceTrackerRef.current.getFullTrack();
-      const entry: CompletedWorkout = {
-        id: generateId(),
-        workoutId: workout.id,
-        workoutName: workout.name,
-        completedAt: Date.now(),
-        totalDurationMs: next.totalElapsedMs,
-        splits: [...splitsRef.current],
-        totalDistanceMeters: ps.totalDistanceMeters > 0 ? ps.totalDistanceMeters : undefined,
-        route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
-      };
-      saveCompletedWorkout(entry).catch((e) =>
-        console.warn('Failed to save workout history:', e)
-      );
+    if (next.totalElapsedMs > 0) {
+      saveHistoryEntry(next.totalElapsedMs);
 
       // Still prompt for review if the user completed a good chunk of the
       // workout (e.g. skipped the cooldown). 50% threshold avoids prompting
@@ -722,7 +674,7 @@ export function useWorkoutRunner(
           : 0,
       });
     }
-  }, [workout.id, workout.name, captureSplit]);
+  }, [workout.id, workout.name, captureSplit, saveHistoryEntry]);
 
   // Derived display values
   const ci = currentInterval(engine);
@@ -758,6 +710,10 @@ export function useWorkoutRunner(
     // Pace tracking
     paceState: paceTracker.paceState,
     isPaceTracking: paceTracker.isTracking,
+
+    completedEntryId,
+    completedRoute,
+    completedSplits,
 
     // Distance tracking
     isDistanceInterval: ciIsDistance,

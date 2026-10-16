@@ -130,6 +130,21 @@ export async function saveCompletedWorkout(
   });
 }
 
+export async function updateHistoryEntry(
+  id: string,
+  updater: (entry: CompletedWorkout) => CompletedWorkout,
+): Promise<CompletedWorkout[]> {
+  return withHistoryLock(async () => {
+    const history = await loadHistory();
+    const idx = history.findIndex((h) => h.id === id);
+    if (idx >= 0) {
+      history[idx] = updater(history[idx]);
+      await AsyncStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+    }
+    return history;
+  });
+}
+
 export async function deleteHistoryEntry(id: string): Promise<CompletedWorkout[]> {
   const history = await loadHistory();
   const updated = history.filter((h) => h.id !== id);

@@ -22,7 +22,8 @@ import ReanimatedSwipeable, {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { CompletedWorkout, WorkoutDefinition, IntervalSplit, formatTime } from '../../src/workout/workoutTypes';
-import { loadHistory, clearHistory, deleteHistoryEntry, loadWorkouts, loadSettings } from '../../src/workout/workoutStorage';
+import { loadHistory, clearHistory, deleteHistoryEntry, updateHistoryEntry, loadWorkouts, loadSettings } from '../../src/workout/workoutStorage';
+import { TagBadges, TagPicker } from '../../src/components/TagPicker';
 import { exportData, importData } from '../../src/workout/backupManager';
 import { shareWorkoutResults } from '../../src/sharing/shareWorkout';
 import { useAuth } from '../../src/contexts/AuthContext';
@@ -30,6 +31,7 @@ import { onSyncStatusChange } from '../../src/sync/cloudSync';
 import { analyzeElevation, aggregateByTerrain } from '../../src/pace/elevationAnalysis';
 import { ElevationProfile } from '../../src/components/ElevationProfile';
 import { TerrainSummary } from '../../src/components/TerrainSummary';
+import { RouteMap } from '../../src/components/RouteMap';
 import { DEFAULT_SETTINGS } from '../../src/workout/workoutTypes';
 import type { PaceUnit } from '../../src/pace/paceTypes';
 import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../../src/constants/theme';
@@ -278,6 +280,7 @@ export default function HistoryScreen() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [paceUnit, setPaceUnit] = useState<PaceUnit>(DEFAULT_SETTINGS.paceUnit);
+  const [editingTagsId, setEditingTagsId] = useState<string | null>(null);
   const swipeableRefs = useRef<Map<string, SwipeableMethods>>(new Map());
   const workoutsRef = useRef<WorkoutDefinition[]>([]);
 
@@ -384,6 +387,15 @@ export default function HistoryScreen() {
   const toggleExpand = (id: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpandedId((prev) => (prev === id ? null : id));
+    if (editingTagsId && editingTagsId !== id) setEditingTagsId(null);
+  };
+
+  const handleTagsChange = async (itemId: string, tags: string[]) => {
+    const updated = await updateHistoryEntry(itemId, (entry) => ({
+      ...entry,
+      tags: tags.length > 0 ? tags : undefined,
+    }));
+    setHistory(updated);
   };
 
   const formatDate = (epoch: number) => {
@@ -523,8 +535,57 @@ export default function HistoryScreen() {
                       </Text>
                     )}
 
+                    {/* Tags — read-only badges or inline editor */}
+                    {editingTagsId === item.id ? (
+                      <View style={styles.tagEditSection}>
+                        <View style={styles.tagEditHeader}>
+                          <Text style={styles.tagEditTitle}>Edit Tags</Text>
+                          <TouchableOpacity
+                            onPress={() => setEditingTagsId(null)}
+                            hitSlop={8}
+                          >
+                            <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />
+                          </TouchableOpacity>
+                        </View>
+                        <TagPicker
+                          selected={item.tags ?? []}
+                          onChange={(tags) => handleTagsChange(item.id, tags)}
+                        />
+                      </View>
+                    ) : (
+                      <View style={styles.tagDisplayRow}>
+                        {item.tags && item.tags.length > 0 ? (
+                          <TagBadges tags={item.tags} />
+                        ) : null}
+                        <TouchableOpacity
+                          style={styles.tagEditBtn}
+                          onPress={() => setEditingTagsId(item.id)}
+                          activeOpacity={0.7}
+                          hitSlop={8}
+                        >
+                          <Ionicons
+                            name={item.tags?.length ? 'pricetag-outline' : 'add-circle-outline'}
+                            size={14}
+                            color={Colors.textMuted}
+                          />
+                          <Text style={styles.tagEditBtnText}>
+                            {item.tags?.length ? 'Edit Tags' : 'Add Tags'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
                     {item.splits && item.splits.length > 0 && (
                       <SplitsTable splits={item.splits} />
+                    )}
+
+                    {item.route && item.route.length >= 2 && (
+                      <RouteMap
+                        route={item.route}
+                        splits={item.splits}
+                        paceUnit={paceUnit}
+                        height={220}
+                      />
                     )}
 
                     {item.route && item.route.length >= 2 && (
@@ -722,6 +783,38 @@ const styles = StyleSheet.create({
     color: Colors.accent,
     fontVariant: ['tabular-nums'],
     marginBottom: Spacing.md,
+  },
+  tagDisplayRow: {
+    marginBottom: Spacing.md,
+  },
+  tagEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: Spacing.xs,
+    paddingVertical: Spacing.xs,
+  },
+  tagEditBtnText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  tagEditSection: {
+    marginBottom: Spacing.md,
+    padding: Spacing.md,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.md,
+  },
+  tagEditHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  tagEditTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textPrimary,
   },
   expandedActions: {
     flexDirection: 'row',
