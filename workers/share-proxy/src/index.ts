@@ -24,6 +24,12 @@ import { intervalRunningPage } from './pages/interval-running';
 import { aiBuilderPage } from './pages/ai-builder';
 import { maintainPacePage } from './pages/maintain-pace';
 import { handsFreePage } from './pages/hands-free';
+import { compareNrcPage } from './pages/compare-nrc';
+import { compareStravaPage } from './pages/compare-strava';
+import { compareRunnaPage } from './pages/compare-runna';
+import { paceCalculatorPage } from './pages/pace-calculator';
+import { beginnerRunWalkPage } from './pages/beginner-run-walk';
+import { audioVsWatchesPage } from './pages/audio-vs-watches';
 import { robotsTxt, sitemapXml, llmsTxt } from './static';
 
 const SUPABASE_SHARE_FN =
@@ -85,6 +91,12 @@ const PAGE_ROUTES: Record<string, () => string> = {
   '/features/ai-workout-builder': aiBuilderPage,
   '/guides/maintain-running-pace': maintainPacePage,
   '/guides/hands-free-running': handsFreePage,
+  '/guides/beginner-run-walk': beginnerRunWalkPage,
+  '/guides/audio-coaching-vs-gps-watches': audioVsWatchesPage,
+  '/compare/pacecue-vs-nike-run-club': compareNrcPage,
+  '/compare/pacecue-vs-strava': compareStravaPage,
+  '/compare/pacecue-vs-runna': compareRunnaPage,
+  '/tools/pace-calculator': paceCalculatorPage,
 };
 
 // ── Worker ───────────────────────────────────────────────────────────

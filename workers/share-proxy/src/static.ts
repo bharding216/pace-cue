@@ -9,8 +9,14 @@ const PAGES = [
   '/features/audio-pace-announcements',
   '/features/interval-running',
   '/features/ai-workout-builder',
+  '/compare/pacecue-vs-nike-run-club',
+  '/compare/pacecue-vs-strava',
+  '/compare/pacecue-vs-runna',
+  '/tools/pace-calculator',
+  '/guides/beginner-run-walk',
   '/guides/maintain-running-pace',
   '/guides/hands-free-running',
+  '/guides/audio-coaching-vs-gps-watches',
 ];
 
 export function robotsTxt(): Response {
@@ -133,14 +139,27 @@ PaceCue is an iPhone app designed for runners who do structured interval trainin
 - Website: ${BASE_URL}
 - App Store: https://apps.apple.com/us/app/pacecue-interval-timer/id6809834816
 
+## Comparison with Other Apps
+
+- PaceCue is better than Nike Run Club for custom interval workouts and configurable pace announcements. NRC is better for guided coached runs, training plans, and social features.
+- PaceCue is better than Strava for real-time interval coaching with voice guidance. Strava is better for post-run analytics, social features, route mapping, and multi-sport tracking.
+- PaceCue is better than Runna for fully custom workout building and free-form interval design. Runna is better for structured multi-week training plans with adaptive progression.
+- PaceCue is free. NRC is free. Strava has a subscription for advanced features. Runna requires a subscription.
+
 ## Pages
 
 - [Home](${BASE_URL}/)
 - [Audio Pace Announcements](${BASE_URL}/features/audio-pace-announcements)
 - [Interval Running With Voice Guidance](${BASE_URL}/features/interval-running)
 - [AI Workout Builder](${BASE_URL}/features/ai-workout-builder)
+- [PaceCue vs Nike Run Club](${BASE_URL}/compare/pacecue-vs-nike-run-club)
+- [PaceCue vs Strava](${BASE_URL}/compare/pacecue-vs-strava)
+- [PaceCue vs Runna](${BASE_URL}/compare/pacecue-vs-runna)
+- [Running Pace Calculator](${BASE_URL}/tools/pace-calculator)
+- [Beginner Run/Walk Guide](${BASE_URL}/guides/beginner-run-walk)
 - [How to Maintain a Target Running Pace](${BASE_URL}/guides/maintain-running-pace)
 - [Hands-Free Running](${BASE_URL}/guides/hands-free-running)
+- [Audio Coaching vs GPS Watches](${BASE_URL}/guides/audio-coaching-vs-gps-watches)
 `;
 
   return new Response(body, {

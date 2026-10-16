@@ -54,7 +54,9 @@ const NAV_LINKS = [
   { label: 'Features', href: '/features/audio-pace-announcements' },
   { label: 'Intervals', href: '/features/interval-running' },
   { label: 'AI Builder', href: '/features/ai-workout-builder' },
-  { label: 'Guides', href: '/guides/maintain-running-pace' },
+  { label: 'Compare', href: '/compare/pacecue-vs-nike-run-club' },
+  { label: 'Pace Calculator', href: '/tools/pace-calculator' },
+  { label: 'Guides', href: '/guides/beginner-run-walk' },
 ];
 
 export function renderPage(meta: PageMeta, body: string): string {
@@ -130,13 +132,19 @@ export function renderPage(meta: PageMeta, body: string): string {
             <li><a href="/features/audio-pace-announcements">Audio Pace Announcements</a></li>
             <li><a href="/features/interval-running">Interval Running</a></li>
             <li><a href="/features/ai-workout-builder">AI Workout Builder</a></li>
+            <li><a href="/tools/pace-calculator">Pace Calculator</a></li>
           </ul>
         </div>
         <div>
-          <h3 class="footer-heading">Guides</h3>
+          <h3 class="footer-heading">Guides & Compare</h3>
           <ul class="footer-links">
+            <li><a href="/guides/beginner-run-walk">Beginner Run/Walk</a></li>
             <li><a href="/guides/maintain-running-pace">Maintain Running Pace</a></li>
             <li><a href="/guides/hands-free-running">Hands-Free Running</a></li>
+            <li><a href="/guides/audio-coaching-vs-gps-watches">Audio vs GPS Watches</a></li>
+            <li><a href="/compare/pacecue-vs-nike-run-club">vs Nike Run Club</a></li>
+            <li><a href="/compare/pacecue-vs-strava">vs Strava</a></li>
+            <li><a href="/compare/pacecue-vs-runna">vs Runna</a></li>
           </ul>
         </div>
         <div>
@@ -657,6 +665,104 @@ const CSS = `
   @media (max-width: 480px) {
     .footer-grid { grid-template-columns: 1fr; }
   }
+  /* ── Comparison tables ──────────────────────────────────── */
+  .compare-table-wrap { overflow-x: auto; margin-top: 24px; }
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .compare-table th {
+    text-align: left;
+    padding: 14px 16px;
+    background: var(--card);
+    color: var(--text);
+    font-weight: 700;
+    border-bottom: 2px solid var(--card-border);
+    white-space: nowrap;
+  }
+  .compare-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+    vertical-align: top;
+  }
+  .compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .compare-table td.yes { color: var(--green); }
+  .compare-table td.no { color: var(--text-muted); }
+  .compare-table td.partial { color: var(--yellow); }
+  .pace-ref-table td { text-align: center; font-variant-numeric: tabular-nums; }
+  .pace-ref-table td:first-child,
+  .pace-ref-table td:nth-child(2) { font-weight: 600; color: var(--text); text-align: left; }
+
+  /* ── Calculator ───────────────────────────────────────────── */
+  .calc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+  }
+  .calc-card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 20px;
+    padding: 28px;
+  }
+  .calc-card h2 { font-size: 20px; margin-bottom: 6px; }
+  .calc-card p { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; }
+  .calc-row { margin-bottom: 16px; }
+  .calc-row label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .calc-input-group { display: flex; align-items: center; gap: 6px; }
+  .calc-input-group span { color: var(--text-muted); font-size: 20px; font-weight: 700; }
+  .calc-input {
+    width: 72px;
+    background: var(--surface);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 18px;
+    font-weight: 700;
+    padding: 10px 12px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .calc-input:focus { border-color: var(--green); }
+  .calc-select {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 15px;
+    padding: 10px 12px;
+    outline: none;
+    cursor: pointer;
+  }
+  .calc-select:focus { border-color: var(--green); }
+  .calc-result {
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 16px;
+  }
+  .calc-result-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 15px;
+  }
+  .calc-result-row span { color: var(--text-muted); }
+  .calc-result-row strong { color: var(--green); font-variant-numeric: tabular-nums; }
+
   @media (max-width: 640px) {
     .hero { padding: 60px 16px 48px; }
     .section { padding: 56px 16px; }
@@ -666,5 +772,6 @@ const CSS = `
     .phone-frame { width: 240px; }
     .stats-row { gap: 32px; }
     .features-grid { grid-template-columns: 1fr; }
+    .calc-grid { grid-template-columns: 1fr; }
   }
 `;
