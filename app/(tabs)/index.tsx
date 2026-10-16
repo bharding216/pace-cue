@@ -153,21 +153,6 @@ export default function HomeScreen() {
         {/* Action buttons */}
         <View style={styles.actionRow}>
           <TouchableOpacity
-            style={styles.aiFab}
-            onPress={() => {
-              if (!user) {
-                router.push('/login' as any);
-              } else {
-                router.push('/ai-builder' as any);
-              }
-            }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="sparkles" size={16} color={Colors.black} />
-            <Text style={styles.aiFabText}>AI Builder</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
             style={styles.newBtn}
             onPress={() => router.push('/workout/new')}
             activeOpacity={0.8}
@@ -284,21 +269,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.sm,
     marginBottom: Spacing.lg,
-  },
-  aiFab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.accent,
-    paddingVertical: Spacing.sm + 4,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.xs,
-  },
-  aiFabText: {
-    color: Colors.black,
-    fontSize: FontSize.sm,
-    fontWeight: '800',
   },
   newBtn: {
     flex: 1,

@@ -1,0 +1,22 @@
+import { Stack } from 'expo-router';
+import { Colors } from '../../../src/constants/theme';
+
+export default function TrainingLayout() {
+  return (
+    <Stack
+      screenOptions={{
+        headerStyle: { backgroundColor: Colors.background },
+        headerTintColor: Colors.textPrimary,
+        headerTitleStyle: { fontWeight: '700' },
+        contentStyle: { backgroundColor: Colors.background },
+        animation: 'slide_from_right',
+        headerShadowVisible: false,
+      }}
+    >
+      <Stack.Screen name="index" options={{ title: 'Training' }} />
+      <Stack.Screen name="setup" options={{ title: 'Create Plan' }} />
+      <Stack.Screen name="profile" options={{ title: 'Running Profile' }} />
+      <Stack.Screen name="chat" options={{ title: 'Adjust Plan' }} />
+    </Stack>
+  );
+}

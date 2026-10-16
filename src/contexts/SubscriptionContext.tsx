@@ -50,6 +50,7 @@ type SubscriptionContextType = {
   aiWorkoutsUsed: number;
   aiWorkoutsLimit: number | null;
   canUseAI: boolean;
+  canGeneratePlan: boolean;
   loading: boolean;
   offerings: PurchasesOfferings | null;
   offeringsLoading: boolean;
@@ -207,6 +208,9 @@ export function SubscriptionProvider({
   const canUseAI =
     tier === 'pro' || aiWorkoutsUsed < FREE_TIER_AI_WORKOUTS;
 
+  // Training plan generation is Pro-only (free tier gets 1 free plan)
+  const canGeneratePlan = tier === 'pro';
+
   // ─── Purchase ─────────────────────────────────────────────
 
   const purchasePackage = async (
@@ -295,6 +299,7 @@ export function SubscriptionProvider({
         aiWorkoutsUsed,
         aiWorkoutsLimit,
         canUseAI,
+        canGeneratePlan,
         loading,
         offerings,
         offeringsLoading,

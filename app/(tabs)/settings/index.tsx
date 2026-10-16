@@ -25,12 +25,6 @@ const CARDS: SettingsCard[] = [
     route: '/(tabs)/settings/account',
   },
   {
-    icon: 'fitness-outline',
-    title: 'Running Profile',
-    description: 'Goals, experience, paces — powers AI workouts',
-    route: '/(tabs)/settings/profile',
-  },
-  {
     icon: 'volume-high-outline',
     title: 'Audio & Cues',
     description: 'Cue mode, voice, countdown warning, progress updates',

@@ -16,7 +16,7 @@ import { decodeWorkoutLink, resolveShareCode } from '../src/sharing/shareWorkout
 import { saveWorkout, clearAllUserData } from '../src/workout/workoutStorage';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { SubscriptionProvider } from '../src/contexts/SubscriptionContext';
-import { AIBuilderProvider } from '../src/contexts/AIBuilderContext';
+import { TrainingPlanProvider } from '../src/contexts/TrainingPlanContext';
 import { syncAll } from '../src/sync/cloudSync';
 
 function RootLayoutInner() {
@@ -187,14 +187,6 @@ function RootLayoutInner() {
             headerShown: false,
           }}
         />
-        <Stack.Screen
-          name="ai-builder"
-          options={{
-            title: 'AI Builder',
-            presentation: 'modal',
-            headerShown: false,
-          }}
-        />
       </Stack>
     </>
   );
@@ -205,9 +197,9 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
         <SubscriptionProvider>
-          <AIBuilderProvider>
+          <TrainingPlanProvider>
             <RootLayoutInner />
-          </AIBuilderProvider>
+          </TrainingPlanProvider>
         </SubscriptionProvider>
       </AuthProvider>
     </GestureHandlerRootView>

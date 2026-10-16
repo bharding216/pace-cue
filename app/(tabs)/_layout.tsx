@@ -39,16 +39,23 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="history"
+        name="training"
         options={{
-          title: 'History',
+          title: 'Training',
+          headerShown: false,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? 'time' : 'time-outline'}
+              name={focused ? 'calendar' : 'calendar-outline'}
               size={22}
               color={color}
             />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="history"
+        options={{
+          href: null,
         }}
       />
       <Tabs.Screen

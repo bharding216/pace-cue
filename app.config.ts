@@ -141,6 +141,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         groupIdentifier: APP_GROUP,
       },
     ],
+    '@react-native-community/datetimepicker',
   ],
   updates: {
     url: 'https://u.expo.dev/15ab975c-acf7-482d-8059-edfe8218ef58',

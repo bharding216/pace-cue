@@ -79,6 +79,42 @@ export type AIGeneration = {
   created_at: string;
 };
 
+// ── Training Plans ───────────────────────────────────────────
+
+export type RaceType = '5k' | '10k' | 'half_marathon' | 'marathon' | 'custom';
+export type PlanStatus = 'active' | 'completed' | 'archived';
+export type PlanWorkoutStatus = 'planned' | 'completed' | 'skipped';
+
+export type TrainingPlan = {
+  id: string;
+  user_id: string;
+  title: string;
+  race_type: RaceType;
+  race_distance_meters: number | null;
+  race_date: string; // ISO date string YYYY-MM-DD
+  goal_time_minutes: number | null;
+  start_date: string; // ISO date string YYYY-MM-DD
+  days_per_week: number;
+  status: PlanStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlanWorkout = {
+  id: string;
+  plan_id: string;
+  user_id: string;
+  date: string; // ISO date string YYYY-MM-DD
+  week_number: number;
+  day_label: string | null;
+  description: string | null;
+  workout_data: unknown | null; // WorkoutDefinition JSON when present
+  status: PlanWorkoutStatus;
+  completed_workout_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 // ── Constants ────────────────────────────────────────────────
 
 export const FREE_TIER_AI_WORKOUTS = 5;
