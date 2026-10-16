@@ -45,7 +45,7 @@ export function createPresets(): WorkoutDefinition[] {
       blocks: [
         {
           intervals: [
-            { type: 'easy', durationSeconds: 1800, label: 'Easy Run' },
+            { type: 'easy', durationSeconds: 0, distanceMeters: 3219, label: 'Easy Run' },
           ],
           repeatCount: 1,
         },
@@ -66,7 +66,7 @@ export function createPresets(): WorkoutDefinition[] {
       blocks: [
         {
           intervals: [
-            { type: 'easy', durationSeconds: 3600, label: 'Easy Run' },
+            { type: 'easy', durationSeconds: 0, distanceMeters: 5000, label: 'Easy Run' },
           ],
           repeatCount: 1,
         },
@@ -87,7 +87,7 @@ export function createPresets(): WorkoutDefinition[] {
       blocks: [
         {
           intervals: [
-            { type: 'hard', durationSeconds: 5400, label: 'Steady' },
+            { type: 'hard', durationSeconds: 0, distanceMeters: 10000, label: 'Steady' },
           ],
           repeatCount: 1,
         },

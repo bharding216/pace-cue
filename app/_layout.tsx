@@ -153,7 +153,7 @@ function RootLayoutInner() {
       >
         <Stack.Screen
           name="(tabs)"
-          options={{ headerShown: false }}
+          options={{ headerShown: false, headerBackTitle: 'Training' }}
         />
         <Stack.Screen
           name="run/[id]"

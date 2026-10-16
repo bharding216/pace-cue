@@ -1,11 +1,17 @@
 /**
  * Training plan service — client-side API for generating plans,
  * adjusting them via AI chat, and CRUD operations against Supabase.
+ *
+ * Plan generation uses a two-phase lazy approach:
+ *   1. generatePlanOutline() — fast single-call outline (week themes + day labels, no workout objects)
+ *   2. generateWorkoutDetails() — on-demand batch detail for N specific dates
+ *
+ * ensureUpcomingWorkoutsDetailed() auto-fills the next 3 upcoming workouts when called.
  */
 
 import { supabase } from '../analytics/supabaseClient';
 import { generateId } from '../workout/workoutTypes';
-import type { TrainingPlan, PlanWorkout, RaceType } from '../types/database';
+import type { TrainingPlan, PlanWorkout, PlanOutlineWeek, RaceType } from '../types/database';
 import type { AIContext } from './aiWorkoutService';
 import { serializeHistorySummary } from './historySummary';
 
@@ -30,27 +36,23 @@ export interface PlanGenerationInput {
   historySummary?: string | null;
 }
 
-export interface PlanGenerationResult {
+/** Outline result — no workout objects, just week themes and day labels. */
+export interface PlanOutlineResult {
   title: string;
-  weeks: PlanWeekResult[];
+  weeks: PlanOutlineWeek[];
 }
 
-export interface PlanWeekResult {
-  week_number: number;
-  theme: string;
-  workouts: PlanWorkoutResult[];
-}
-
-export interface PlanWorkoutResult {
-  date: string;
-  day_label: string;
-  description: string;
-  workout: {
-    name: string;
-    warmup: unknown[];
-    blocks: unknown[];
-    cooldown: unknown[];
-  } | null;
+/** Detail result — full workout objects for specific dates. */
+export interface WorkoutDetailResult {
+  workouts: {
+    date: string;
+    workout: {
+      name: string;
+      warmup: unknown[];
+      blocks: unknown[];
+      cooldown: unknown[];
+    };
+  }[];
 }
 
 export interface PlanAdjustmentResult {
@@ -71,10 +73,25 @@ export interface PlanModification {
   } | null;
 }
 
-// ── Plan Generation ─────────────────────────────────────────
+// ── Supabase error helper ───────────────────────────────────
 
-export async function generatePlan(input: PlanGenerationInput): Promise<PlanGenerationResult> {
-  const { data, error } = await supabase.functions.invoke('generate-plan', {
+async function extractFunctionError(error: any, fallback: string): Promise<string> {
+  try {
+    if (error.context && typeof error.context.json === 'function') {
+      const body = await error.context.json().catch(() => null);
+      if (body?.error) return body.error;
+    }
+    if (error.message) return error.message;
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
+// ── Phase 1: Plan Outline ───────────────────────────────────
+
+export async function generatePlanOutline(input: PlanGenerationInput): Promise<PlanOutlineResult> {
+  const { data, error } = await supabase.functions.invoke('generate-plan-outline', {
     body: {
       profile: {
         experience_level: input.profile.experience_level,
@@ -96,17 +113,208 @@ export async function generatePlan(input: PlanGenerationInput): Promise<PlanGene
   });
 
   if (error) {
-    const body = error.context
-      ? await error.context.json().catch(() => null)
-      : null;
-    throw new Error(body?.error || error.message || 'Failed to generate plan');
+    throw new Error(await extractFunctionError(error, 'Failed to generate plan outline'));
   }
-
   if (data?.error) {
     throw new Error(data.error);
   }
 
-  return data as PlanGenerationResult;
+  return data as PlanOutlineResult;
+}
+
+// ── Phase 2: On-demand Workout Detail ───────────────────────
+
+/** Generate detailed workout objects for specific plan_workout rows. */
+export async function generateWorkoutDetails(
+  plan: TrainingPlan,
+  workoutsToDetail: PlanWorkout[],
+): Promise<void> {
+  if (workoutsToDetail.length === 0) return;
+
+  const outline = plan.outline ?? [];
+
+  // Build the request payload with week context for each workout
+  const workoutRequests = workoutsToDetail.map((pw) => {
+    const week = outline.find((w) => w.week_number === pw.week_number);
+    return {
+      date: pw.date,
+      day_label: pw.day_label ?? 'Training',
+      description: pw.description,
+      week_number: pw.week_number,
+      week_theme: week?.theme ?? `Week ${pw.week_number}`,
+      total_miles_target: week?.total_miles_target ?? null,
+    };
+  });
+
+  const totalWeeks = outline.length || Math.max(...workoutsToDetail.map((w) => w.week_number), 1);
+
+  const { data, error } = await supabase.functions.invoke('generate-workouts', {
+    body: {
+      profile: {
+        experience_level: undefined, // will be filled from plan context below
+      },
+      race_type: plan.race_type,
+      race_date: plan.race_date,
+      goal_time_minutes: plan.goal_time_minutes,
+      days_per_week: plan.days_per_week,
+      total_weeks: totalWeeks,
+      workouts: workoutRequests,
+    },
+  });
+
+  if (error) {
+    throw new Error(await extractFunctionError(error, 'Failed to generate workout details'));
+  }
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+
+  const result = data as WorkoutDetailResult;
+
+  // Patch each workout's workout_data in the database
+  for (const detail of result.workouts) {
+    const matchingPw = workoutsToDetail.find((pw) => pw.date === detail.date);
+    if (!matchingPw || !detail.workout) continue;
+
+    const workoutData = {
+      id: generateId(),
+      name: detail.workout.name,
+      warmup: detail.workout.warmup ?? [],
+      blocks: detail.workout.blocks ?? [],
+      cooldown: detail.workout.cooldown ?? [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await supabase
+      .from('plan_workouts')
+      .update({
+        workout_data: workoutData,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', matchingPw.id);
+  }
+}
+
+/** Also accept profile context for richer detail generation. */
+export async function generateWorkoutDetailsWithProfile(
+  plan: TrainingPlan,
+  workoutsToDetail: PlanWorkout[],
+  profile?: PlanGenerationInput['profile'],
+): Promise<void> {
+  if (workoutsToDetail.length === 0) return;
+
+  const outline = plan.outline ?? [];
+
+  const workoutRequests = workoutsToDetail.map((pw) => {
+    const week = outline.find((w) => w.week_number === pw.week_number);
+    return {
+      date: pw.date,
+      day_label: pw.day_label ?? 'Training',
+      description: pw.description,
+      week_number: pw.week_number,
+      week_theme: week?.theme ?? `Week ${pw.week_number}`,
+      total_miles_target: week?.total_miles_target ?? null,
+    };
+  });
+
+  const totalWeeks = outline.length || Math.max(...workoutsToDetail.map((w) => w.week_number), 1);
+
+  const { data, error } = await supabase.functions.invoke('generate-workouts', {
+    body: {
+      profile: profile ? {
+        experience_level: profile.experience_level,
+        typical_run_minutes: profile.typical_run_minutes,
+        typical_run_minutes_max: profile.typical_run_minutes_max,
+        easy_pace: profile.easy_pace,
+        fast_pace: profile.fast_pace,
+        race_times: profile.race_times,
+      } : undefined,
+      race_type: plan.race_type,
+      race_date: plan.race_date,
+      goal_time_minutes: plan.goal_time_minutes,
+      days_per_week: plan.days_per_week,
+      total_weeks: totalWeeks,
+      workouts: workoutRequests,
+    },
+  });
+
+  if (error) {
+    throw new Error(await extractFunctionError(error, 'Failed to generate workout details'));
+  }
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+
+  const result = data as WorkoutDetailResult;
+
+  for (const detail of result.workouts) {
+    const matchingPw = workoutsToDetail.find((pw) => pw.date === detail.date);
+    if (!matchingPw || !detail.workout) continue;
+
+    const workoutData = {
+      id: generateId(),
+      name: detail.workout.name,
+      warmup: detail.workout.warmup ?? [],
+      blocks: detail.workout.blocks ?? [],
+      cooldown: detail.workout.cooldown ?? [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await supabase
+      .from('plan_workouts')
+      .update({
+        workout_data: workoutData,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', matchingPw.id);
+  }
+}
+
+// ── Auto-fill upcoming workouts ─────────────────────────────
+
+const UPCOMING_DETAIL_COUNT = 3;
+
+/**
+ * Checks whether the next N upcoming planned workouts have workout_data.
+ * If not, generates details for them. Returns the updated workouts.
+ * Safe to call repeatedly — no-ops if workouts already have detail.
+ */
+export async function ensureUpcomingWorkoutsDetailed(
+  plan: TrainingPlan,
+  allWorkouts: PlanWorkout[],
+): Promise<PlanWorkout[]> {
+  const today = new Date().toISOString().split('T')[0];
+
+  // Find upcoming planned non-rest workouts without workout_data
+  const needsDetail = allWorkouts
+    .filter((w) =>
+      w.status === 'planned' &&
+      w.date >= today &&
+      w.day_label !== 'Rest Day' &&
+      !w.workout_data
+    )
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, UPCOMING_DETAIL_COUNT);
+
+  if (needsDetail.length === 0) return allWorkouts;
+
+  try {
+    await generateWorkoutDetails(plan, needsDetail);
+
+    // Re-fetch the updated workouts from the database
+    const { data } = await supabase
+      .from('plan_workouts')
+      .select('*')
+      .eq('plan_id', plan.id)
+      .order('date');
+
+    return (data ?? allWorkouts) as PlanWorkout[];
+  } catch (err) {
+    console.warn('Failed to auto-generate workout details:', err);
+    return allWorkouts;
+  }
 }
 
 // ── Plan Adjustment ─────────────────────────────────────────
@@ -157,10 +365,18 @@ export async function adjustPlan(input: PlanAdjustmentInput): Promise<PlanAdjust
   });
 
   if (error) {
-    const body = error.context
-      ? await error.context.json().catch(() => null)
-      : null;
-    throw new Error(body?.error || error.message || 'Failed to adjust plan');
+    let message = 'Failed to adjust plan';
+    try {
+      if (error.context && typeof error.context.json === 'function') {
+        const body = await error.context.json().catch(() => null);
+        if (body?.error) message = body.error;
+      } else if (error.message) {
+        message = error.message;
+      }
+    } catch {
+      // ignore parse errors
+    }
+    throw new Error(message);
   }
 
   if (data?.error) {
@@ -172,11 +388,14 @@ export async function adjustPlan(input: PlanAdjustmentInput): Promise<PlanAdjust
 
 // ── CRUD Operations ─────────────────────────────────────────
 
-/** Save a newly generated plan and its workouts to Supabase. */
-export async function savePlan(
+/**
+ * Save a newly generated plan outline and its skeleton workouts to Supabase.
+ * Workouts are saved WITHOUT workout_data — detail is generated on demand.
+ */
+export async function savePlanOutline(
   userId: string,
   input: PlanGenerationInput,
-  result: PlanGenerationResult,
+  result: PlanOutlineResult,
 ): Promise<{ plan: TrainingPlan; workouts: PlanWorkout[] }> {
   // Archive any existing active plan
   await supabase
@@ -185,7 +404,7 @@ export async function savePlan(
     .eq('user_id', userId)
     .eq('status', 'active');
 
-  // Insert the plan
+  // Insert the plan with outline stored for future detail generation context
   const { data: planData, error: planError } = await supabase
     .from('training_plans')
     .insert({
@@ -197,6 +416,7 @@ export async function savePlan(
       goal_time_minutes: input.goalTimeMinutes ?? null,
       start_date: input.startDate,
       days_per_week: input.daysPerWeek,
+      outline: result.weeks,
       status: 'active',
     })
     .select()
@@ -206,32 +426,18 @@ export async function savePlan(
     throw new Error(planError?.message || 'Failed to save plan');
   }
 
-  // Flatten all workouts from weeks and insert them
+  // Flatten all days from outline weeks into plan_workout rows (no workout_data)
   const workoutRows = result.weeks.flatMap((week) =>
-    week.workouts.map((w) => {
-      const workoutData = w.workout
-        ? {
-            id: generateId(),
-            name: w.workout.name,
-            warmup: w.workout.warmup ?? [],
-            blocks: w.workout.blocks ?? [],
-            cooldown: w.workout.cooldown ?? [],
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          }
-        : null;
-
-      return {
-        plan_id: planData.id,
-        user_id: userId,
-        date: w.date,
-        week_number: week.week_number,
-        day_label: w.day_label,
-        description: w.description,
-        workout_data: workoutData,
-        status: 'planned' as const,
-      };
-    })
+    week.days.map((day) => ({
+      plan_id: planData.id,
+      user_id: userId,
+      date: day.date,
+      week_number: week.week_number,
+      day_label: day.day_label,
+      description: day.description,
+      workout_data: null,
+      status: 'planned' as const,
+    }))
   );
 
   const { data: workoutData, error: workoutError } = await supabase

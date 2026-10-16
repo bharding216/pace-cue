@@ -3,7 +3,7 @@
  * Race distance, date, goal time, days/week, profile summary.
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -22,11 +23,13 @@ import { useAuth } from '../../../src/contexts/AuthContext';
 import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
 import { useSubscription } from '../../../src/contexts/SubscriptionContext';
 import { supabase } from '../../../src/analytics/supabaseClient';
-import { generatePlan, savePlan } from '../../../src/ai/planService';
+import { generatePlanOutline, savePlanOutline, generateWorkoutDetailsWithProfile } from '../../../src/ai/planService';
 import { loadHistory } from '../../../src/workout/workoutStorage';
 import { buildHistorySummary, serializeHistorySummary } from '../../../src/ai/historySummary';
 import type { RaceType, RunningProfile, RunningPreference } from '../../../src/types/database';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
+
+const DRAFT_KEY = 'plan-setup-draft';
 
 const RACE_OPTIONS: { value: RaceType; label: string; distance: string }[] = [
   { value: '5k', label: '5K', distance: '3.1 mi' },
@@ -67,6 +70,8 @@ export default function PlanSetupScreen() {
   const { user } = useAuth();
   const { refresh } = useTrainingPlan();
   const { tier } = useSubscription();
+  const mountedRef = useRef(true);
+  const draftLoaded = useRef(false);
 
   const [raceType, setRaceType] = useState<RaceType>('half_marathon');
   const [raceDate, setRaceDate] = useState(() => {
@@ -88,6 +93,56 @@ export default function PlanSetupScreen() {
   const [profileLoading, setProfileLoading] = useState(true);
 
   const [generating, setGenerating] = useState(false);
+  const [genElapsed, setGenElapsed] = useState(0);
+
+  // Track mounted state for safe async updates
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // Restore draft form values on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(DRAFT_KEY);
+        if (!raw) { draftLoaded.current = true; return; }
+        const draft = JSON.parse(raw);
+        if (draft.raceType) setRaceType(draft.raceType);
+        if (draft.raceDate) setRaceDate(new Date(draft.raceDate));
+        if (draft.goalTimeHours != null) setGoalTimeHours(draft.goalTimeHours);
+        if (draft.goalTimeMinutes != null) setGoalTimeMinutes(draft.goalTimeMinutes);
+        if (draft.daysPerWeek) setDaysPerWeek(draft.daysPerWeek);
+        if (draft.startDate) setStartDate(new Date(draft.startDate));
+      } catch {}
+      draftLoaded.current = true;
+    })();
+  }, []);
+
+  // Tick elapsed seconds while generating for progress feedback
+  useEffect(() => {
+    if (!generating) { setGenElapsed(0); return; }
+    const interval = setInterval(() => {
+      setGenElapsed((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [generating]);
+
+  // Persist draft whenever inputs change (debounced via effect)
+  useEffect(() => {
+    if (!draftLoaded.current) return;
+    const timer = setTimeout(() => {
+      AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({
+        raceType,
+        raceDate: raceDate.toISOString(),
+        goalTimeHours,
+        goalTimeMinutes,
+        daysPerWeek,
+        startDate: startDate.toISOString(),
+      })).catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [raceType, raceDate, goalTimeHours, goalTimeMinutes, daysPerWeek, startDate]);
 
   // Load running profile
   useEffect(() => {
@@ -144,7 +199,6 @@ export default function PlanSetupScreen() {
 
     setGenerating(true);
     try {
-      // Build history summary
       const historyData = await loadHistory();
       const summary = historyData.length > 0
         ? serializeHistorySummary(buildHistorySummary(historyData))
@@ -159,7 +213,7 @@ export default function PlanSetupScreen() {
         race_times: profile?.race_times ?? undefined,
       };
 
-      const result = await generatePlan({
+      const input = {
         profile: profilePayload,
         goals,
         preferences,
@@ -169,26 +223,43 @@ export default function PlanSetupScreen() {
         startDate: startDateStr,
         daysPerWeek,
         historySummary: summary,
-      });
+      };
 
-      await savePlan(user.id, {
-        profile: profilePayload,
-        goals,
-        preferences,
-        raceType,
-        raceDate: raceDateStr,
-        goalTimeMinutes: goalTimeTotal > 0 ? goalTimeTotal : null,
-        startDate: startDateStr,
-        daysPerWeek,
-        historySummary: summary,
-      }, result);
+      // Phase 1: Fast outline generation (single API call)
+      const outline = await generatePlanOutline(input);
 
+      if (!mountedRef.current) return;
+
+      // Save outline + skeleton workouts (no workout_data yet)
+      const { plan: savedPlan, workouts: savedWorkouts } = await savePlanOutline(user.id, input, outline);
+
+      // Clear the saved draft on success
+      AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
+
+      if (!mountedRef.current) return;
       await refresh();
       router.back();
+
+      // Phase 2: Generate details for the first 3 workouts in the background
+      const today = new Date().toISOString().split('T')[0];
+      const upcoming = savedWorkouts
+        .filter((w) => w.date >= today && w.day_label !== 'Rest Day')
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(0, 3);
+
+      if (upcoming.length > 0) {
+        generateWorkoutDetailsWithProfile(savedPlan, upcoming, profilePayload)
+          .then(() => refresh())
+          .catch((err) => console.warn('Background detail generation failed:', err));
+      }
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to generate plan. Please try again.');
+      if (mountedRef.current) {
+        Alert.alert('Error', err.message || 'Failed to generate plan. Please try again.');
+      }
     } finally {
-      setGenerating(false);
+      if (mountedRef.current) {
+        setGenerating(false);
+      }
     }
   }, [user, raceType, raceDate, goalTimeHours, goalTimeMinutes, daysPerWeek, startDate, profile, goals, preferences, refresh, router]);
 
@@ -426,9 +497,16 @@ export default function PlanSetupScreen() {
       </TouchableOpacity>
 
       {generating && (
-        <Text style={styles.generatingHint}>
-          This may take a moment. We're building a personalized plan just for you.
-        </Text>
+        <View style={styles.generatingInfo}>
+          <Text style={styles.generatingHint}>
+            {genElapsed < 10
+              ? 'Building your personalized plan…'
+              : genElapsed < 30
+                ? 'Still working — crafting each week for you…'
+                : 'Almost there — putting the finishing touches on your plan…'}
+          </Text>
+          <Text style={styles.generatingTimer}>{genElapsed}s</Text>
+        </View>
       )}
     </ScrollView>
   );
@@ -640,10 +718,19 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '800',
   },
+  generatingInfo: {
+    alignItems: 'center',
+    marginTop: Spacing.sm,
+    gap: Spacing.xs,
+  },
   generatingHint: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
     textAlign: 'center',
-    marginTop: Spacing.sm,
+  },
+  generatingTimer: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontVariant: ['tabular-nums'] as any,
   },
 });

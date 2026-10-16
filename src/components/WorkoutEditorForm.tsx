@@ -328,20 +328,33 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
         paceUnit={paceUnit}
       />
 
-      {/* Total */}
-      <View style={styles.totalRow}>
-        <Text style={styles.totalLabel}>Total Duration</Text>
-        <Text style={styles.totalValue}>
-          {formatTime(totalWorkoutSeconds(current))}
-        </Text>
-      </View>
-      {totalWorkoutDistanceMeters(current) != null && (
-        <View style={[styles.totalRow, { marginTop: Spacing.sm }]}>
-          <Text style={styles.totalLabel}>Target Distance</Text>
-          <Text style={[styles.totalValue, { color: Colors.accent }]}>
-            {formatDistanceShort(totalWorkoutDistanceMeters(current)!, paceUnit)}
-          </Text>
-        </View>
+      {/* Total — show distance for distance workouts, time for timed/intervals */}
+      {(category ?? categorizeWorkout(current)) === 'distance' ? (
+        totalWorkoutDistanceMeters(current) != null && (
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>Target Distance</Text>
+            <Text style={[styles.totalValue, { color: Colors.accent }]}>
+              {formatDistanceShort(totalWorkoutDistanceMeters(current)!, paceUnit)}
+            </Text>
+          </View>
+        )
+      ) : (
+        <>
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>Total Duration</Text>
+            <Text style={styles.totalValue}>
+              {formatTime(totalWorkoutSeconds(current))}
+            </Text>
+          </View>
+          {totalWorkoutDistanceMeters(current) != null && (
+            <View style={[styles.totalRow, { marginTop: Spacing.sm }]}>
+              <Text style={styles.totalLabel}>Target Distance</Text>
+              <Text style={[styles.totalValue, { color: Colors.accent }]}>
+                {formatDistanceShort(totalWorkoutDistanceMeters(current)!, paceUnit)}
+              </Text>
+            </View>
+          )}
+        </>
       )}
 
       {/* Actions — only shown for new workout creation */}

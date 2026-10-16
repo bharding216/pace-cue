@@ -8,12 +8,13 @@
  * - Empty day: no content
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { DayEntry } from '../contexts/TrainingPlanContext';
@@ -33,6 +34,8 @@ interface DayDetailProps {
   onRunAgain: (workoutId: string) => void;
   /** When provided, shows an "Add Workout" button on days without a planned workout. */
   onAddWorkout?: (date: string) => void;
+  /** Called to generate detailed workout for a plan workout that lacks workout_data. */
+  onGenerateDetail?: (workoutId: string) => Promise<void>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -112,8 +115,10 @@ export function DayDetail({
   onViewRun,
   onRunAgain,
   onAddWorkout,
+  onGenerateDetail,
 }: DayDetailProps) {
   const dateDisplay = formatDateDisplay(selectedDate);
+  const [generatingDetail, setGeneratingDetail] = useState(false);
 
   // Empty day
   if (!entry || (!entry.planWorkout && entry.completedRuns.length === 0)) {
@@ -163,6 +168,7 @@ export function DayDetail({
             <WorkoutPreview workoutData={entry.planWorkout.workout_data} />
           )}
 
+          {/* Has workout_data — show Start + Skip */}
           {entry.planWorkout.status === 'planned' && entry.planWorkout.workout_data && (
             <View style={styles.actionRow}>
               <TouchableOpacity
@@ -173,6 +179,53 @@ export function DayDetail({
                 <Ionicons name="play" size={16} color={Colors.black} />
                 <Text style={styles.startBtnText}>Start Workout</Text>
               </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.skipBtn}
+                onPress={() => onSkipWorkout(entry.planWorkout!.id)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.skipBtnText}>Skip</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* No workout_data yet — show Generate button for upcoming non-rest days */}
+          {entry.planWorkout.status === 'planned' &&
+            !entry.planWorkout.workout_data &&
+            entry.planWorkout.day_label !== 'Rest Day' && (
+            <View style={styles.actionRow}>
+              {onGenerateDetail ? (
+                <TouchableOpacity
+                  style={styles.generateDetailBtn}
+                  onPress={async () => {
+                    setGeneratingDetail(true);
+                    try {
+                      await onGenerateDetail(entry.planWorkout!.id);
+                    } finally {
+                      setGeneratingDetail(false);
+                    }
+                  }}
+                  disabled={generatingDetail}
+                  activeOpacity={0.8}
+                >
+                  {generatingDetail ? (
+                    <ActivityIndicator size="small" color={Colors.black} />
+                  ) : (
+                    <Ionicons name="sparkles" size={16} color={Colors.black} />
+                  )}
+                  <Text style={styles.generateDetailBtnText}>
+                    {generatingDetail ? 'Generating…' : 'Generate Workout'}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.outlineOnlyHint}>
+                  <Ionicons name="time-outline" size={14} color={Colors.textMuted} />
+                  <Text style={styles.outlineOnlyText}>
+                    Workout details will be generated as this day approaches
+                  </Text>
+                </View>
+              )}
 
               <TouchableOpacity
                 style={styles.skipBtn}
@@ -401,6 +454,34 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: '600',
     color: Colors.textSecondary,
+  },
+  generateDetailBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.accent,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+  },
+  generateDetailBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.black,
+  },
+  outlineOnlyHint: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.sm,
+  },
+  outlineOnlyText: {
+    flex: 1,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontStyle: 'italic',
   },
 
   // Rest day

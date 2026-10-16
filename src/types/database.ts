@@ -97,6 +97,18 @@ export type RaceType = '5k' | '10k' | 'half_marathon' | 'marathon' | 'custom';
 export type PlanStatus = 'active' | 'completed' | 'archived';
 export type PlanWorkoutStatus = 'planned' | 'completed' | 'skipped';
 
+/** Week-level outline stored on the plan for context when generating workout details. */
+export type PlanOutlineWeek = {
+  week_number: number;
+  theme: string;
+  total_miles_target: number;
+  days: {
+    date: string;
+    day_label: string;
+    description: string | null;
+  }[];
+};
+
 export type TrainingPlan = {
   id: string;
   user_id: string;
@@ -107,6 +119,7 @@ export type TrainingPlan = {
   goal_time_minutes: number | null;
   start_date: string; // ISO date string YYYY-MM-DD
   days_per_week: number;
+  outline: PlanOutlineWeek[] | null;
   status: PlanStatus;
   created_at: string;
   updated_at: string;

@@ -1,14 +1,13 @@
 /**
- * generate-plan — Supabase Edge Function
+ * generate-plan-outline — Supabase Edge Function
  *
- * Receives the user's running profile, race goal, and preferences.
- * Calls OpenAI to generate a full periodized training plan broken
- * into weeks of structured interval workouts.
+ * Fast single-call plan generator that returns only week-level data:
+ * themes, volume targets, day labels, and coaching descriptions.
+ * No detailed workout objects (intervals, warmup, blocks, cooldown).
  *
- * For plans longer than 12 weeks the function generates in 4-week
- * chunks via sequential API calls.
+ * Detailed workouts are generated on-demand by `generate-workouts`.
  *
- * Deploy:  supabase functions deploy generate-plan
+ * Deploy:  supabase functions deploy generate-plan-outline
  * Secrets: supabase secrets set OPENAI_API_KEY=sk-...
  */
 
@@ -27,8 +26,10 @@ const CORS_HEADERS = {
 interface RunnerProfile {
   experience_level?: string;
   typical_run_minutes?: number;
+  typical_run_minutes_max?: number;
   easy_pace?: number;
   fast_pace?: number;
+  race_times?: Record<string, unknown>;
 }
 
 interface RequestBody {
@@ -36,6 +37,7 @@ interface RequestBody {
   goals?: string[];
   preferences?: string[];
   race_type: string;
+  race_distance_meters?: number | null;
   race_date: string;
   goal_time_minutes?: number | null;
   start_date: string;
@@ -43,36 +45,18 @@ interface RequestBody {
   history_summary?: string | null;
 }
 
-interface PlanWeek {
-  week_number: number;
-  theme: string;
-  workouts: PlanWorkoutEntry[];
-}
+// ── System prompt ────────────────────────────────────────────
 
-interface PlanWorkoutEntry {
-  date: string;
-  day_label: string;
-  description: string;
-  workout: {
-    name: string;
-    warmup: unknown[];
-    blocks: unknown[];
-    cooldown: unknown[];
-  } | null;
-}
-
-// ── System prompt builder ────────────────────────────────────
-
-function buildSystemPrompt(body: RequestBody, weekStart: number, weekEnd: number, totalWeeks: number): string {
+function buildSystemPrompt(body: RequestBody, totalWeeks: number): string {
   const sections: string[] = [];
 
   const raceLabel = body.race_type === 'custom'
     ? `${body.race_distance_meters ?? 'unknown'}m race`
     : body.race_type.replace('_', ' ');
 
-  sections.push(`You are PaceCue's AI running coach. You create structured, periodized training plans for runners preparing for races.
+  sections.push(`You are PaceCue's AI running coach. You create structured, periodized training plan OUTLINES for runners preparing for races.
 
-You are generating weeks ${weekStart} through ${weekEnd} of a ${totalWeeks}-week ${raceLabel} training plan.
+You are generating a ${totalWeeks}-week ${raceLabel} training plan outline.
 
 The plan should follow standard periodization:
 - **Base Building** (first ~30% of weeks): Build aerobic base with easy runs, gradually increasing volume
@@ -82,8 +66,9 @@ The plan should follow standard periodization:
 
 The final workout on race_date should be the race itself.
 
-Each training day should have a specific workout with structured intervals matching the PaceCue format.
-Rest days should have day_label "Rest Day" and null workout.
+IMPORTANT: You are generating an OUTLINE only. Do NOT include detailed workout structures (no intervals, warmup blocks, or cooldown blocks). Just provide day labels and short coaching descriptions. Detailed workouts will be generated separately when the runner is ready for them.
+
+Rest days should have day_label "Rest Day" and a null description.
 
 Keep workout descriptions concise (1-2 sentences) explaining the purpose of that day's session.`);
 
@@ -92,7 +77,10 @@ Keep workout descriptions concise (1-2 sentences) explaining the purpose of that
   if (profile) {
     const parts: string[] = [];
     if (profile.experience_level) parts.push(`Experience: ${profile.experience_level}`);
-    if (profile.typical_run_minutes) parts.push(`Typical run: ${profile.typical_run_minutes} min`);
+    if (profile.typical_run_minutes) {
+      const max = profile.typical_run_minutes_max;
+      parts.push(`Typical run: ${profile.typical_run_minutes}${max ? `–${max}` : ''} min`);
+    }
     if (profile.easy_pace) {
       const m = Math.floor(profile.easy_pace);
       const s = Math.round((profile.easy_pace - m) * 60);
@@ -134,7 +122,7 @@ Keep workout descriptions concise (1-2 sentences) explaining the purpose of that
     sections.push(`## Runner's Recent Training History\n${body.history_summary}\n\nUse this to calibrate the starting volume and intensity appropriately.`);
   }
 
-  // Output schema
+  // Output schema — outline only, no workout objects
   sections.push(`## Output Schema
 
 Respond with ONLY a JSON object (no markdown fences, no extra text) matching:
@@ -144,54 +132,30 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) matching:
     {
       "week_number": number,
       "theme": "string — phase name e.g. 'Base Building Week 1'",
-      "workouts": [
+      "total_miles_target": number — estimated total weekly mileage,
+      "days": [
         {
           "date": "YYYY-MM-DD",
           "day_label": "string — e.g. 'Easy Run', 'Long Run', 'Tempo', 'Intervals', 'Recovery', 'Rest Day', 'Race Day'",
-          "description": "string — 1-2 sentence coaching note",
-          "workout": WorkoutObject | null
+          "description": "string — 1-2 sentence coaching note (null for rest days)"
         }
       ]
     }
   ]
 }
 
-WorkoutObject = {
-  "name": "string — short name",
-  "warmup": [RepeatBlock],
-  "blocks": [RepeatBlock],
-  "cooldown": [RepeatBlock]
-}
-
-RepeatBlock = {
-  "intervals": [Interval],
-  "repeatCount": number,
-  "name": "string (optional) — one of: Sprint, Pace, Tempo, Recovery, Jog, Stride, Threshold, Race Pace, Cruise, Fartlek, Hill, Build Up, Easy Run, Steady, Speed, Endurance"
-}
-
-Interval = {
-  "type": "warmup" | "hard" | "easy" | "cooldown",
-  "durationSeconds": number,
-  "label": "string (optional)",
-  "effort": number (optional, RPE 1-10),
-  "targetPace": number (optional, min/mile e.g. 8.5 = 8:30/mi)
-}
-
 Rules:
-- effort and targetPace are MUTUALLY EXCLUSIVE per interval. Use at most one.
-- If the runner has pace data, prefer targetPace for hard/tempo intervals.
-- Rest days: day_label = "Rest Day", workout = null.
-- Each week should have exactly ${body.days_per_week} training days plus rest days to fill the week.
+- Do NOT include workout objects, intervals, warmup/cooldown blocks, or any detailed workout structure.
+- Rest days: day_label = "Rest Day", description = null.
+- Each week should have exactly ${body.days_per_week} training days plus rest days to fill the week (7 days total).
 - Dates must be real calendar dates starting from the plan start date.
-- durationSeconds must be a positive integer.
-- repeatCount must be a positive integer (1 = no repeat).
-- warmup and cooldown can be empty [].
-- blocks must have at least one RepeatBlock for non-rest days.`);
+- total_miles_target should be a reasonable weekly mileage for the runner's experience level and training phase.
+- The final day (race_date) should be the race itself with day_label "Race Day".`);
 
   return sections.join("\n\n");
 }
 
-// ── Compute total weeks and date ranges ──────────────────────
+// ── Compute total weeks ──────────────────────────────────────
 
 function weeksBetween(startDate: string, endDate: string): number {
   const start = new Date(startDate);
@@ -222,67 +186,40 @@ Deno.serve(async (req) => {
     }
 
     const totalWeeks = weeksBetween(body.start_date, body.race_date);
-    const CHUNK_SIZE = 4;
-    const allWeeks: PlanWeek[] = [];
+    const systemPrompt = buildSystemPrompt(body, totalWeeks);
 
-    // Generate in chunks to stay within token limits
-    for (let chunkStart = 1; chunkStart <= totalWeeks; chunkStart += CHUNK_SIZE) {
-      const chunkEnd = Math.min(chunkStart + CHUNK_SIZE - 1, totalWeeks);
-      const systemPrompt = buildSystemPrompt(body, chunkStart, chunkEnd, totalWeeks);
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Generate the full ${totalWeeks}-week training plan outline.` },
+        ],
+        temperature: 0.7,
+        max_tokens: 16384,
+        response_format: { type: "json_object" },
+      }),
+    });
 
-      // Build a context message about what has already been generated
-      const contextMessages: { role: string; content: string }[] = [
-        { role: "system", content: systemPrompt },
-      ];
-
-      if (allWeeks.length > 0) {
-        const summary = allWeeks.map((w) =>
-          `Week ${w.week_number} (${w.theme}): ${w.workouts.filter(wo => wo.workout).length} training days`
-        ).join("\n");
-        contextMessages.push({
-          role: "user",
-          content: `Previously generated plan summary:\n${summary}\n\nNow generate weeks ${chunkStart} to ${chunkEnd}.`,
-        });
-      } else {
-        contextMessages.push({
-          role: "user",
-          content: `Generate weeks ${chunkStart} to ${chunkEnd} of the training plan.`,
-        });
-      }
-
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o",
-          messages: contextMessages,
-          temperature: 0.7,
-          max_tokens: 4096,
-          response_format: { type: "json_object" },
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("OpenAI error:", response.status, errorText);
-        throw new Error(`OpenAI API error: ${response.status}`);
-      }
-
-      const completion = await response.json();
-      const content = completion.choices?.[0]?.message?.content;
-
-      if (!content) {
-        throw new Error("No response from OpenAI");
-      }
-
-      const result = JSON.parse(content);
-      if (result.weeks && Array.isArray(result.weeks)) {
-        allWeeks.push(...result.weeks);
-      }
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("OpenAI error:", response.status, errorText);
+      throw new Error(`OpenAI API error: ${response.status}`);
     }
+
+    const completion = await response.json();
+    const content = completion.choices?.[0]?.message?.content;
+
+    if (!content) {
+      throw new Error("No response from OpenAI");
+    }
+
+    const result = JSON.parse(content);
 
     // Build title
     const raceLabel = body.race_type === 'custom'
@@ -292,12 +229,12 @@ Deno.serve(async (req) => {
     const title = `${raceLabel} Training - ${raceMonth}`;
 
     return new Response(
-      JSON.stringify({ title, weeks: allWeeks }),
+      JSON.stringify({ title, weeks: result.weeks }),
       { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal server error";
-    console.error("generate-plan error:", err);
+    console.error("generate-plan-outline error:", err);
     return new Response(
       JSON.stringify({ error: message }),
       { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }

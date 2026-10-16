@@ -28,7 +28,7 @@ import type { StatsSnapshot } from '../../../src/stats/personalRecords';
 import { RecordsGrid, AwardsList, LifetimeStats } from '../../../src/components/PersonalBests';
 import { ProgressChart } from '../../../src/components/ProgressChart';
 import { WorkoutPickerModal } from '../../../src/components/WorkoutPickerModal';
-import { addWorkoutToCalendar } from '../../../src/ai/planService';
+import { addWorkoutToCalendar, generateWorkoutDetails } from '../../../src/ai/planService';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 
 type ViewMode = 'calendar' | 'list' | 'stats';
@@ -107,6 +107,14 @@ export default function TrainingScreen() {
   const handleRunAgain = useCallback((workoutId: string) => {
     router.push(`/workout/run/${workoutId}`);
   }, [router]);
+
+  const handleGenerateDetail = useCallback(async (workoutId: string) => {
+    if (!plan) return;
+    const pw = planWorkouts.find((w) => w.id === workoutId);
+    if (!pw) return;
+    await generateWorkoutDetails(plan, [pw]);
+    await refresh();
+  }, [plan, planWorkouts, refresh]);
 
   const handleAddWorkout = useCallback((date: string) => {
     setPickerDate(date);
@@ -242,6 +250,7 @@ export default function TrainingScreen() {
             onViewRun={handleViewRun}
             onRunAgain={handleRunAgain}
             onAddWorkout={plan ? handleAddWorkout : undefined}
+            onGenerateDetail={plan ? handleGenerateDetail : undefined}
           />
 
           {/* AI Chat FAB (when plan exists) */}

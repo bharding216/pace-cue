@@ -21,6 +21,7 @@ import {
   skipPlanWorkout as skipPlanWorkoutApi,
   completePlanWorkout as completePlanWorkoutApi,
   archivePlan as archivePlanApi,
+  ensureUpcomingWorkoutsDetailed,
 } from '../ai/planService';
 import { loadHistory } from '../workout/workoutStorage';
 
@@ -94,6 +95,7 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
   const [history, setHistory] = useState<CompletedWorkout[]>([]);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnce = useRef(false);
+  const isGeneratingDetails = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!hasLoadedOnce.current) setLoading(true);
@@ -116,6 +118,20 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
       if (activePlan) {
         const workouts = await loadPlanWorkouts(activePlan.id);
         setPlanWorkouts(workouts);
+
+        // Auto-fill upcoming workout details in the background
+        if (!isGeneratingDetails.current) {
+          isGeneratingDetails.current = true;
+          ensureUpcomingWorkoutsDetailed(activePlan, workouts)
+            .then((updated) => {
+              if (updated !== workouts) {
+                setPlanWorkouts(updated);
+              }
+            })
+            .finally(() => {
+              isGeneratingDetails.current = false;
+            });
+        }
       } else {
         setPlanWorkouts([]);
       }
