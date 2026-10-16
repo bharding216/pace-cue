@@ -51,7 +51,10 @@ import { hapticTap } from '../../../src/audio/haptics';
 import { setDuckingEnabled, setVoiceIdentifier } from '../../../src/audio/audioManager';
 import { TagPicker } from '../../../src/components/TagPicker';
 import { RouteMap } from '../../../src/components/RouteMap';
-import { updateHistoryEntry } from '../../../src/workout/workoutStorage';
+import { NewRecordsBanner } from '../../../src/components/PersonalBests';
+import { updateHistoryEntry, loadHistory } from '../../../src/workout/workoutStorage';
+import { detectNewRecords, detectNewAwards, computeStats } from '../../../src/stats/personalRecords';
+import type { PersonalRecord, AwardBadge } from '../../../src/stats/personalRecords';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -111,8 +114,23 @@ function ActiveWorkoutInner({
   const runner = useWorkoutRunner(workout, settings);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [newRecords, setNewRecords] = useState<PersonalRecord[]>([]);
+  const [newAwards, setNewAwards] = useState<AwardBadge[]>([]);
+  const [allRecords, setAllRecords] = useState<PersonalRecord[]>([]);
 
   const { state } = runner;
+
+  // Detect new personal records when the workout finishes
+  useEffect(() => {
+    if (state.phase !== 'finished' || !runner.completedEntryId) return;
+    loadHistory().then((history) => {
+      const records = detectNewRecords(history, runner.completedEntryId!);
+      const awards = detectNewAwards(history, runner.completedEntryId!);
+      setNewRecords(records);
+      setNewAwards(awards);
+      setAllRecords(computeStats(history).records);
+    }).catch(() => {});
+  }, [state.phase, runner.completedEntryId]);
 
   // Save tags to the completed history entry whenever they change
   useEffect(() => {
@@ -239,6 +257,9 @@ function ActiveWorkoutInner({
         <Text style={styles.doneTitle}>Workout Complete!</Text>
         <Text style={styles.doneWorkoutName}>{workout.name}</Text>
 
+        {/* New records and awards celebration */}
+        <NewRecordsBanner records={newRecords} awards={newAwards} />
+
         <View style={styles.doneStatBlock}>
           <Text style={styles.doneStatLabel}>Total time</Text>
           <Text style={styles.doneDuration}>
@@ -259,7 +280,7 @@ function ActiveWorkoutInner({
             </View>
           )}
 
-        {/* Route map */}
+        {/* Route map with PB markers */}
         {runner.completedRoute && runner.completedRoute.length >= 2 && (
           <View style={styles.routeMapSection}>
             <RouteMap
@@ -267,6 +288,7 @@ function ActiveWorkoutInner({
               splits={runner.completedSplits ?? undefined}
               paceUnit={settings.paceUnit}
               height={280}
+              records={allRecords}
             />
           </View>
         )}

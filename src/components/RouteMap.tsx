@@ -13,6 +13,7 @@ import MapView, { Marker, Polyline, type Region } from 'react-native-maps';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { RoutePoint, IntervalSplit } from '../workout/workoutTypes';
 import type { PaceUnit } from '../pace/paceTypes';
+import type { PersonalRecord } from '../stats/personalRecords';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 
 // ── Pace heatmap color ramp (fast → slow) ────────────────────────────
@@ -45,7 +46,7 @@ interface IntervalMarker {
   color: string;
 }
 
-type MapOverlay = 'route' | 'pace';
+type MapOverlay = 'route' | 'pace' | 'records';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -185,12 +186,54 @@ function buildIntervalMarkers(
 
 // ── Component ────────────────────────────────────────────────────────
 
+/** Marker to show on the map where a PB distance was hit. */
+interface PbDistanceMarker {
+  coordinate: Coord;
+  label: string; // e.g. "Fastest Mile"
+  displayValue: string; // e.g. "7:23"
+}
+
+/** Build PB distance markers from route data and personal records. */
+function buildPbMarkers(
+  route: RoutePoint[],
+  records: PersonalRecord[],
+): PbDistanceMarker[] {
+  const DISTANCE_CATEGORIES: Record<string, number> = {
+    fastest_mile: 1609.344,
+    fastest_5k: 5000,
+    fastest_10k: 10000,
+    fastest_half_marathon: 21097,
+  };
+
+  const markers: PbDistanceMarker[] = [];
+  for (const record of records) {
+    const targetMeters = DISTANCE_CATEGORIES[record.category];
+    if (!targetMeters) continue;
+    if (route[route.length - 1].dist < targetMeters) continue;
+
+    // Find the route point where this distance was reached
+    for (let i = 1; i < route.length; i++) {
+      if (route[i].dist >= targetMeters) {
+        markers.push({
+          coordinate: toCoord(route[i]),
+          label: record.label,
+          displayValue: record.displayValue,
+        });
+        break;
+      }
+    }
+  }
+  return markers;
+}
+
 interface RouteMapProps {
   route: RoutePoint[];
   splits?: IntervalSplit[];
   paceUnit?: PaceUnit;
   height?: number;
   width?: number;
+  /** Personal records to show as markers on the route. */
+  records?: PersonalRecord[];
 }
 
 export function RouteMap({
@@ -198,6 +241,7 @@ export function RouteMap({
   splits,
   paceUnit = 'minPerMile',
   height = 250,
+  records,
 }: RouteMapProps) {
   const mapRef = useRef<MapView>(null);
   const [overlay, setOverlay] = useState<MapOverlay>('route');
@@ -216,6 +260,13 @@ export function RouteMap({
     () => (splits && splits.length > 0 ? buildIntervalMarkers(route, splits) : []),
     [route, splits],
   );
+
+  const pbMarkers = useMemo(
+    () => (records && records.length > 0 ? buildPbMarkers(route, records) : []),
+    [route, records],
+  );
+
+  const hasRecords = pbMarkers.length > 0;
 
   const hasPaceData = useMemo(() => {
     if (route.length < 10) return false;
@@ -296,6 +347,32 @@ export function RouteMap({
                 Pace
               </Text>
             </TouchableOpacity>
+
+            {hasRecords && (
+              <TouchableOpacity
+                style={[
+                  styles.toggleBtn,
+                  overlay === 'records' && styles.toggleBtnActive,
+                ]}
+                onPress={() => setOverlay('records')}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="trophy-outline"
+                  size={12}
+                  color={overlay === 'records' ? Colors.warning : Colors.textMuted}
+                />
+                <Text
+                  style={[
+                    styles.toggleLabel,
+                    overlay === 'records' && styles.toggleLabelActive,
+                    overlay === 'records' && { color: Colors.warning },
+                  ]}
+                >
+                  PBs
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </View>
@@ -354,6 +431,23 @@ export function RouteMap({
             </Marker>
           ))}
 
+          {/* PB distance markers */}
+          {overlay === 'records' && pbMarkers.map((m, i) => (
+            <Marker
+              key={`pb-${i}`}
+              coordinate={m.coordinate}
+              anchor={{ x: 0.5, y: 1 }}
+              tracksViewChanges={false}
+            >
+              <View style={styles.pbPinContainer}>
+                <View style={styles.pbPin}>
+                  <Ionicons name="trophy" size={10} color={Colors.black} />
+                </View>
+                <View style={styles.pbPinTail} />
+              </View>
+            </Marker>
+          ))}
+
           {/* Start marker */}
           <Marker
             coordinate={startCoord}
@@ -397,6 +491,25 @@ export function RouteMap({
             ))}
           </View>
           <Text style={styles.legendLabel}>Slow</Text>
+        </View>
+      )}
+
+      {/* PB records legend */}
+      {overlay === 'records' && pbMarkers.length > 0 && (
+        <View style={styles.pbLegend}>
+          {pbMarkers.map((m, i) => (
+            <View key={`pb-legend-${i}`} style={styles.pbLegendItem}>
+              <View style={styles.pbLegendDot}>
+                <Ionicons name="trophy" size={8} color={Colors.black} />
+              </View>
+              <Text style={styles.pbLegendLabel} numberOfLines={1}>
+                {m.label}
+              </Text>
+              <Text style={styles.pbLegendValue}>
+                {m.displayValue}
+              </Text>
+            </View>
+          ))}
         </View>
       )}
 
@@ -530,6 +643,62 @@ const styles = StyleSheet.create({
   legendSwatch: {
     width: 24,
     height: 8,
+  },
+  // PB pin markers
+  pbPinContainer: {
+    alignItems: 'center',
+  },
+  pbPin: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: Colors.warning,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: Colors.white,
+  },
+  pbPinTail: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 4,
+    borderRightWidth: 4,
+    borderTopWidth: 5,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: Colors.warning,
+    marginTop: -2,
+  },
+  // PB legend
+  pbLegend: {
+    marginTop: Spacing.sm,
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.xs,
+  },
+  pbLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  pbLegendDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Colors.warning,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pbLegendLabel: {
+    flex: 1,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
+  pbLegendValue: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.warning,
+    fontVariant: ['tabular-nums'],
   },
   // Interval legend
   intervalLegend: {
