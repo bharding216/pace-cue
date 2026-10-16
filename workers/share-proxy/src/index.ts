@@ -13,6 +13,7 @@
  *   /robots.txt                               → crawler rules
  *   /sitemap.xml                              → sitemap
  *   /llms.txt                                 → LLM-readable summary
+ *   /delete-account                            → account deletion info (Google Play requirement)
  *   /w/<code>                                 → proxy to Supabase share Edge Function
  *   /.well-known/apple-app-site-association   → iOS Universal Links config
  *   /.well-known/assetlinks.json              → Android App Links config
@@ -30,6 +31,7 @@ import { compareRunnaPage } from './pages/compare-runna';
 import { paceCalculatorPage } from './pages/pace-calculator';
 import { beginnerRunWalkPage } from './pages/beginner-run-walk';
 import { audioVsWatchesPage } from './pages/audio-vs-watches';
+import { deleteAccountPage } from './pages/delete-account';
 import { robotsTxt, sitemapXml, llmsTxt } from './static';
 
 const SUPABASE_SHARE_FN =
@@ -97,6 +99,7 @@ const PAGE_ROUTES: Record<string, () => string> = {
   '/compare/pacecue-vs-strava': compareStravaPage,
   '/compare/pacecue-vs-runna': compareRunnaPage,
   '/tools/pace-calculator': paceCalculatorPage,
+  '/delete-account': deleteAccountPage,
 };
 
 // ── Worker ───────────────────────────────────────────────────────────

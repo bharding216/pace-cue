@@ -17,6 +17,7 @@ const PAGES = [
   '/guides/maintain-running-pace',
   '/guides/hands-free-running',
   '/guides/audio-coaching-vs-gps-watches',
+  '/delete-account',
 ];
 
 export function robotsTxt(): Response {
