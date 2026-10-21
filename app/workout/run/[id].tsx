@@ -178,69 +178,131 @@ function ActiveWorkoutInner({
 
   // ── IDLE state ──
   if (state.phase === 'idle') {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <Text style={styles.workoutName}>{workout.name}</Text>
-        <Text style={styles.intervalCount}>
-          {state.intervals.length} intervals
-          {workout.targetDistanceMeters
-            ? ` · ${formatDistanceShort(workout.targetDistanceMeters, settings.paceUnit)} goal`
-            : ` · ${formatTime(state.intervals.reduce((s, i) => s + i.durationSeconds, 0))}`
-          }
-        </Text>
-        {hasDistanceFeature(workout) && (
-          <Text style={styles.gpsNote}>📍 GPS pace tracking will auto-enable</Text>
-        )}
+    // Group intervals by blockNumber for section headers
+    const sections: {
+      blockNumber: number;
+      blockName?: string;
+      totalSets: number;
+      firstType: string;
+      intervals: FlatInterval[];
+    }[] = [];
+    for (const int of state.intervals) {
+      const last = sections[sections.length - 1];
+      if (!last || last.blockNumber !== int.blockNumber) {
+        sections.push({
+          blockNumber: int.blockNumber,
+          blockName: int.blockName,
+          totalSets: int.totalSets,
+          firstType: int.type,
+          intervals: [int],
+        });
+      } else {
+        last.intervals.push(int);
+      }
+    }
 
-        {/* Preview list */}
-        <View style={styles.previewList}>
-          {state.intervals.slice(0, 8).map((int, i) => (
-            <View key={i} style={styles.previewRow}>
-              <View
-                style={[
-                  styles.previewDot,
-                  { backgroundColor: intervalColor(int.type) },
-                ]}
-              />
-              <Text style={styles.previewLabel}>{int.label}</Text>
-              <Text style={styles.previewTime}>
-                {isDistanceInterval(int)
-                  ? formatDistanceShort(int.distanceMeters!, settings.paceUnit)
-                  : formatTime(int.durationSeconds)
-                }
-              </Text>
-            </View>
-          ))}
-          {state.intervals.length > 8 && (
-            <Text style={styles.previewMore}>
-              +{state.intervals.length - 8} more intervals
-            </Text>
+    return (
+      <View style={styles.idleContainer}>
+        {/* Static header */}
+        <View style={styles.idleHeader}>
+          <Text style={styles.workoutName}>{workout.name}</Text>
+          <Text style={styles.intervalCount}>
+            {state.intervals.length} intervals
+            {workout.targetDistanceMeters
+              ? ` · ${formatDistanceShort(workout.targetDistanceMeters, settings.paceUnit)} goal`
+              : ` · ${formatTime(state.intervals.reduce((s, i) => s + i.durationSeconds, 0))}`
+            }
+          </Text>
+          {hasDistanceFeature(workout) && (
+            <Text style={styles.gpsNote}>📍 GPS pace tracking will auto-enable</Text>
           )}
         </View>
 
-        <TouchableOpacity
-          style={styles.bigStartBtn}
-          onPress={() => {
-            hapticTap();
-            runner.start();
-          }}
-          activeOpacity={0.8}
+        {/* Scrollable workout preview */}
+        <ScrollView
+          style={styles.idleScroll}
+          contentContainerStyle={styles.idleScrollContent}
+          showsVerticalScrollIndicator={false}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Ionicons name="play" size={22} color={Colors.black} />
-            <Text style={styles.bigStartText}>START RUN</Text>
-          </View>
-        </TouchableOpacity>
+          {sections.map((section) => {
+            const sectionColor = intervalColor(section.firstType);
+            const sectionLabel =
+              section.blockName ||
+              section.firstType.charAt(0).toUpperCase() + section.firstType.slice(1);
 
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => router.back()}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <Ionicons name="arrow-back" size={16} color={Colors.textMuted} />
-            <Text style={styles.backBtnText}>Back</Text>
-          </View>
-        </TouchableOpacity>
+            return (
+              <View key={section.blockNumber} style={styles.sectionBlock}>
+                {/* Section header */}
+                <View style={styles.sectionHeader}>
+                  <View style={[styles.sectionAccent, { backgroundColor: sectionColor }]} />
+                  <Text style={styles.sectionTitle}>{sectionLabel}</Text>
+                  {section.totalSets > 1 && (
+                    <View style={styles.sectionRepeatBadge}>
+                      <Text style={styles.sectionRepeatText}>×{section.totalSets}</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Intervals in this section */}
+                {section.intervals.map((int) => (
+                  <React.Fragment key={int.index}>
+                    {/* Set divider for repeats */}
+                    {int.isFirstInSet && int.setNumber > 1 && (
+                      <View style={styles.setDivider}>
+                        <View style={styles.setDividerLine} />
+                        <Text style={styles.setDividerText}>
+                          Set {int.setNumber}
+                        </Text>
+                        <View style={styles.setDividerLine} />
+                      </View>
+                    )}
+                    <View style={styles.previewRow}>
+                      <View
+                        style={[
+                          styles.previewDot,
+                          { backgroundColor: intervalColor(int.type) },
+                        ]}
+                      />
+                      <Text style={styles.previewLabel}>{int.label}</Text>
+                      <Text style={styles.previewTime}>
+                        {isDistanceInterval(int)
+                          ? formatDistanceShort(int.distanceMeters!, settings.paceUnit)
+                          : formatTime(int.durationSeconds)}
+                      </Text>
+                    </View>
+                  </React.Fragment>
+                ))}
+              </View>
+            );
+          })}
+        </ScrollView>
+
+        {/* Static footer */}
+        <View style={styles.idleFooter}>
+          <TouchableOpacity
+            style={styles.bigStartBtn}
+            onPress={() => {
+              hapticTap();
+              runner.start();
+            }}
+            activeOpacity={0.8}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="play" size={22} color={Colors.black} />
+              <Text style={styles.bigStartText}>START RUN</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Ionicons name="arrow-back" size={16} color={Colors.textMuted} />
+              <Text style={styles.backBtnText}>Back</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -1233,13 +1295,32 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     paddingTop: 60,
   },
-  centered: {
-    justifyContent: 'center',
+  // ── Idle ──
+  idleContainer: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    paddingTop: 60,
+  },
+  idleHeader: {
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
   },
-
-  // ── Idle ──
+  idleScroll: {
+    flex: 1,
+  },
+  idleScrollContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+  },
+  idleFooter: {
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xxl,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.surfaceLight,
+  },
   workoutName: {
     fontSize: FontSize.xxl,
     fontWeight: '900',
@@ -1258,15 +1339,65 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xl,
     fontWeight: '600',
   },
-  previewList: {
-    width: '100%',
-    maxWidth: 320,
-    marginBottom: Spacing.xl,
+  sectionBlock: {
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    overflow: 'hidden',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    backgroundColor: Colors.surfaceLight,
+    gap: Spacing.sm,
+  },
+  sectionAccent: {
+    width: 4,
+    height: 18,
+    borderRadius: 2,
+  },
+  sectionTitle: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  sectionRepeatBadge: {
+    backgroundColor: Colors.primaryDim,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
+  },
+  sectionRepeatText: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  setDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.sm,
+  },
+  setDividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Colors.textMuted + '44',
+  },
+  setDividerText: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
   },
   previewRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
     gap: Spacing.sm,
   },
   previewDot: {
@@ -1283,12 +1414,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Colors.textSecondary,
     fontVariant: ['tabular-nums'],
-  },
-  previewMore: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    marginTop: Spacing.sm,
   },
   bigStartBtn: {
     backgroundColor: Colors.primary,

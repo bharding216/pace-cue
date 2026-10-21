@@ -26,6 +26,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
+  backgroundColor: '#0A0A0F',
   scheme: IS_DEV ? 'pacecue-dev' : IS_PREVIEW ? 'pacecue-preview' : 'pacecue',
   ios: {
     supportsTablet: false,

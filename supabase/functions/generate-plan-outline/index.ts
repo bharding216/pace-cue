@@ -30,12 +30,18 @@ interface RunnerProfile {
   easy_pace?: number;
   fast_pace?: number;
   race_times?: Record<string, unknown>;
+  weekly_mileage?: number;
+  longest_recent_run_minutes?: number;
+  max_workout_minutes?: number;
+  preferred_days?: string[];
+  cross_training?: string[];
 }
 
 interface RequestBody {
   profile?: RunnerProfile;
   goals?: string[];
   preferences?: string[];
+  limitations?: string[];
   race_type: string;
   race_distance_meters?: number | null;
   race_date: string;
@@ -45,32 +51,39 @@ interface RequestBody {
   history_summary?: string | null;
 }
 
+// ── Plan dimensions ──────────────────────────────────────────
+
+interface PlanDimensions {
+  totalWeeks: number;
+  lastWeekDays: number;
+}
+
+function planDimensions(startDate: string, endDate: string): PlanDimensions {
+  const start = new Date(startDate + 'T00:00:00');
+  const end = new Date(endDate + 'T00:00:00');
+  const totalDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+  const fullWeeks = Math.floor(totalDays / 7);
+  const remaining = totalDays - fullWeeks * 7;
+  return {
+    totalWeeks: remaining > 0 ? fullWeeks + 1 : Math.max(1, fullWeeks),
+    lastWeekDays: remaining > 0 ? remaining : 7,
+  };
+}
+
 // ── System prompt ────────────────────────────────────────────
 
-function buildSystemPrompt(body: RequestBody, totalWeeks: number): string {
+function buildSystemPrompt(body: RequestBody, dims: PlanDimensions): string {
   const sections: string[] = [];
 
   const raceLabel = body.race_type === 'custom'
     ? `${body.race_distance_meters ?? 'unknown'}m race`
     : body.race_type.replace('_', ' ');
 
-  sections.push(`You are PaceCue's AI running coach. You create structured, periodized training plan OUTLINES for runners preparing for races.
+  sections.push(`You are PaceCue's AI running coach creating a ${dims.totalWeeks}-week ${raceLabel} training plan OUTLINE.
 
-You are generating a ${totalWeeks}-week ${raceLabel} training plan outline.
+Follow standard periodization: Base (~30%), Build (~30%), Peak (~25%), Taper (~15%).
 
-The plan should follow standard periodization:
-- **Base Building** (first ~30% of weeks): Build aerobic base with easy runs, gradually increasing volume
-- **Build Phase** (next ~30%): Introduce tempo, speed work, and longer runs; increase intensity
-- **Peak Phase** (next ~25%): Highest volume and intensity; race-specific workouts
-- **Taper** (final ~15%): Reduce volume significantly while maintaining some intensity; fresh legs for race day
-
-The final workout on race_date should be the race itself.
-
-IMPORTANT: You are generating an OUTLINE only. Do NOT include detailed workout structures (no intervals, warmup blocks, or cooldown blocks). Just provide day labels and short coaching descriptions. Detailed workouts will be generated separately when the runner is ready for them.
-
-Rest days should have day_label "Rest Day" and a null description.
-
-Keep workout descriptions concise (1-2 sentences) explaining the purpose of that day's session.`);
+OUTLINE only — no detailed workout structures. Just day labels and short coaching notes.`);
 
   // Runner profile
   const profile = body.profile;
@@ -91,77 +104,107 @@ Keep workout descriptions concise (1-2 sentences) explaining the purpose of that
       const s = Math.round((profile.fast_pace - m) * 60);
       parts.push(`Fast pace: ${m}:${s.toString().padStart(2, "0")}/mi`);
     }
+    if (profile.weekly_mileage) parts.push(`Weekly mileage: ~${profile.weekly_mileage} mi`);
+    if (profile.longest_recent_run_minutes) parts.push(`Longest recent run: ${profile.longest_recent_run_minutes} min`);
+    if (profile.max_workout_minutes) parts.push(`Max workout: ${profile.max_workout_minutes} min`);
     if (parts.length > 0) {
-      sections.push(`## Runner Profile\n${parts.join(" | ")}`);
+      sections.push(`## Runner\n${parts.join(" | ")}`);
+    }
+    if (profile.cross_training?.length) {
+      sections.push(`## Cross Training\n${profile.cross_training.join(", ")}\nAccount for cross-training load when planning recovery.`);
+    }
+    if (profile.preferred_days?.length) {
+      sections.push(`## Preferred Days\n${profile.preferred_days.join(", ")}\nPlace rest days on non-preferred days when possible.`);
     }
   }
 
   // Race details
   const raceParts: string[] = [];
-  raceParts.push(`Race: ${raceLabel}`);
-  raceParts.push(`Race date: ${body.race_date}`);
+  raceParts.push(`Race: ${raceLabel} on ${body.race_date}`);
   if (body.goal_time_minutes) {
     const hrs = Math.floor(body.goal_time_minutes / 60);
     const mins = Math.round(body.goal_time_minutes % 60);
-    raceParts.push(`Goal time: ${hrs > 0 ? `${hrs}h ` : ''}${mins}m`);
+    raceParts.push(`Goal: ${hrs > 0 ? `${hrs}h ` : ''}${mins}m`);
   }
-  raceParts.push(`Training days per week: ${body.days_per_week}`);
-  raceParts.push(`Plan start: ${body.start_date}`);
-  sections.push(`## Race Goal\n${raceParts.join("\n")}`);
+  raceParts.push(`${body.days_per_week} training days/week, start ${body.start_date}`);
+  sections.push(`## Race\n${raceParts.join(" | ")}`);
 
-  // Goals & preferences
   if (body.goals?.length) {
-    sections.push(`## Goals\n${body.goals.map((g) => `- ${g}`).join("\n")}`);
+    sections.push(`## Goals\n${body.goals.join(", ")}`);
   }
   if (body.preferences?.length) {
-    sections.push(`## Preferences\n${body.preferences.map((p) => `- ${p}`).join("\n")}`);
+    sections.push(`## Preferences\n${body.preferences.join(", ")}`);
   }
-
-  // History
+  if (body.limitations?.length) {
+    sections.push(`## Limitations\n${body.limitations.join(", ")}\nIMPORTANT: Respect these — adjust volume, intensity, and rest accordingly.`);
+  }
   if (body.history_summary) {
-    sections.push(`## Runner's Recent Training History\n${body.history_summary}\n\nUse this to calibrate the starting volume and intensity appropriately.`);
+    sections.push(`## History\n${body.history_summary}\nCalibrate starting volume accordingly.`);
   }
 
-  // Output schema — outline only, no workout objects
-  sections.push(`## Output Schema
+  // Compact output schema — dates are assigned server-side, not by the model
+  sections.push(`## Output — COMPACT FORMAT (dates assigned automatically)
 
-Respond with ONLY a JSON object (no markdown fences, no extra text) matching:
+JSON only, no markdown fences:
 
 {
   "weeks": [
     {
-      "week_number": number,
-      "theme": "string — phase name e.g. 'Base Building Week 1'",
-      "total_miles_target": number — estimated total weekly mileage,
+      "theme": "phase name, e.g. Base Building 1",
+      "miles": number,
       "days": [
-        {
-          "date": "YYYY-MM-DD",
-          "day_label": "string — e.g. 'Easy Run', 'Long Run', 'Tempo', 'Intervals', 'Recovery', 'Rest Day', 'Race Day'",
-          "description": "string — 1-2 sentence coaching note (null for rest days)"
-        }
+        ["Easy Run", "30 min conversational effort"],
+        [null],
+        ["Tempo", "20 min at threshold pace"],
+        [null],
+        ["Easy Run", "30 min easy"],
+        ["Long Run", "60 min relaxed"],
+        [null]
       ]
     }
   ]
 }
 
 Rules:
-- Do NOT include workout objects, intervals, warmup/cooldown blocks, or any detailed workout structure.
-- Rest days: day_label = "Rest Day", description = null.
-- Each week should have exactly ${body.days_per_week} training days plus rest days to fill the week (7 days total).
-- Dates must be real calendar dates starting from the plan start date.
-- total_miles_target should be a reasonable weekly mileage for the runner's experience level and training phase.
-- The final day (race_date) should be the race itself with day_label "Race Day".`);
+- Training day = ["label", "short description"]. Rest day = [null].
+- Labels: Easy Run, Long Run, Tempo, Intervals, Recovery, Fartlek, Race Day, etc.
+- Weeks 1–${dims.totalWeeks > 1 ? dims.totalWeeks - 1 : 1}: exactly 7 entries each.${dims.totalWeeks > 1 ? `\n- Week ${dims.totalWeeks}: exactly ${dims.lastWeekDays} entries. Last entry must be ["Race Day", "Race day! Trust your training."].` : ''}
+- ${body.days_per_week} training days per full week; rest days fill remaining slots.
+- miles = reasonable weekly mileage for runner's level and phase.
+- Keep descriptions to one short sentence.`);
 
   return sections.join("\n\n");
 }
 
-// ── Compute total weeks ──────────────────────────────────────
+// ── Expand compact outline into dated format ─────────────────
 
-function weeksBetween(startDate: string, endDate: string): number {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const diffMs = end.getTime() - start.getTime();
-  return Math.max(1, Math.ceil(diffMs / (7 * 24 * 60 * 60 * 1000)));
+interface CompactWeek {
+  theme: string;
+  miles: number;
+  days: ([string, string] | [null])[];
+}
+
+function expandCompactOutline(
+  compactWeeks: CompactWeek[],
+  startDate: string,
+) {
+  const start = new Date(startDate + 'T00:00:00');
+
+  return compactWeeks.map((week, weekIdx) => ({
+    week_number: weekIdx + 1,
+    theme: week.theme,
+    total_miles_target: week.miles,
+    days: week.days.map((day, dayIdx) => {
+      const d = new Date(start);
+      d.setDate(d.getDate() + weekIdx * 7 + dayIdx);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+      if (!day[0]) {
+        return { date: dateStr, day_label: 'Rest Day', description: null };
+      }
+      return { date: dateStr, day_label: day[0], description: day[1] ?? null };
+    }),
+  }));
 }
 
 // ── Handler ──────────────────────────────────────────────────
@@ -185,8 +228,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    const totalWeeks = weeksBetween(body.start_date, body.race_date);
-    const systemPrompt = buildSystemPrompt(body, totalWeeks);
+    const dims = planDimensions(body.start_date, body.race_date);
+    const systemPrompt = buildSystemPrompt(body, dims);
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -198,10 +241,10 @@ Deno.serve(async (req) => {
         model: "gpt-4o-mini",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Generate the full ${totalWeeks}-week training plan outline.` },
+          { role: "user", content: `Generate the ${dims.totalWeeks}-week plan outline.` },
         ],
         temperature: 0.7,
-        max_tokens: 16384,
+        max_tokens: 8192,
         response_format: { type: "json_object" },
       }),
     });
@@ -219,7 +262,10 @@ Deno.serve(async (req) => {
       throw new Error("No response from OpenAI");
     }
 
-    const result = JSON.parse(content);
+    const compact = JSON.parse(content);
+
+    // Expand compact tuples into dated day objects (same shape the client expects)
+    const weeks = expandCompactOutline(compact.weeks, body.start_date);
 
     // Build title
     const raceLabel = body.race_type === 'custom'
@@ -229,7 +275,7 @@ Deno.serve(async (req) => {
     const title = `${raceLabel} Training - ${raceMonth}`;
 
     return new Response(
-      JSON.stringify({ title, weeks: result.weeks }),
+      JSON.stringify({ title, weeks }),
       { headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
     );
   } catch (err: unknown) {

@@ -25,9 +25,15 @@ export interface PlanGenerationInput {
     easy_pace?: number;
     fast_pace?: number;
     race_times?: Record<string, { slow: number | null; avg: number | null; fast: number | null }> | null;
+    weekly_mileage?: number;
+    longest_recent_run_minutes?: number;
+    max_workout_minutes?: number;
+    preferred_days?: string[];
+    cross_training?: string[];
   };
   goals: string[];
   preferences: string[];
+  limitations: string[];
   raceType: RaceType;
   raceDate: string;
   goalTimeMinutes?: number | null;
@@ -100,9 +106,15 @@ export async function generatePlanOutline(input: PlanGenerationInput): Promise<P
         easy_pace: input.profile.easy_pace,
         fast_pace: input.profile.fast_pace,
         race_times: input.profile.race_times,
+        weekly_mileage: input.profile.weekly_mileage,
+        longest_recent_run_minutes: input.profile.longest_recent_run_minutes,
+        max_workout_minutes: input.profile.max_workout_minutes,
+        preferred_days: input.profile.preferred_days,
+        cross_training: input.profile.cross_training,
       },
       goals: input.goals,
       preferences: input.preferences,
+      limitations: input.limitations,
       race_type: input.raceType,
       race_date: input.raceDate,
       goal_time_minutes: input.goalTimeMinutes,
@@ -171,29 +183,31 @@ export async function generateWorkoutDetails(
 
   const result = data as WorkoutDetailResult;
 
-  // Patch each workout's workout_data in the database
-  for (const detail of result.workouts) {
-    const matchingPw = workoutsToDetail.find((pw) => pw.date === detail.date);
-    if (!matchingPw || !detail.workout) continue;
+  // Patch all workouts in parallel
+  await Promise.all(
+    result.workouts.map((detail) => {
+      const matchingPw = workoutsToDetail.find((pw) => pw.date === detail.date);
+      if (!matchingPw || !detail.workout) return Promise.resolve();
 
-    const workoutData = {
-      id: generateId(),
-      name: detail.workout.name,
-      warmup: detail.workout.warmup ?? [],
-      blocks: detail.workout.blocks ?? [],
-      cooldown: detail.workout.cooldown ?? [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+      const workoutData = {
+        id: generateId(),
+        name: detail.workout.name,
+        warmup: detail.workout.warmup ?? [],
+        blocks: detail.workout.blocks ?? [],
+        cooldown: detail.workout.cooldown ?? [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
 
-    await supabase
-      .from('plan_workouts')
-      .update({
-        workout_data: workoutData,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', matchingPw.id);
-  }
+      return supabase
+        .from('plan_workouts')
+        .update({
+          workout_data: workoutData,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', matchingPw.id);
+    })
+  );
 }
 
 /** Also accept profile context for richer detail generation. */
@@ -248,28 +262,30 @@ export async function generateWorkoutDetailsWithProfile(
 
   const result = data as WorkoutDetailResult;
 
-  for (const detail of result.workouts) {
-    const matchingPw = workoutsToDetail.find((pw) => pw.date === detail.date);
-    if (!matchingPw || !detail.workout) continue;
+  await Promise.all(
+    result.workouts.map((detail) => {
+      const matchingPw = workoutsToDetail.find((pw) => pw.date === detail.date);
+      if (!matchingPw || !detail.workout) return Promise.resolve();
 
-    const workoutData = {
-      id: generateId(),
-      name: detail.workout.name,
-      warmup: detail.workout.warmup ?? [],
-      blocks: detail.workout.blocks ?? [],
-      cooldown: detail.workout.cooldown ?? [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+      const workoutData = {
+        id: generateId(),
+        name: detail.workout.name,
+        warmup: detail.workout.warmup ?? [],
+        blocks: detail.workout.blocks ?? [],
+        cooldown: detail.workout.cooldown ?? [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
 
-    await supabase
-      .from('plan_workouts')
-      .update({
-        workout_data: workoutData,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', matchingPw.id);
-  }
+      return supabase
+        .from('plan_workouts')
+        .update({
+          workout_data: workoutData,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', matchingPw.id);
+    })
+  );
 }
 
 // ── Auto-fill upcoming workouts ─────────────────────────────
@@ -397,13 +413,6 @@ export async function savePlanOutline(
   input: PlanGenerationInput,
   result: PlanOutlineResult,
 ): Promise<{ plan: TrainingPlan; workouts: PlanWorkout[] }> {
-  // Archive any existing active plan
-  await supabase
-    .from('training_plans')
-    .update({ status: 'archived', updated_at: new Date().toISOString() })
-    .eq('user_id', userId)
-    .eq('status', 'active');
-
   // Insert the plan with outline stored for future detail generation context
   const { data: planData, error: planError } = await supabase
     .from('training_plans')
@@ -455,21 +464,27 @@ export async function savePlanOutline(
   };
 }
 
-/** Load the user's active training plan. */
+/** Load the user's active training plan (first non-custom, for backward compat). */
 export async function loadActivePlan(userId: string): Promise<TrainingPlan | null> {
+  const plans = await loadActivePlans(userId);
+  return plans.find((p) => p.race_type !== 'custom') ?? plans[0] ?? null;
+}
+
+/** Load ALL active training plans for a user. */
+export async function loadActivePlans(userId: string): Promise<TrainingPlan[]> {
   const { data, error } = await supabase
     .from('training_plans')
     .select('*')
     .eq('user_id', userId)
     .eq('status', 'active')
-    .maybeSingle();
+    .order('created_at', { ascending: false });
 
   if (error) {
-    console.warn('Failed to load active plan:', error);
-    return null;
+    console.warn('Failed to load active plans:', error);
+    return [];
   }
 
-  return data as TrainingPlan | null;
+  return (data ?? []) as TrainingPlan[];
 }
 
 /** Load all workouts for a given plan. */
@@ -486,6 +501,56 @@ export async function loadPlanWorkouts(planId: string): Promise<PlanWorkout[]> {
   }
 
   return (data ?? []) as PlanWorkout[];
+}
+
+/** Load all plan workouts for a user across all plans (active + archived). */
+export async function loadUserPlanWorkouts(userId: string): Promise<PlanWorkout[]> {
+  const { data, error } = await supabase
+    .from('plan_workouts')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date');
+
+  if (error) {
+    console.warn('Failed to load user plan workouts:', error);
+    return [];
+  }
+
+  return (data ?? []) as PlanWorkout[];
+}
+
+/**
+ * Ensure the user has an active plan — returns the existing one, or
+ * creates a lightweight "custom" plan so workouts can be scheduled on
+ * the calendar without going through the AI plan builder.
+ */
+export async function ensureCustomPlan(userId: string): Promise<TrainingPlan> {
+  // Look for an existing custom plan (not race plans) to attach manual workouts to
+  const plans = await loadActivePlans(userId);
+  const existing = plans.find((p) => p.race_type === 'custom');
+  if (existing) return existing;
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const { data, error } = await supabase
+    .from('training_plans')
+    .insert({
+      user_id: userId,
+      title: 'My Training Calendar',
+      race_type: 'custom',
+      race_date: today,
+      start_date: today,
+      days_per_week: 5,
+      status: 'active',
+    })
+    .select()
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Failed to create calendar plan');
+  }
+
+  return data as TrainingPlan;
 }
 
 /** Load plan workouts within a date range (for calendar views). */
@@ -544,47 +609,61 @@ export async function skipPlanWorkout(workoutId: string): Promise<void> {
   }
 }
 
+/** Remove a plan workout from the calendar entirely. */
+export async function removePlanWorkout(workoutId: string): Promise<void> {
+  const { error } = await supabase
+    .from('plan_workouts')
+    .delete()
+    .eq('id', workoutId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 /** Apply modifications from the adjust-plan edge function. */
 export async function applyPlanModifications(
   planId: string,
   modifications: PlanModification[],
 ): Promise<void> {
-  for (const mod of modifications) {
-    if (mod.action === 'skip') {
-      // Mark as skipped by date
-      await supabase
-        .from('plan_workouts')
-        .update({
-          status: 'skipped',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('plan_id', planId)
-        .eq('date', mod.date);
-    } else if (mod.action === 'update') {
-      const workoutData = mod.workout
-        ? {
-            id: generateId(),
-            name: mod.workout.name,
-            warmup: mod.workout.warmup ?? [],
-            blocks: mod.workout.blocks ?? [],
-            cooldown: mod.workout.cooldown ?? [],
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          }
-        : null;
+  await Promise.all(
+    modifications.map((mod) => {
+      if (mod.action === 'skip') {
+        return supabase
+          .from('plan_workouts')
+          .update({
+            status: 'skipped',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('plan_id', planId)
+          .eq('date', mod.date);
+      } else if (mod.action === 'update') {
+        const workoutData = mod.workout
+          ? {
+              id: generateId(),
+              name: mod.workout.name,
+              warmup: mod.workout.warmup ?? [],
+              blocks: mod.workout.blocks ?? [],
+              cooldown: mod.workout.cooldown ?? [],
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            }
+          : null;
 
-      await supabase
-        .from('plan_workouts')
-        .update({
-          day_label: mod.day_label ?? undefined,
-          description: mod.description ?? undefined,
-          workout_data: workoutData,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('plan_id', planId)
-        .eq('date', mod.date);
-    }
-  }
+        return supabase
+          .from('plan_workouts')
+          .update({
+            day_label: mod.day_label ?? undefined,
+            description: mod.description ?? undefined,
+            workout_data: workoutData,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('plan_id', planId)
+          .eq('date', mod.date);
+      }
+      return Promise.resolve();
+    })
+  );
 }
 
 /** Add a custom workout to the plan calendar on a specific date. */

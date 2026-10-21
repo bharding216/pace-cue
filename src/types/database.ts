@@ -46,7 +46,8 @@ export type Profile = {
 export type RunningPreferenceCategory =
   | 'goal'
   | 'preference'
-  | 'general';
+  | 'general'
+  | 'limitation';
 
 export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced';
 
@@ -69,6 +70,11 @@ export type RunningProfile = {
   easy_pace: number | null; // min/mile e.g. 10.0
   fast_pace: number | null; // min/mile e.g. 7.5
   race_times: RaceTimes | null;
+  weekly_mileage: number | null; // typical miles per week
+  longest_recent_run_minutes: number | null; // longest run in recent weeks
+  max_workout_minutes: number | null; // maximum single workout duration
+  preferred_days: string[] | null; // e.g. ['monday','wednesday','friday','saturday']
+  cross_training: string[] | null; // e.g. ['strength','cycling','yoga']
   created_at: string;
   updated_at: string;
 };

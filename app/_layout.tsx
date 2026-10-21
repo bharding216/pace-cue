@@ -153,7 +153,7 @@ function RootLayoutInner() {
       >
         <Stack.Screen
           name="(tabs)"
-          options={{ headerShown: false, headerBackTitle: 'Training' }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="run/[id]"
@@ -198,7 +198,7 @@ function RootLayoutInner() {
 
 export default function RootLayout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0A0A0F' }}>
       <AuthProvider>
         <SubscriptionProvider>
           <TrainingPlanProvider>

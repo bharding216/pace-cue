@@ -47,16 +47,33 @@ const GOAL_PRESETS = [
 ];
 
 const PREFERENCE_PRESETS = [
-  'Keep workouts under 30 minutes',
-  'Keep workouts under 45 minutes',
-  'I prefer shorter, intense intervals',
-  'I prefer longer tempo efforts',
+  'I prefer intervals over steady runs',
+  'I prefer steady runs over intervals',
+  'Time-based workouts (not distance)',
+  'Distance-based workouts (not time)',
+  'Pace-based targets',
+  'Effort/RPE-based targets',
   'Include walking recovery',
   'Include hill work',
   'No walking — jog recovery only',
   'Focus on negative splits',
   'I like progressive builds',
   'Minimal warmup / cooldown',
+  'Keep workouts under 30 minutes',
+  'Keep workouts under 45 minutes',
+];
+
+const LIMITATION_PRESETS = [
+  'Recovering from injury',
+  'Knee pain / issues',
+  'Shin splints',
+  'Plantar fasciitis',
+  'IT band issues',
+  'Back pain',
+  'Returning after time off',
+  "Can't run on consecutive days",
+  'Treadmill only (weather limited)',
+  'Limited to flat routes',
 ];
 
 const EXPERIENCE_LEVELS: { value: ExperienceLevel; label: string; desc: string }[] = [
@@ -70,6 +87,35 @@ const DURATION_PRESETS = [
   { label: '30–45 min', min: 30, max: 45 },
   { label: '45–60 min', min: 45, max: 60 },
   { label: '60–90 min', min: 60, max: 90 },
+];
+
+const MAX_DURATION_PRESETS = [
+  { label: '30 min', value: 30 },
+  { label: '45 min', value: 45 },
+  { label: '60 min', value: 60 },
+  { label: '90 min', value: 90 },
+  { label: '2 hours', value: 120 },
+];
+
+const DAYS_OF_WEEK = [
+  { key: 'monday', label: 'Mon' },
+  { key: 'tuesday', label: 'Tue' },
+  { key: 'wednesday', label: 'Wed' },
+  { key: 'thursday', label: 'Thu' },
+  { key: 'friday', label: 'Fri' },
+  { key: 'saturday', label: 'Sat' },
+  { key: 'sunday', label: 'Sun' },
+];
+
+const CROSS_TRAINING_OPTIONS: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'strength', label: 'Strength', icon: 'barbell-outline' },
+  { key: 'cycling', label: 'Cycling', icon: 'bicycle-outline' },
+  { key: 'swimming', label: 'Swimming', icon: 'water-outline' },
+  { key: 'yoga', label: 'Yoga / Stretching', icon: 'body-outline' },
+  { key: 'walking', label: 'Walking', icon: 'walk-outline' },
+  { key: 'hiking', label: 'Hiking', icon: 'trail-sign-outline' },
+  { key: 'hiit', label: 'HIIT / CrossFit', icon: 'flame-outline' },
+  { key: 'rowing', label: 'Rowing', icon: 'boat-outline' },
 ];
 
 // ── Pace helpers (decimal ↔ MM:SS) ──────────────────────────
@@ -368,6 +414,11 @@ export default function RunningProfileScreen() {
             easy_pace: null,
             fast_pace: null,
             race_times: null,
+            weekly_mileage: null,
+            longest_recent_run_minutes: null,
+            max_workout_minutes: null,
+            preferred_days: [],
+            cross_training: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             ...updates,
@@ -469,6 +520,7 @@ export default function RunningProfileScreen() {
 
   const goals = preferences.filter((p) => p.category === 'goal');
   const prefs = preferences.filter((p) => p.category === 'preference');
+  const limitations = preferences.filter((p) => p.category === 'limitation');
 
   return (
     <ScrollView
@@ -506,6 +558,54 @@ export default function RunningProfileScreen() {
               <Text style={styles.levelDesc}>{level.desc}</Text>
             </TouchableOpacity>
           ))}
+        </View>
+      </View>
+
+      {/* Current Fitness */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Current Fitness</Text>
+        <Text style={styles.sectionSub}>
+          Help the AI calibrate your starting point.
+        </Text>
+        <View style={styles.fitnessRow}>
+          <View style={styles.fitnessInput}>
+            <Text style={styles.paceLabel}>Weekly mileage</Text>
+            <View style={styles.fieldWithUnit}>
+              <TextInput
+                style={[styles.paceField, { flex: 1 }]}
+                value={profile?.weekly_mileage != null ? String(profile.weekly_mileage) : ''}
+                onChangeText={(v) => {
+                  const n = parseFloat(v);
+                  if (!v.trim()) updateProfile({ weekly_mileage: null } as Partial<RunningProfile>);
+                  else if (!isNaN(n) && n > 0) updateProfile({ weekly_mileage: n } as Partial<RunningProfile>);
+                }}
+                placeholder="e.g. 20"
+                placeholderTextColor={Colors.textMuted}
+                keyboardType="numeric"
+                maxLength={5}
+              />
+              <Text style={styles.fieldUnit}>mi/wk</Text>
+            </View>
+          </View>
+          <View style={styles.fitnessInput}>
+            <Text style={styles.paceLabel}>Longest recent run</Text>
+            <View style={styles.fieldWithUnit}>
+              <TextInput
+                style={[styles.paceField, { flex: 1 }]}
+                value={profile?.longest_recent_run_minutes != null ? String(profile.longest_recent_run_minutes) : ''}
+                onChangeText={(v) => {
+                  const n = parseInt(v, 10);
+                  if (!v.trim()) updateProfile({ longest_recent_run_minutes: null } as Partial<RunningProfile>);
+                  else if (!isNaN(n) && n > 0) updateProfile({ longest_recent_run_minutes: n } as Partial<RunningProfile>);
+                }}
+                placeholder="e.g. 60"
+                placeholderTextColor={Colors.textMuted}
+                keyboardType="number-pad"
+                maxLength={3}
+              />
+              <Text style={styles.fieldUnit}>min</Text>
+            </View>
+          </View>
         </View>
       </View>
 
@@ -610,6 +710,64 @@ export default function RunningProfileScreen() {
         </View>
       </View>
 
+      {/* Availability */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Availability</Text>
+        <Text style={styles.sectionSub}>
+          Which days work best for training?
+        </Text>
+        <View style={styles.dayChipsRow}>
+          {DAYS_OF_WEEK.map((day) => {
+            const selected = (profile?.preferred_days ?? []).includes(day.key);
+            return (
+              <TouchableOpacity
+                key={day.key}
+                style={[styles.dayChip, selected && styles.dayChipActive]}
+                onPress={() => {
+                  hapticTap();
+                  const current: string[] = profile?.preferred_days ?? [];
+                  const updated = selected
+                    ? current.filter((d) => d !== day.key)
+                    : [...current, day.key];
+                  updateProfile({ preferred_days: updated } as Partial<RunningProfile>);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.dayChipText, selected && styles.dayChipTextActive]}>
+                  {day.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={[styles.paceLabel, { marginTop: Spacing.md }]}>
+          Maximum workout duration
+        </Text>
+        <View style={styles.chipRow}>
+          {MAX_DURATION_PRESETS.map((preset) => {
+            const isActive = profile?.max_workout_minutes === preset.value;
+            return (
+              <TouchableOpacity
+                key={preset.value}
+                style={[styles.durationChip, isActive && styles.durationChipActive]}
+                onPress={() => {
+                  hapticTap();
+                  updateProfile({
+                    max_workout_minutes: isActive ? null : preset.value,
+                  } as Partial<RunningProfile>);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.durationChipText, isActive && styles.durationChipTextActive]}>
+                  {preset.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
       {/* Race Times */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Race Times</Text>
@@ -627,6 +785,53 @@ export default function RunningProfileScreen() {
         ))}
       </View>
 
+      {/* Cross Training */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Cross Training</Text>
+        <Text style={styles.sectionSub}>
+          Other activities you do regularly — helps the AI balance your load.
+        </Text>
+        <View style={styles.crossGrid}>
+          {CROSS_TRAINING_OPTIONS.map((opt) => {
+            const selected = (profile?.cross_training ?? []).includes(opt.key);
+            return (
+              <TouchableOpacity
+                key={opt.key}
+                style={[styles.crossChip, selected && styles.crossChipActive]}
+                onPress={() => {
+                  hapticTap();
+                  const current: string[] = profile?.cross_training ?? [];
+                  const updated = selected
+                    ? current.filter((k) => k !== opt.key)
+                    : [...current, opt.key];
+                  updateProfile({ cross_training: updated } as Partial<RunningProfile>);
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={opt.icon}
+                  size={18}
+                  color={selected ? Colors.primary : Colors.textMuted}
+                />
+                <Text style={[styles.crossChipText, selected && styles.crossChipTextActive]}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Limitations */}
+      <PreferenceSection
+        title="Limitations & Considerations"
+        category="limitation"
+        items={limitations}
+        userId={user.id}
+        onChanged={fetchData}
+        presets={LIMITATION_PRESETS}
+      />
+
       {/* Goals */}
       <PreferenceSection
         title="Goals"
@@ -639,7 +844,7 @@ export default function RunningProfileScreen() {
 
       {/* Preferences */}
       <PreferenceSection
-        title="Training Preferences"
+        title="Training Style"
         category="preference"
         items={prefs}
         userId={user.id}
@@ -775,6 +980,83 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.textMuted,
     marginTop: 2,
+  },
+
+  // Current fitness
+  fitnessRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  fitnessInput: {
+    flex: 1,
+  },
+  fieldWithUnit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  fieldUnit: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+
+  // Day chips (availability)
+  dayChipsRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  dayChip: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.sm + 2,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    borderWidth: 2,
+    borderColor: Colors.surfaceLight,
+  },
+  dayChipActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '15',
+  },
+  dayChipText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  dayChipTextActive: {
+    color: Colors.primary,
+  },
+
+  // Cross training grid
+  crossGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  crossChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+  },
+  crossChipActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '12',
+  },
+  crossChipText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  crossChipTextActive: {
+    color: Colors.primary,
   },
 
   // Duration chips

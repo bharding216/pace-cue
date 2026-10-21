@@ -1,52 +1,57 @@
 /**
  * WorkoutPickerModal — bottom sheet to pick a workout from the user's library
  * for adding to a specific calendar date.
+ *
+ * Features: text search, category filter chips (distance / timed / intervals),
+ * and a "Create New Workout" action.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   Modal,
   FlatList,
   ActivityIndicator,
+  Keyboard,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   WorkoutDefinition,
+  WorkoutCategory,
   totalWorkoutSeconds,
   formatTime,
   flattenWorkout,
   categorizeWorkout,
 } from '../workout/workoutTypes';
 import { loadWorkouts } from '../workout/workoutStorage';
-import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../constants/theme';
+import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 
 interface WorkoutPickerModalProps {
   visible: boolean;
   date: string;
   onSelect: (workout: WorkoutDefinition) => void;
+  onCreateNew: () => void;
   onClose: () => void;
 }
 
-function categoryIcon(cat: string): React.ComponentProps<typeof Ionicons>['name'] {
-  switch (cat) {
-    case 'distance': return 'navigate';
-    case 'timed': return 'timer-outline';
-    case 'intervals': return 'repeat';
-    default: return 'barbell-outline';
-  }
-}
+// ── Category helpers ─────────────────────────────────────────
+
+const CATEGORIES: { key: WorkoutCategory; label: string; icon: React.ComponentProps<typeof Ionicons>['name']; color: string }[] = [
+  { key: 'distance', label: 'Distance', icon: 'navigate', color: Colors.accent },
+  { key: 'timed', label: 'Timed', icon: 'timer-outline', color: Colors.primary },
+  { key: 'intervals', label: 'Intervals', icon: 'repeat', color: Colors.warning },
+];
 
 function categoryColor(cat: string): string {
-  switch (cat) {
-    case 'distance': return Colors.accent;
-    case 'timed': return Colors.primary;
-    case 'intervals': return Colors.warning;
-    default: return Colors.textSecondary;
-  }
+  return CATEGORIES.find((c) => c.key === cat)?.color ?? Colors.textSecondary;
+}
+
+function categoryIcon(cat: string): React.ComponentProps<typeof Ionicons>['name'] {
+  return CATEGORIES.find((c) => c.key === cat)?.icon ?? 'barbell-outline';
 }
 
 function formatDateDisplay(dateStr: string): string {
@@ -58,23 +63,59 @@ function formatDateDisplay(dateStr: string): string {
   });
 }
 
+// ── Component ────────────────────────────────────────────────
+
 export function WorkoutPickerModal({
   visible,
   date,
   onSelect,
+  onCreateNew,
   onClose,
 }: WorkoutPickerModalProps) {
   const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [activeCategory, setActiveCategory] = useState<WorkoutCategory | null>(null);
 
   useEffect(() => {
     if (!visible) return;
     setLoading(true);
+    setSearch('');
+    setActiveCategory(null);
     loadWorkouts().then((data) => {
       setWorkouts(data);
       setLoading(false);
     });
   }, [visible]);
+
+  const filtered = useMemo(() => {
+    let list = workouts;
+
+    if (activeCategory) {
+      list = list.filter((w) => categorizeWorkout(w) === activeCategory);
+    }
+
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter((w) => w.name.toLowerCase().includes(q));
+    }
+
+    return list;
+  }, [workouts, activeCategory, search]);
+
+  // Count per category for the chip badges
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const w of workouts) {
+      const cat = categorizeWorkout(w);
+      counts[cat] = (counts[cat] ?? 0) + 1;
+    }
+    return counts;
+  }, [workouts]);
+
+  const handleCategoryToggle = (cat: WorkoutCategory) => {
+    setActiveCategory((prev) => (prev === cat ? null : cat));
+  };
 
   return (
     <Modal
@@ -104,51 +145,140 @@ export function WorkoutPickerModal({
             <View style={styles.loadingContainer}>
               <ActivityIndicator color={Colors.primary} size="large" />
             </View>
-          ) : workouts.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="barbell-outline" size={40} color={Colors.textMuted} />
-              <Text style={styles.emptyTitle}>No Workouts</Text>
-              <Text style={styles.emptyText}>
-                Create some workouts on the Home tab first.
-              </Text>
-            </View>
           ) : (
-            <FlatList
-              data={workouts}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.listContent}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => {
-                const cat = categorizeWorkout(item);
-                const flat = flattenWorkout(item);
-                const totalSec = totalWorkoutSeconds(item);
+            <>
+              {/* Search bar */}
+              <View style={styles.searchRow}>
+                <View style={styles.searchBar}>
+                  <Ionicons name="search" size={16} color={Colors.textMuted} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search workouts…"
+                    placeholderTextColor={Colors.textMuted}
+                    value={search}
+                    onChangeText={setSearch}
+                    autoCorrect={false}
+                    returnKeyType="search"
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                  />
+                  {search.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearch('')} hitSlop={8}>
+                      <Ionicons name="close-circle" size={16} color={Colors.textMuted} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
 
-                return (
-                  <TouchableOpacity
-                    style={styles.workoutRow}
-                    onPress={() => onSelect(item)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.workoutIcon, { backgroundColor: categoryColor(cat) + '22' }]}>
-                      <Ionicons name={categoryIcon(cat)} size={18} color={categoryColor(cat)} />
-                    </View>
-                    <View style={styles.workoutInfo}>
-                      <Text style={styles.workoutName} numberOfLines={1}>{item.name}</Text>
-                      <Text style={styles.workoutMeta}>
-                        {formatTime(totalSec)} · {flat.length} interval{flat.length !== 1 ? 's' : ''}
+              {/* Category filter chips */}
+              <View style={styles.chipRow}>
+                {CATEGORIES.map((cat) => {
+                  const isActive = activeCategory === cat.key;
+                  const count = categoryCounts[cat.key] ?? 0;
+                  return (
+                    <TouchableOpacity
+                      key={cat.key}
+                      style={[
+                        styles.chip,
+                        isActive && { backgroundColor: cat.color + '22', borderColor: cat.color },
+                      ]}
+                      onPress={() => handleCategoryToggle(cat.key)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name={cat.icon}
+                        size={13}
+                        color={isActive ? cat.color : Colors.textMuted}
+                      />
+                      <Text
+                        style={[
+                          styles.chipLabel,
+                          isActive && { color: cat.color },
+                        ]}
+                      >
+                        {cat.label}
                       </Text>
-                    </View>
-                    <Ionicons name="add-circle" size={24} color={Colors.primary} />
-                  </TouchableOpacity>
-                );
-              }}
-            />
+                      <Text
+                        style={[
+                          styles.chipCount,
+                          isActive && { color: cat.color },
+                        ]}
+                      >
+                        {count}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Workout list */}
+              <FlatList
+                data={filtered}
+                keyExtractor={(item) => item.id}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.listContent}
+                showsVerticalScrollIndicator={false}
+                ListHeaderComponent={
+                  !search && !activeCategory ? (
+                    <TouchableOpacity
+                      style={styles.createNewRow}
+                      onPress={onCreateNew}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.workoutIcon, { backgroundColor: Colors.primary + '22' }]}>
+                        <Ionicons name="add" size={20} color={Colors.primary} />
+                      </View>
+                      <View style={styles.workoutInfo}>
+                        <Text style={styles.workoutName}>Create New Workout</Text>
+                        <Text style={styles.workoutMeta}>Build a custom workout from scratch</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+                    </TouchableOpacity>
+                  ) : null
+                }
+                ListEmptyComponent={
+                  <View style={styles.emptyContainer}>
+                    <Ionicons name="search-outline" size={32} color={Colors.textMuted} />
+                    <Text style={styles.emptyText}>
+                      {search || activeCategory
+                        ? 'No workouts match your filters'
+                        : 'No saved workouts yet'}
+                    </Text>
+                  </View>
+                }
+                renderItem={({ item }) => {
+                  const cat = categorizeWorkout(item);
+                  const flat = flattenWorkout(item);
+                  const totalSec = totalWorkoutSeconds(item);
+
+                  return (
+                    <TouchableOpacity
+                      style={styles.workoutRow}
+                      onPress={() => onSelect(item)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.workoutIcon, { backgroundColor: categoryColor(cat) + '22' }]}>
+                        <Ionicons name={categoryIcon(cat)} size={18} color={categoryColor(cat)} />
+                      </View>
+                      <View style={styles.workoutInfo}>
+                        <Text style={styles.workoutName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={styles.workoutMeta}>
+                          {formatTime(totalSec)} · {flat.length} interval{flat.length !== 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                      <Ionicons name="add-circle" size={24} color={Colors.primary} />
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            </>
           )}
         </View>
       </View>
     </Modal>
   );
 }
+
+// ── Styles ───────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   overlay: {
@@ -167,7 +297,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     borderTopLeftRadius: BorderRadius.xl,
     borderTopRightRadius: BorderRadius.xl,
-    maxHeight: '70%',
+    maxHeight: '80%',
     borderTopWidth: 1,
     borderTopColor: Colors.surfaceLight,
   },
@@ -203,24 +333,73 @@ const styles = StyleSheet.create({
     padding: Spacing.xxl,
     alignItems: 'center',
   },
+
+  // Search
+  searchRow: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: Spacing.sm,
+    gap: Spacing.xs + 2,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    padding: 0,
+  },
+
+  // Category chips
+  chipRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+    gap: Spacing.sm,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: Spacing.xs + 2,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    backgroundColor: Colors.surface,
+  },
+  chipLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textMuted,
+  },
+  chipCount: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+
+  // List
+  listContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.xxl,
+  },
   emptyContainer: {
     padding: Spacing.xxl,
     alignItems: 'center',
     gap: Spacing.sm,
   },
-  emptyTitle: {
-    fontSize: FontSize.lg,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
   emptyText: {
     fontSize: FontSize.sm,
     color: Colors.textMuted,
     textAlign: 'center',
-  },
-  listContent: {
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.xxl,
   },
   workoutRow: {
     flexDirection: 'row',
@@ -232,6 +411,18 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
+  },
+  createNewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    gap: Spacing.md,
+    borderWidth: 1.5,
+    borderColor: Colors.primary + '44',
+    borderStyle: 'dashed',
   },
   workoutIcon: {
     width: 40,

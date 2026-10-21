@@ -29,6 +29,10 @@ interface DayDetailProps {
   selectedDate: string;
   onStartWorkout: (workoutData: WorkoutDefinition) => void;
   onSkipWorkout: (workoutId: string) => void;
+  /** Called to remove a planned workout from the calendar. */
+  onRemoveWorkout?: (workoutId: string) => void;
+  /** Called with the workout data to open the editor/detail view. */
+  onEditWorkout?: (workoutData: WorkoutDefinition) => void;
   /** Called with the history entry ID to view run details. */
   onViewRun: (historyEntryId: string) => void;
   onRunAgain: (workoutId: string) => void;
@@ -112,6 +116,8 @@ export function DayDetail({
   selectedDate,
   onStartWorkout,
   onSkipWorkout,
+  onRemoveWorkout,
+  onEditWorkout,
   onViewRun,
   onRunAgain,
   onAddWorkout,
@@ -165,10 +171,15 @@ export function DayDetail({
           )}
 
           {entry.planWorkout.workout_data && entry.planWorkout.status !== 'completed' && (
-            <WorkoutPreview workoutData={entry.planWorkout.workout_data} />
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => onEditWorkout?.(entry.planWorkout!.workout_data as WorkoutDefinition)}
+            >
+              <WorkoutPreview workoutData={entry.planWorkout.workout_data} />
+            </TouchableOpacity>
           )}
 
-          {/* Has workout_data — show Start + Skip */}
+          {/* Has workout_data — show Start + Remove */}
           {entry.planWorkout.status === 'planned' && entry.planWorkout.workout_data && (
             <View style={styles.actionRow}>
               <TouchableOpacity
@@ -180,13 +191,16 @@ export function DayDetail({
                 <Text style={styles.startBtnText}>Start Workout</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.skipBtn}
-                onPress={() => onSkipWorkout(entry.planWorkout!.id)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.skipBtnText}>Skip</Text>
-              </TouchableOpacity>
+              {onRemoveWorkout && (
+                <TouchableOpacity
+                  style={styles.removeBtn}
+                  onPress={() => onRemoveWorkout(entry.planWorkout!.id)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="trash-outline" size={14} color={Colors.danger} />
+                  <Text style={styles.removeBtnText}>Remove</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
@@ -454,6 +468,21 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: '600',
     color: Colors.textSecondary,
+  },
+  removeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.danger + '15',
+    gap: Spacing.xs,
+  },
+  removeBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.danger,
   },
   generateDetailBtn: {
     flex: 1,

@@ -26,6 +26,8 @@ interface TrainingCalendarProps {
   onSelectDate: (date: string) => void;
   viewMode: CalendarViewMode;
   onChangeViewMode: (mode: CalendarViewMode) => void;
+  /** ISO date strings (YYYY-MM-DD) of races — shown with flag markers */
+  raceDates?: string[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -110,7 +112,9 @@ export function TrainingCalendar({
   onSelectDate,
   viewMode,
   onChangeViewMode,
+  raceDates,
 }: TrainingCalendarProps) {
+  const raceDateSet = useMemo(() => new Set(raceDates ?? []), [raceDates]);
   const today = todayKey();
   const [refDate, setRefDate] = useState(() => new Date());
 
@@ -216,6 +220,7 @@ export function TrainingCalendar({
             const isCurrentMonth = day.getMonth() === refDate.getMonth();
             const isToday = key === today;
             const isSelected = key === selectedDate;
+            const isRaceDay = raceDateSet.has(key);
             const entry = dayEntries[key];
             const dots = entry ? dotColor(entry) : [];
 
@@ -225,6 +230,7 @@ export function TrainingCalendar({
                 style={[
                   styles.dayCell,
                   isSelected && styles.dayCellSelected,
+                  isRaceDay && styles.dayCellRace,
                 ]}
                 onPress={() => onSelectDate(key)}
                 activeOpacity={0.6}
@@ -241,11 +247,18 @@ export function TrainingCalendar({
                     {day.getDate()}
                   </Text>
                 </View>
-                <View style={styles.dotRow}>
-                  {dots.map((color, i) => (
-                    <View key={i} style={[styles.dot, { backgroundColor: color }]} />
-                  ))}
-                </View>
+                {isRaceDay ? (
+                  <View style={styles.raceBadge}>
+                    <Ionicons name="flag" size={9} color={Colors.warning} />
+                    <Text style={styles.raceBadgeText}>Race</Text>
+                  </View>
+                ) : (
+                  <View style={styles.dotRow}>
+                    {dots.map((color, i) => (
+                      <View key={i} style={[styles.dot, { backgroundColor: color }]} />
+                    ))}
+                  </View>
+                )}
               </TouchableOpacity>
             );
           })}
@@ -259,6 +272,7 @@ export function TrainingCalendar({
             const key = toDateKey(day);
             const isToday = key === today;
             const isSelected = key === selectedDate;
+              const isRaceDay = raceDateSet.has(key);
             const entry = dayEntries[key];
             const dayLabel = entry?.planWorkout?.day_label;
 
@@ -268,6 +282,7 @@ export function TrainingCalendar({
                 style={[
                   styles.weekDayCard,
                   isSelected && styles.weekDayCardSelected,
+                  isRaceDay && styles.weekDayCardRace,
                 ]}
                 onPress={() => onSelectDate(key)}
                 activeOpacity={0.6}
@@ -283,7 +298,14 @@ export function TrainingCalendar({
                     {day.getDate()}
                   </Text>
                 </View>
-                {dayLabel ? (
+                {isRaceDay ? (
+                  <View style={[styles.weekWorkoutChip, { borderLeftColor: Colors.warning }]}>
+                    <View style={styles.weekRaceRow}>
+                      <Ionicons name="flag" size={10} color={Colors.warning} />
+                      <Text style={styles.weekRaceText}>Race Day</Text>
+                    </View>
+                  </View>
+                ) : dayLabel ? (
                   <View style={[
                     styles.weekWorkoutChip,
                     {
@@ -392,6 +414,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceLight,
     borderRadius: BorderRadius.sm,
   },
+  dayCellRace: {
+    backgroundColor: Colors.warning + '10',
+    borderRadius: BorderRadius.sm,
+  },
   dayNumber: {
     width: 28,
     height: 28,
@@ -428,6 +454,19 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
   },
+  raceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    height: 12,
+  },
+  raceBadgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: Colors.warning,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
 
   // Week view
   weekViewRow: {
@@ -444,6 +483,9 @@ const styles = StyleSheet.create({
   },
   weekDayCardSelected: {
     backgroundColor: Colors.surfaceLight,
+  },
+  weekDayCardRace: {
+    backgroundColor: Colors.warning + '10',
   },
   weekDayLabel: {
     fontSize: 10,
@@ -483,5 +525,15 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: Colors.textMuted,
     fontStyle: 'italic',
+  },
+  weekRaceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  weekRaceText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: Colors.warning,
   },
 });

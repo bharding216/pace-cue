@@ -231,7 +231,12 @@ export default function RunDetailsScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: run.workoutName }} />
+      <Stack.Screen
+        options={{
+          title: run.workoutName,
+        }}
+      />
+      <Stack.Screen.BackButton>Training</Stack.Screen.BackButton>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}

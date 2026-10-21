@@ -41,7 +41,15 @@ function todayKey(): string {
 export default function TrainingScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { plan, planWorkouts, history, dayEntries, loading, refresh, skipWorkout } = useTrainingPlan();
+  const { plans, plan, planWorkouts, history, dayEntries, loading, refresh, ensurePlan, skipWorkout, removeWorkout } = useTrainingPlan();
+
+  // Collect race dates from all non-custom active plans
+  const raceDates = useMemo(
+    () => plans
+      .filter((p) => p.race_type !== 'custom' && p.race_date)
+      .map((p) => p.race_date),
+    [plans],
+  );
 
   const [viewMode, setViewMode] = useState<ViewMode>('calendar');
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>('month');
@@ -100,6 +108,14 @@ export default function TrainingScreen() {
     await skipWorkout(workoutId);
   }, [skipWorkout]);
 
+  const handleRemoveWorkout = useCallback(async (workoutId: string) => {
+    await removeWorkout(workoutId);
+  }, [removeWorkout]);
+
+  const handleEditWorkout = useCallback((workoutData: WorkoutDefinition) => {
+    router.push(`/workout/${workoutData.id}`);
+  }, [router]);
+
   const handleViewRun = useCallback((historyEntryId: string) => {
     router.push(`/run/${historyEntryId}`);
   }, [router]);
@@ -109,23 +125,31 @@ export default function TrainingScreen() {
   }, [router]);
 
   const handleGenerateDetail = useCallback(async (workoutId: string) => {
-    if (!plan) return;
     const pw = planWorkouts.find((w) => w.id === workoutId);
     if (!pw) return;
-    await generateWorkoutDetails(plan, [pw]);
+    const ownerPlan = plans.find((p) => p.id === pw.plan_id);
+    if (!ownerPlan) return;
+    await generateWorkoutDetails(ownerPlan, [pw]);
     await refresh();
-  }, [plan, planWorkouts, refresh]);
+  }, [plans, planWorkouts, refresh]);
 
   const handleAddWorkout = useCallback((date: string) => {
     setPickerDate(date);
   }, []);
 
-  const handleWorkoutPicked = useCallback(async (workout: WorkoutDefinition) => {
-    if (!plan || !user || !pickerDate) return;
+  const handleCreateNewForPlan = useCallback(() => {
+    const date = pickerDate;
     setPickerDate(null);
-    await addWorkoutToCalendar(plan.id, user.id, pickerDate, workout, plan.start_date);
+    router.push(`/workout/new?addToDate=${date}` as any);
+  }, [pickerDate, router]);
+
+  const handleWorkoutPicked = useCallback(async (workout: WorkoutDefinition) => {
+    if (!user || !pickerDate) return;
+    setPickerDate(null);
+    const activePlan = await ensurePlan();
+    await addWorkoutToCalendar(activePlan.id, user.id, pickerDate, workout, activePlan.start_date);
     await refresh();
-  }, [plan, user, pickerDate, refresh]);
+  }, [user, pickerDate, ensurePlan, refresh]);
 
   if (loading) {
     return (
@@ -168,8 +192,8 @@ export default function TrainingScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Plan week summary */}
-          {plan && currentWeekWorkouts.length > 0 && (
+          {/* Plan week summary — only for AI-generated plans, not the custom calendar */}
+          {plan && plan.race_type !== 'custom' && currentWeekWorkouts.length > 0 && (
             <PlanWeekSummary
               plan={plan}
               weekWorkouts={currentWeekWorkouts}
@@ -214,8 +238,8 @@ export default function TrainingScreen() {
             </View>
           )}
 
-          {/* Create plan banner — authenticated, no plan yet */}
-          {!plan && user && (
+          {/* Create plan banner — authenticated users can always add more plans */}
+          {user && (
             <TouchableOpacity
               style={styles.planBanner}
               onPress={() => router.push('/(tabs)/training/setup' as any)}
@@ -223,7 +247,11 @@ export default function TrainingScreen() {
             >
               <Ionicons name="sparkles" size={20} color={Colors.accent} />
               <View style={styles.planBannerText}>
-                <Text style={styles.planBannerTitle}>Create a Training Plan</Text>
+                <Text style={styles.planBannerTitle}>
+                  {plans.filter((p) => p.race_type !== 'custom').length > 0
+                    ? 'Add Another Training Plan'
+                    : 'Create a Training Plan'}
+                </Text>
                 <Text style={styles.planBannerDesc}>
                   Set a race goal and let AI build your personalized plan
                 </Text>
@@ -239,6 +267,7 @@ export default function TrainingScreen() {
             onSelectDate={setSelectedDate}
             viewMode={calendarViewMode}
             onChangeViewMode={setCalendarViewMode}
+            raceDates={raceDates}
           />
 
           {/* Day detail */}
@@ -247,14 +276,16 @@ export default function TrainingScreen() {
             selectedDate={selectedDate}
             onStartWorkout={handleStartWorkout}
             onSkipWorkout={handleSkipWorkout}
+            onRemoveWorkout={handleRemoveWorkout}
+            onEditWorkout={handleEditWorkout}
             onViewRun={handleViewRun}
             onRunAgain={handleRunAgain}
-            onAddWorkout={plan ? handleAddWorkout : undefined}
-            onGenerateDetail={plan ? handleGenerateDetail : undefined}
+            onAddWorkout={user ? handleAddWorkout : undefined}
+            onGenerateDetail={plans.length > 0 ? handleGenerateDetail : undefined}
           />
 
-          {/* AI Chat FAB (when plan exists) */}
-          {plan && (
+          {/* AI Chat FAB (when any AI plan exists) */}
+          {plans.some((p) => p.race_type !== 'custom') && (
             <TouchableOpacity
               style={styles.chatFab}
               onPress={() => router.push('/(tabs)/training/chat' as any)}
@@ -298,7 +329,7 @@ export default function TrainingScreen() {
                   </TouchableOpacity>
                 </View>
               )}
-              {!plan && user && (
+              {user && (
                 <TouchableOpacity
                   style={styles.planBanner}
                   onPress={() => router.push('/(tabs)/training/setup' as any)}
@@ -306,7 +337,11 @@ export default function TrainingScreen() {
                 >
                   <Ionicons name="sparkles" size={20} color={Colors.accent} />
                   <View style={styles.planBannerText}>
-                    <Text style={styles.planBannerTitle}>Create a Training Plan</Text>
+                    <Text style={styles.planBannerTitle}>
+                      {plans.filter((p) => p.race_type !== 'custom').length > 0
+                        ? 'Add Another Training Plan'
+                        : 'Create a Training Plan'}
+                    </Text>
                     <Text style={styles.planBannerDesc}>
                       Set a race goal and let AI build your plan
                     </Text>
@@ -377,6 +412,32 @@ export default function TrainingScreen() {
                 totalDistanceMeters={stats.totalDistanceMeters}
                 totalDurationMs={stats.totalDurationMs}
               />
+
+              {/* Fastest uphill pace highlight card */}
+              {(() => {
+                const uphillRecord = stats.records.find(
+                  (r) => r.category === 'fastest_uphill_pace',
+                );
+                if (!uphillRecord) return null;
+                return (
+                  <View style={styles.uphillCard}>
+                    <View style={styles.uphillIconBg}>
+                      <Ionicons name="trending-up" size={22} color={Colors.primary} />
+                    </View>
+                    <View style={styles.uphillContent}>
+                      <Text style={styles.uphillLabel}>Fastest Uphill Pace</Text>
+                      <View style={styles.uphillValueRow}>
+                        <Text style={styles.uphillValue}>{uphillRecord.displayValue}</Text>
+                        <Text style={styles.uphillUnit}>/mi</Text>
+                      </View>
+                      <Text style={styles.uphillMeta} numberOfLines={1}>
+                        {uphillRecord.workoutName}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })()}
+
               <RecordsGrid records={stats.records} />
               <AwardsList awards={stats.awards} />
 
@@ -423,6 +484,7 @@ export default function TrainingScreen() {
         visible={pickerDate !== null}
         date={pickerDate ?? selectedDate}
         onSelect={handleWorkoutPicked}
+        onCreateNew={handleCreateNewForPlan}
         onClose={() => setPickerDate(null)}
       />
     </View>
@@ -647,6 +709,59 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
+  },
+
+  // Uphill pace card
+  uphillCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.primary + '30',
+    gap: Spacing.md,
+  },
+  uphillIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.primary + '18',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uphillContent: {
+    flex: 1,
+  },
+  uphillLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  uphillValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 2,
+  },
+  uphillValue: {
+    fontSize: FontSize.xxl,
+    fontWeight: '800',
+    color: Colors.primary,
+    fontVariant: ['tabular-nums'],
+  },
+  uphillUnit: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontWeight: '500',
+  },
+  uphillMeta: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    marginTop: 2,
   },
 
   // Stats

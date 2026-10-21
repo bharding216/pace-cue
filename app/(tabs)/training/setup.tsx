@@ -14,6 +14,8 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  Animated,
+  Easing,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -65,6 +67,51 @@ function paceToMMSS(decimal: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+type GenPhase = 'idle' | 'analyzing' | 'generating' | 'saving' | 'done';
+
+const GEN_STEPS: { phase: GenPhase; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { phase: 'analyzing', label: 'Analyzing your profile', icon: 'person-outline' },
+  { phase: 'generating', label: 'Building training plan', icon: 'sparkles-outline' },
+  { phase: 'saving', label: 'Saving your plan', icon: 'cloud-upload-outline' },
+];
+
+interface PlanSummary {
+  totalWeeks: number;
+  totalWorkouts: number;
+  raceType: RaceType;
+  raceDate: string;
+  goalTimeMinutes: number | null;
+}
+
+function formatRaceLabel(raceType: RaceType): string {
+  switch (raceType) {
+    case '5k': return '5K';
+    case '10k': return '10K';
+    case 'half_marathon': return 'half marathon';
+    case 'marathon': return 'marathon';
+    default: return 'race';
+  }
+}
+
+function buildCoachMessage(s: PlanSummary): string {
+  const race = formatRaceLabel(s.raceType);
+
+  let goalPart: string;
+  if (s.goalTimeMinutes && s.goalTimeMinutes > 0) {
+    const hrs = Math.floor(s.goalTimeMinutes / 60);
+    const mins = Math.round(s.goalTimeMinutes % 60);
+    const timeStr =
+      hrs > 0
+        ? `${hrs}:${mins.toString().padStart(2, '0')}`
+        : `${mins}-minute`;
+    goalPart = `run a sub-${timeStr} ${race}`;
+  } else {
+    goalPart = `train for your ${race}`;
+  }
+
+  return `Here's your ${s.totalWeeks}-week plan to ${goalPart}. I've added ${s.totalWorkouts} workouts to your calendar.`;
+}
+
 export default function PlanSetupScreen() {
   const router = useRouter();
   const { user } = useAuth();
@@ -90,10 +137,14 @@ export default function PlanSetupScreen() {
   const [profile, setProfile] = useState<RunningProfile | null>(null);
   const [goals, setGoals] = useState<string[]>([]);
   const [preferences, setPreferences] = useState<string[]>([]);
+  const [limitations, setLimitations] = useState<string[]>([]);
   const [profileLoading, setProfileLoading] = useState(true);
 
-  const [generating, setGenerating] = useState(false);
+  const [genPhase, setGenPhase] = useState<GenPhase>('idle');
   const [genElapsed, setGenElapsed] = useState(0);
+  const [planSummary, setPlanSummary] = useState<PlanSummary | null>(null);
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  const generating = genPhase !== 'idle';
 
   // Track mounted state for safe async updates
   useEffect(() => {
@@ -119,7 +170,7 @@ export default function PlanSetupScreen() {
     })();
   }, []);
 
-  // Tick elapsed seconds while generating for progress feedback
+  // Tick elapsed seconds while generating
   useEffect(() => {
     if (!generating) { setGenElapsed(0); return; }
     const interval = setInterval(() => {
@@ -127,6 +178,44 @@ export default function PlanSetupScreen() {
     }, 1000);
     return () => clearInterval(interval);
   }, [generating]);
+
+  // Animate progress bar based on generation phase
+  useEffect(() => {
+    if (genPhase === 'analyzing') {
+      progressAnim.setValue(0);
+      Animated.timing(progressAnim, {
+        toValue: 0.1,
+        duration: 400,
+        useNativeDriver: false,
+      }).start();
+    } else if (genPhase === 'generating') {
+      Animated.timing(progressAnim, {
+        toValue: 0.88,
+        duration: 18000,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    } else if (genPhase === 'saving') {
+      progressAnim.stopAnimation(() => {
+        Animated.timing(progressAnim, {
+          toValue: 0.95,
+          duration: 250,
+          useNativeDriver: false,
+        }).start();
+      });
+    } else if (genPhase === 'done') {
+      progressAnim.stopAnimation(() => {
+        Animated.timing(progressAnim, {
+          toValue: 1,
+          duration: 300,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: false,
+        }).start();
+      });
+    } else {
+      progressAnim.setValue(0);
+    }
+  }, [genPhase]);
 
   // Persist draft whenever inputs change (debounced via effect)
   useEffect(() => {
@@ -176,6 +265,11 @@ export default function PlanSetupScreen() {
           .filter((p: RunningPreference) => p.category === 'preference')
           .map((p: RunningPreference) => p.content)
       );
+      setLimitations(
+        (prefData ?? [])
+          .filter((p: RunningPreference) => p.category === 'limitation')
+          .map((p: RunningPreference) => p.content)
+      );
       setProfileLoading(false);
     })();
   }, [user?.id]);
@@ -197,7 +291,7 @@ export default function PlanSetupScreen() {
       return;
     }
 
-    setGenerating(true);
+    setGenPhase('analyzing');
     try {
       const historyData = await loadHistory();
       const summary = historyData.length > 0
@@ -211,12 +305,18 @@ export default function PlanSetupScreen() {
         easy_pace: profile?.easy_pace ?? undefined,
         fast_pace: profile?.fast_pace ?? undefined,
         race_times: profile?.race_times ?? undefined,
+        weekly_mileage: profile?.weekly_mileage ?? undefined,
+        longest_recent_run_minutes: profile?.longest_recent_run_minutes ?? undefined,
+        max_workout_minutes: profile?.max_workout_minutes ?? undefined,
+        preferred_days: profile?.preferred_days ?? undefined,
+        cross_training: profile?.cross_training ?? undefined,
       };
 
       const input = {
         profile: profilePayload,
         goals,
         preferences,
+        limitations,
         raceType,
         raceDate: raceDateStr,
         goalTimeMinutes: goalTimeTotal > 0 ? goalTimeTotal : null,
@@ -225,22 +325,28 @@ export default function PlanSetupScreen() {
         historySummary: summary,
       };
 
-      // Phase 1: Fast outline generation (single API call)
+      if (!mountedRef.current) return;
+      setGenPhase('generating');
       const outline = await generatePlanOutline(input);
 
       if (!mountedRef.current) return;
-
-      // Save outline + skeleton workouts (no workout_data yet)
+      setGenPhase('saving');
       const { plan: savedPlan, workouts: savedWorkouts } = await savePlanOutline(user.id, input, outline);
-
-      // Clear the saved draft on success
       AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
 
       if (!mountedRef.current) return;
-      await refresh();
-      router.back();
 
-      // Phase 2: Generate details for the first 3 workouts in the background
+      setPlanSummary({
+        totalWeeks: outline.weeks.length,
+        totalWorkouts: savedWorkouts.filter((w) => w.day_label !== 'Rest Day').length,
+        raceType: input.raceType,
+        raceDate: input.raceDate,
+        goalTimeMinutes: input.goalTimeMinutes ?? null,
+      });
+      setGenPhase('done');
+      await refresh();
+
+      // Generate details for the first 3 workouts in the background
       const today = new Date().toISOString().split('T')[0];
       const upcoming = savedWorkouts
         .filter((w) => w.date >= today && w.day_label !== 'Rest Day')
@@ -254,11 +360,8 @@ export default function PlanSetupScreen() {
       }
     } catch (err: any) {
       if (mountedRef.current) {
+        setGenPhase('idle');
         Alert.alert('Error', err.message || 'Failed to generate plan. Please try again.');
-      }
-    } finally {
-      if (mountedRef.current) {
-        setGenerating(false);
       }
     }
   }, [user, raceType, raceDate, goalTimeHours, goalTimeMinutes, daysPerWeek, startDate, profile, goals, preferences, refresh, router]);
@@ -276,6 +379,145 @@ export default function PlanSetupScreen() {
         >
           <Text style={styles.signInBtnText}>Sign In</Text>
         </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // ── Summary screen after plan is created ────────────────────
+  if (genPhase === 'done' && planSummary) {
+    const raceDateFmt = new Date(planSummary.raceDate + 'T00:00:00').toLocaleDateString(
+      undefined,
+      { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' },
+    );
+
+    return (
+      <View style={styles.genScreen}>
+        <ScrollView
+          style={{ flex: 1, width: '100%' }}
+          contentContainerStyle={styles.summaryScroll}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.genCard}>
+            {/* Header */}
+            <View style={styles.genHeader}>
+              <View style={[styles.genSparkleWrap, styles.genDoneWrap]}>
+                <Ionicons name="checkmark-sharp" size={32} color={Colors.primary} />
+              </View>
+              <Text style={styles.genTitle}>Plan Created!</Text>
+            </View>
+
+            {/* Coach message */}
+            <Text style={styles.summaryMessage}>{buildCoachMessage(planSummary)}</Text>
+
+            {/* Stats row */}
+            <View style={styles.summaryStats}>
+              <View style={styles.summaryStat}>
+                <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
+                <Text style={styles.summaryStatValue}>{planSummary.totalWeeks}</Text>
+                <Text style={styles.summaryStatLabel}>weeks</Text>
+              </View>
+              <View style={styles.summaryStatDivider} />
+              <View style={styles.summaryStat}>
+                <Ionicons name="barbell-outline" size={18} color={Colors.accent} />
+                <Text style={styles.summaryStatValue}>{planSummary.totalWorkouts}</Text>
+                <Text style={styles.summaryStatLabel}>workouts</Text>
+              </View>
+              <View style={styles.summaryStatDivider} />
+              <View style={styles.summaryStat}>
+                <Ionicons name="flag-outline" size={18} color={Colors.warning} />
+                <Text style={styles.summaryStatLabel}>Race day</Text>
+                <Text style={styles.summaryStatDate}>{raceDateFmt}</Text>
+              </View>
+            </View>
+
+            {/* CTA */}
+            <TouchableOpacity
+              style={styles.summaryCta}
+              onPress={() => router.back()}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="calendar" size={18} color={Colors.black} />
+              <Text style={styles.summaryCtaText}>View Your Calendar</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.genTimer}>Completed in {genElapsed}s</Text>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // ── Progress overlay while generating ─────────────────────
+  if (generating) {
+    const currentIdx = GEN_STEPS.findIndex((s) => s.phase === genPhase);
+
+    return (
+      <View style={styles.genScreen}>
+        <View style={styles.genCard}>
+          {/* Header */}
+          <View style={styles.genHeader}>
+            <View style={styles.genSparkleWrap}>
+              <Ionicons name="sparkles" size={32} color={Colors.accent} />
+            </View>
+            <Text style={styles.genTitle}>Creating Your Plan</Text>
+          </View>
+
+          {/* Steps */}
+          <View style={styles.genSteps}>
+            {GEN_STEPS.map((step, i) => {
+              const isDone = currentIdx > i;
+              const isActive = currentIdx === i;
+
+              return (
+                <View key={step.phase} style={styles.genStepRow}>
+                  <View
+                    style={[
+                      styles.genStepCircle,
+                      isDone && styles.genStepCircleDone,
+                      isActive && styles.genStepCircleActive,
+                    ]}
+                  >
+                    {isDone ? (
+                      <Ionicons name="checkmark-sharp" size={13} color={Colors.black} />
+                    ) : isActive ? (
+                      <ActivityIndicator size="small" color={Colors.primary} />
+                    ) : (
+                      <Ionicons name={step.icon} size={13} color={Colors.textMuted} />
+                    )}
+                  </View>
+                  <Text
+                    style={[
+                      styles.genStepLabel,
+                      isDone && styles.genStepLabelDone,
+                      isActive && styles.genStepLabelActive,
+                    ]}
+                  >
+                    {step.label}
+                    {isActive ? '…' : ''}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Progress bar */}
+          <View style={styles.genProgressTrack}>
+            <Animated.View
+              style={[
+                styles.genProgressFill,
+                {
+                  width: progressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0%', '100%'],
+                  }),
+                },
+              ]}
+            />
+          </View>
+
+          {/* Timer / estimate */}
+          <Text style={styles.genTimer}>{genElapsed}s · usually 10–15s</Text>
+        </View>
       </View>
     );
   }
@@ -481,33 +723,13 @@ export default function PlanSetupScreen() {
 
       {/* Generate button */}
       <TouchableOpacity
-        style={[styles.generateBtn, generating && styles.generateBtnDisabled]}
+        style={styles.generateBtn}
         onPress={handleGenerate}
-        disabled={generating}
         activeOpacity={0.8}
       >
-        {generating ? (
-          <ActivityIndicator color={Colors.black} size="small" />
-        ) : (
-          <Ionicons name="sparkles" size={18} color={Colors.black} />
-        )}
-        <Text style={styles.generateBtnText}>
-          {generating ? 'Generating Plan...' : 'Generate Training Plan'}
-        </Text>
+        <Ionicons name="sparkles" size={18} color={Colors.black} />
+        <Text style={styles.generateBtnText}>Generate Training Plan</Text>
       </TouchableOpacity>
-
-      {generating && (
-        <View style={styles.generatingInfo}>
-          <Text style={styles.generatingHint}>
-            {genElapsed < 10
-              ? 'Building your personalized plan…'
-              : genElapsed < 30
-                ? 'Still working — crafting each week for you…'
-                : 'Almost there — putting the finishing touches on your plan…'}
-          </Text>
-          <Text style={styles.generatingTimer}>{genElapsed}s</Text>
-        </View>
-      )}
     </ScrollView>
   );
 }
@@ -710,27 +932,167 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     marginTop: Spacing.md,
   },
-  generateBtnDisabled: {
-    opacity: 0.7,
-  },
   generateBtnText: {
     color: Colors.black,
     fontSize: FontSize.md,
     fontWeight: '800',
   },
-  generatingInfo: {
+
+  // Generation progress overlay
+  genScreen: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: Spacing.sm,
-    gap: Spacing.xs,
+    padding: Spacing.xl,
   },
-  generatingHint: {
+  genCard: {
+    width: '100%',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xl,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  genHeader: {
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+  },
+  genSparkleWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.accent + '18',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
+  },
+  genTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  genSteps: {
+    gap: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
+  genStepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm + 2,
+  },
+  genStepCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: Colors.surfaceLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  genStepCircleDone: {
+    backgroundColor: Colors.primary,
+  },
+  genStepCircleActive: {
+    backgroundColor: Colors.primary + '18',
+    borderWidth: 2,
+    borderColor: Colors.primary,
+  },
+  genStepLabel: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontWeight: '500',
+    flex: 1,
+  },
+  genStepLabelDone: {
+    color: Colors.textSecondary,
+  },
+  genStepLabelActive: {
+    color: Colors.textPrimary,
+    fontWeight: '700',
+  },
+  genProgressTrack: {
+    height: 6,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: 3,
+    overflow: 'hidden' as const,
+    marginBottom: Spacing.lg,
+  },
+  genProgressFill: {
+    height: '100%',
+    backgroundColor: Colors.primary,
+    borderRadius: 3,
+  },
+  genDoneWrap: {
+    backgroundColor: Colors.primary + '18',
+  },
+  genTimer: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
     textAlign: 'center',
+    fontVariant: ['tabular-nums'] as any,
   },
-  generatingTimer: {
+
+  // Summary screen (done state)
+  summaryScroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+  summaryMessage: {
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+    lineHeight: 24,
+    textAlign: 'center',
+    marginBottom: Spacing.lg,
+  },
+  summaryStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
+  summaryStat: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+  },
+  summaryStatDivider: {
+    width: 1,
+    height: 36,
+    backgroundColor: Colors.surfaceLight,
+  },
+  summaryStatValue: {
+    fontSize: FontSize.xl,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    fontVariant: ['tabular-nums'] as any,
+  },
+  summaryStatLabel: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
-    fontVariant: ['tabular-nums'] as any,
+    fontWeight: '500',
+  },
+  summaryStatDate: {
+    fontSize: FontSize.xs,
+    color: Colors.textPrimary,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  summaryCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  summaryCtaText: {
+    color: Colors.black,
+    fontSize: FontSize.md,
+    fontWeight: '800',
   },
 });
