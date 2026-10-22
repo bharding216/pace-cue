@@ -40,6 +40,8 @@ export interface PlanGenerationInput {
   startDate: string;
   daysPerWeek: number;
   historySummary?: string | null;
+  /** When true, AI should prescribe effort/RPE-based workouts instead of pace targets. */
+  useEffortBased?: boolean;
 }
 
 /** Outline result — no workout objects, just week themes and day labels. */
@@ -77,6 +79,42 @@ export interface PlanModification {
     blocks: unknown[];
     cooldown: unknown[];
   } | null;
+}
+
+// ── Workout Analysis Types ──────────────────────────────────
+
+export interface WorkoutAnalysis {
+  performance_rating: 'on_target' | 'exceeded' | 'struggled' | 'incomplete';
+  fatigue_signal: 'normal' | 'elevated' | 'concerning';
+  key_observations: string[];
+  recommendation: 'maintain' | 'increase' | 'decrease' | 'rest';
+  coach_message: string;
+  plan_update: {
+    requires_changes: boolean;
+    reason: string;
+    workout_changes: PlanModification[];
+  };
+}
+
+export interface WorkoutAnalysisInput {
+  completed_workout: {
+    name: string;
+    total_duration_ms: number;
+    total_distance_meters?: number | null;
+    splits?: { pace_min_per_mile: number; distance_meters: number }[];
+    average_pace_min_per_mile?: number | null;
+  };
+  planned_workout?: {
+    day_label: string;
+    description?: string;
+    workout_data?: unknown;
+  } | null;
+  profile?: {
+    experience_level?: string;
+    easy_pace?: number;
+    fast_pace?: number;
+  } | null;
+  recent_history_summary?: string | null;
 }
 
 // ── Supabase error helper ───────────────────────────────────
@@ -121,6 +159,7 @@ export async function generatePlanOutline(input: PlanGenerationInput): Promise<P
       start_date: input.startDate,
       days_per_week: input.daysPerWeek,
       history_summary: input.historySummary,
+      use_effort_based: input.useEffortBased ?? false,
     },
   });
 
@@ -290,7 +329,8 @@ export async function generateWorkoutDetailsWithProfile(
 
 // ── Auto-fill upcoming workouts ─────────────────────────────
 
-const UPCOMING_DETAIL_COUNT = 3;
+/** Number of upcoming workouts to keep detailed (rolling 14-day window). */
+const UPCOMING_DETAIL_COUNT = 7;
 
 /**
  * Checks whether the next N upcoming planned workouts have workout_data.
@@ -400,6 +440,104 @@ export async function adjustPlan(input: PlanAdjustmentInput): Promise<PlanAdjust
   }
 
   return data as PlanAdjustmentResult;
+}
+
+// ── Rolling 14-Day Refinement ───────────────────────────────
+
+export interface RefinementResult {
+  missedWorkoutIds: string[];
+  adjustments: PlanModification[];
+  analysis: WorkoutAnalysis | null;
+}
+
+/**
+ * Checks the rolling 14-day window for missed/skipped workouts
+ * and optionally analyzes a just-completed workout.
+ * Returns suggested modifications (if any) for the ModificationReview component.
+ */
+export async function maintainTrainingWindow(
+  planId: string,
+  completedWorkoutInput?: WorkoutAnalysisInput,
+): Promise<RefinementResult> {
+  const today = new Date();
+  const fourteenDaysAgo = new Date(today);
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+  const dateStr = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  // Get plan workouts from the last 14 days
+  const { data: recentWorkouts, error } = await supabase
+    .from('plan_workouts')
+    .select('*')
+    .eq('plan_id', planId)
+    .gte('date', dateStr(fourteenDaysAgo))
+    .lte('date', dateStr(today))
+    .order('date', { ascending: true });
+
+  if (error) {
+    console.error('Failed to fetch recent workouts for refinement:', error);
+    return { missedWorkoutIds: [], adjustments: [], analysis: null };
+  }
+
+  // Identify missed workouts (scheduled date passed, no completion entry, not rest day)
+  const missedWorkoutIds = (recentWorkouts ?? [])
+    .filter((w: any) => {
+      const isRestDay = w.day_label?.toLowerCase().includes('rest') || w.day_label?.toLowerCase().includes('off');
+      const isCompleted = w.status === 'completed';
+      const isSkipped = w.status === 'skipped';
+      const isPast = new Date(w.date) < today;
+      return isPast && !isRestDay && !isCompleted && !isSkipped;
+    })
+    .map((w: any) => w.id);
+
+  // Analyze completed workout if provided
+  let analysis: WorkoutAnalysis | null = null;
+  if (completedWorkoutInput) {
+    try {
+      analysis = await analyzeCompletedWorkout(completedWorkoutInput);
+    } catch (err) {
+      console.error('Workout analysis failed:', err);
+    }
+  }
+
+  // Collect adjustments from analysis
+  const adjustments: PlanModification[] = [];
+
+  if (analysis?.plan_update?.requires_changes && analysis.plan_update.workout_changes) {
+    adjustments.push(...analysis.plan_update.workout_changes);
+  }
+
+  // If 3+ missed workouts in 14 days, suggest reducing upcoming volume
+  if (missedWorkoutIds.length >= 3) {
+    adjustments.push({
+      date: dateStr(today),
+      action: 'update',
+      day_label: 'Adjusted Schedule',
+      description: `Training load reduced — ${missedWorkoutIds.length} workouts missed in the past 2 weeks. Focus on consistency with shorter, easier runs.`,
+    });
+  }
+
+  return { missedWorkoutIds, adjustments, analysis };
+}
+
+// ── Workout Analysis ────────────────────────────────────────
+
+export async function analyzeCompletedWorkout(
+  input: WorkoutAnalysisInput,
+): Promise<WorkoutAnalysis> {
+  const { data, error } = await supabase.functions.invoke('analyze-workout', {
+    body: input,
+  });
+
+  if (error) {
+    throw new Error(await extractFunctionError(error, 'Failed to analyze workout'));
+  }
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+
+  return data as WorkoutAnalysis;
 }
 
 // ── CRUD Operations ─────────────────────────────────────────

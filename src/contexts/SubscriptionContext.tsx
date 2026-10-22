@@ -51,6 +51,8 @@ type SubscriptionContextType = {
   aiWorkoutsLimit: number | null;
   canUseAI: boolean;
   canGeneratePlan: boolean;
+  /** Number of AI-generated training plans the user has created (excludes custom plans). */
+  planCount: number;
   loading: boolean;
   offerings: PurchasesOfferings | null;
   offeringsLoading: boolean;
@@ -73,6 +75,7 @@ export function SubscriptionProvider({
   const { user } = useAuth();
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [aiWorkoutsUsed, setAiWorkoutsUsed] = useState(0);
+  const [planCount, setPlanCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [rcInitialized, setRcInitialized] = useState(false);
   const [offerings, setOfferings] = useState<PurchasesOfferings | null>(null);
@@ -145,6 +148,7 @@ export function SubscriptionProvider({
     if (!user) {
       setSubscription(null);
       setAiWorkoutsUsed(0);
+      setPlanCount(0);
       setLoading(false);
       return;
     }
@@ -157,7 +161,7 @@ export function SubscriptionProvider({
       // Use .maybeSingle() for tables where the row may not exist yet
       // (.single() throws when zero rows are found, which crashes the
       // entire Promise.all and silently leaves aiWorkoutsUsed at 0).
-      const [subResult, profileResult, genResult] = await Promise.all([
+      const [subResult, profileResult, genResult, planCountResult] = await Promise.all([
         supabase
           .from('subscriptions')
           .select('*')
@@ -173,11 +177,17 @@ export function SubscriptionProvider({
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .gte('created_at', startOfMonth.toISOString()),
+        supabase
+          .from('training_plans')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .neq('race_type', 'custom'),
       ]);
 
       console.log('[SubscriptionContext] subResult:', JSON.stringify({ data: subResult.data, error: subResult.error }));
       console.log('[SubscriptionContext] profileResult:', JSON.stringify({ data: profileResult.data, error: profileResult.error }));
       console.log('[SubscriptionContext] genResult:', JSON.stringify({ count: genResult.count, error: genResult.error }));
+      console.log('[SubscriptionContext] planCountResult:', JSON.stringify({ count: planCountResult.count, error: planCountResult.error }));
 
       const counterValue = profileResult.data?.ai_workouts_this_month ?? 0;
       const generationsValue = genResult.count ?? 0;
@@ -187,6 +197,7 @@ export function SubscriptionProvider({
 
       setSubscription(subResult.data);
       setAiWorkoutsUsed(finalUsage);
+      setPlanCount(planCountResult.count ?? 0);
     } catch (err) {
       console.warn('[SubscriptionContext] refreshSubscription CRASHED:', err);
     } finally {
@@ -208,8 +219,8 @@ export function SubscriptionProvider({
   const canUseAI =
     tier === 'pro' || aiWorkoutsUsed < FREE_TIER_AI_WORKOUTS;
 
-  // Training plan generation is Pro-only (free tier gets 1 free plan)
-  const canGeneratePlan = tier === 'pro';
+  // First AI plan is free for all users; additional plans require Pro
+  const canGeneratePlan = tier === 'pro' || planCount === 0;
 
   // ─── Purchase ─────────────────────────────────────────────
 
@@ -300,6 +311,7 @@ export function SubscriptionProvider({
         aiWorkoutsLimit,
         canUseAI,
         canGeneratePlan,
+        planCount,
         loading,
         offerings,
         offeringsLoading,

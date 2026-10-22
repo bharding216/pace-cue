@@ -14,6 +14,8 @@ import {
   ScrollView,
   ActivityIndicator,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -22,6 +24,8 @@ import { useAuth } from '../../../src/contexts/AuthContext';
 import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
 import { adjustPlan, applyPlanModifications } from '../../../src/ai/planService';
 import { supabase } from '../../../src/analytics/supabaseClient';
+import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
+import { VoiceInput } from '../../../src/components/VoiceInput';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 
 // ── Types ────────────────────────────────────────────────────
@@ -301,6 +305,10 @@ export default function PlanChatScreen() {
     sendMessage(prompt);
   }, [sendMessage]);
 
+  const handleVoiceTranscription = useCallback((text: string) => {
+    sendMessage(text);
+  }, [sendMessage]);
+
   if (!plan) {
     return (
       <View style={styles.centered}>
@@ -314,7 +322,11 @@ export default function PlanChatScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
       {/* Messages */}
       <FlatList
         ref={flatListRef}
@@ -323,10 +335,19 @@ export default function PlanChatScreen() {
         renderItem={({ item }) => <MessageBubble message={item} />}
         contentContainerStyle={styles.messageList}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }}
       />
+
+      {/* Plan adjustment Pro prompt */}
+      {messages.length >= 3 && (
+        <ContextualProPrompt
+          momentId="plan_adjustment_limit"
+          onUpgrade={() => router.push('/paywall' as any)}
+        />
+      )}
 
       {/* Loading indicator */}
       {loading && (
@@ -341,6 +362,7 @@ export default function PlanChatScreen() {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          style={styles.chipsScroll}
           contentContainerStyle={styles.chipsRow}
           keyboardShouldPersistTaps="handled"
         >
@@ -360,6 +382,10 @@ export default function PlanChatScreen() {
 
       {/* Input bar */}
       <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, Spacing.sm) }]}>
+        <VoiceInput
+          onTranscription={handleVoiceTranscription}
+          compact
+        />
         <TextInput
           style={styles.input}
           value={input}
@@ -381,7 +407,7 @@ export default function PlanChatScreen() {
           <Ionicons name="send" size={18} color={Colors.black} />
         </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -469,7 +495,13 @@ const styles = StyleSheet.create({
   },
 
   // Quick-action chips
+  chipsScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   chipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     gap: 6,

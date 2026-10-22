@@ -54,7 +54,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     infoPlist: {
       UIBackgroundModes: ['audio', 'location'],
-      NSMicrophoneUsageDescription: 'PaceCue does not use the microphone.',
+      NSMicrophoneUsageDescription: 'PaceCue uses the microphone for voice commands to your AI coach.',
       NSLocationWhenInUseUsageDescription:
         'PaceCue uses your location to calculate your running pace in real time.',
       NSLocationAlwaysAndWhenInUseUsageDescription:
@@ -123,7 +123,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       'expo-audio',
       {
-        microphonePermission: false,
+        microphonePermission: 'PaceCue uses the microphone for voice commands to your AI coach.',
         enableBackgroundPlayback: true,
       },
     ],

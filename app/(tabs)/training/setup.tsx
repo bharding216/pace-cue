@@ -116,9 +116,12 @@ export default function PlanSetupScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { refresh } = useTrainingPlan();
-  const { tier } = useSubscription();
+  const { tier, canGeneratePlan, planCount } = useSubscription();
   const mountedRef = useRef(true);
   const draftLoaded = useRef(false);
+
+  const [step, setStep] = useState(1);
+  const totalSteps = 4;
 
   const [raceType, setRaceType] = useState<RaceType>('half_marathon');
   const [raceDate, setRaceDate] = useState(() => {
@@ -280,6 +283,11 @@ export default function PlanSetupScreen() {
       return;
     }
 
+    if (!canGeneratePlan) {
+      router.push('/paywall' as any);
+      return;
+    }
+
     const goalTimeTotal =
       (parseInt(goalTimeHours || '0', 10) * 60) + parseInt(goalTimeMinutes || '0', 10);
 
@@ -312,6 +320,15 @@ export default function PlanSetupScreen() {
         cross_training: profile?.cross_training ?? undefined,
       };
 
+      // Detect if user has no pace data — prescribe effort-based workouts
+      const hasPaceData = !!(
+        profilePayload.easy_pace ||
+        profilePayload.fast_pace ||
+        (profilePayload.race_times && Object.values(profilePayload.race_times).some(
+          (rt: any) => rt?.slow || rt?.avg || rt?.fast
+        ))
+      );
+
       const input = {
         profile: profilePayload,
         goals,
@@ -323,6 +340,7 @@ export default function PlanSetupScreen() {
         startDate: startDateStr,
         daysPerWeek,
         historySummary: summary,
+        useEffortBased: !hasPaceData,
       };
 
       if (!mountedRef.current) return;
@@ -528,208 +546,319 @@ export default function PlanSetupScreen() {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      {/* Profile summary */}
-      <TouchableOpacity
-        style={styles.profileCard}
-        onPress={() => router.push('/(tabs)/training/profile' as any)}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="person-circle-outline" size={28} color={Colors.textSecondary} />
-        <View style={styles.profileInfo}>
-          {profileLoading ? (
-            <ActivityIndicator size="small" color={Colors.primary} />
-          ) : profile ? (
-            <>
-              <Text style={styles.profileName}>
-                {profile.experience_level?.charAt(0).toUpperCase()}{profile.experience_level?.slice(1)} runner
-                {profile.typical_run_minutes
-                  ? profile.typical_run_minutes_max
-                    ? ` · ${profile.typical_run_minutes}–${profile.typical_run_minutes_max} min`
-                    : ` · ${profile.typical_run_minutes} min`
-                  : ''}
-              </Text>
-              <Text style={styles.profilePaces}>
-                {profile.easy_pace ? `Easy: ${paceToMMSS(profile.easy_pace)}/mi` : ''}
-                {profile.easy_pace && profile.fast_pace ? ' · ' : ''}
-                {profile.fast_pace ? `Fast: ${paceToMMSS(profile.fast_pace)}/mi` : ''}
-              </Text>
-            </>
-          ) : (
-            <Text style={styles.profileEmpty}>Set up your running profile</Text>
+      {/* Step progress bar */}
+      <View style={styles.wizardHeader}>
+        <Text style={styles.wizardTitle}>Create Your Plan</Text>
+        <Text style={styles.wizardStep}>Step {step} of {totalSteps}</Text>
+      </View>
+      <View style={styles.wizardProgressTrack}>
+        {Array.from({ length: totalSteps }).map((_, i) => (
+          <View
+            key={i}
+            style={[
+              styles.wizardProgressSegment,
+              i < step && styles.wizardProgressSegmentActive,
+            ]}
+          />
+        ))}
+      </View>
+
+      {/* Step 1: What are you training for? */}
+      {step === 1 && (
+        <View>
+          <Text style={styles.sectionTitle}>What are you training for?</Text>
+          <View style={styles.chipRow}>
+            {RACE_OPTIONS.map((opt) => (
+              <TouchableOpacity
+                key={opt.value}
+                style={[styles.raceChip, raceType === opt.value && styles.raceChipActive]}
+                onPress={() => setRaceType(opt.value)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.raceChipLabel, raceType === opt.value && styles.raceChipLabelActive]}>
+                  {opt.label}
+                </Text>
+                {opt.distance ? (
+                  <Text style={styles.raceChipDistance}>{opt.distance}</Text>
+                ) : null}
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity
+            style={styles.continueBtn}
+            onPress={() => setStep(2)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.continueBtnText}>Continue</Text>
+            <Ionicons name="arrow-forward" size={18} color={Colors.black} />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Step 2: Dates & Goal */}
+      {step === 2 && (
+        <View>
+          {/* Race date */}
+          {raceType !== 'custom' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Race Date</Text>
+              {Platform.OS === 'ios' ? (
+                <View style={styles.datePickerRow}>
+                  <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
+                  <DateTimePicker
+                    value={raceDate}
+                    mode="date"
+                    display="compact"
+                    minimumDate={new Date()}
+                    onChange={(_, date) => { if (date) setRaceDate(date); }}
+                    themeVariant="dark"
+                    accentColor={Colors.primary}
+                  />
+                </View>
+              ) : (
+                <>
+                  <TouchableOpacity style={styles.dateBtn} onPress={() => setShowRaceDatePicker(true)} activeOpacity={0.7}>
+                    <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
+                    <Text style={styles.dateBtnText}>{formatDateShort(raceDate)}</Text>
+                  </TouchableOpacity>
+                  {showRaceDatePicker && (
+                    <DateTimePicker
+                      value={raceDate}
+                      mode="date"
+                      minimumDate={new Date()}
+                      onChange={(_, date) => { setShowRaceDatePicker(false); if (date) setRaceDate(date); }}
+                      themeVariant="dark"
+                    />
+                  )}
+                </>
+              )}
+            </View>
           )}
-        </View>
-        <Text style={styles.profileEdit}>Edit</Text>
-      </TouchableOpacity>
 
-      {/* Race distance */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Race Distance</Text>
-        <View style={styles.chipRow}>
-          {RACE_OPTIONS.map((opt) => (
-            <TouchableOpacity
-              key={opt.value}
-              style={[styles.raceChip, raceType === opt.value && styles.raceChipActive]}
-              onPress={() => setRaceType(opt.value)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.raceChipLabel, raceType === opt.value && styles.raceChipLabelActive]}>
-                {opt.label}
-              </Text>
-              {opt.distance ? (
-                <Text style={styles.raceChipDistance}>{opt.distance}</Text>
-              ) : null}
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Race date */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Race Date</Text>
-        {Platform.OS === 'ios' ? (
-          <View style={styles.datePickerRow}>
-            <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
-            <DateTimePicker
-              value={raceDate}
-              mode="date"
-              display="compact"
-              minimumDate={new Date()}
-              onChange={(_, date) => {
-                if (date) setRaceDate(date);
-              }}
-              themeVariant="dark"
-              accentColor={Colors.primary}
-            />
-          </View>
-        ) : (
-          <>
-            <TouchableOpacity
-              style={styles.dateBtn}
-              onPress={() => setShowRaceDatePicker(true)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
-              <Text style={styles.dateBtnText}>{formatDateShort(raceDate)}</Text>
-            </TouchableOpacity>
-            {showRaceDatePicker && (
-              <DateTimePicker
-                value={raceDate}
-                mode="date"
-                minimumDate={new Date()}
-                onChange={(_, date) => {
-                  setShowRaceDatePicker(false);
-                  if (date) setRaceDate(date);
-                }}
-                themeVariant="dark"
-              />
+          {/* Start date */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Start Date</Text>
+            {Platform.OS === 'ios' ? (
+              <View style={styles.datePickerRow}>
+                <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
+                <DateTimePicker
+                  value={startDate}
+                  mode="date"
+                  display="compact"
+                  minimumDate={new Date()}
+                  onChange={(_, date) => { if (date) setStartDate(date); }}
+                  themeVariant="dark"
+                  accentColor={Colors.primary}
+                />
+              </View>
+            ) : (
+              <>
+                <TouchableOpacity style={styles.dateBtn} onPress={() => setShowStartDatePicker(true)} activeOpacity={0.7}>
+                  <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
+                  <Text style={styles.dateBtnText}>{formatDateShort(startDate)}</Text>
+                </TouchableOpacity>
+                {showStartDatePicker && (
+                  <DateTimePicker
+                    value={startDate}
+                    mode="date"
+                    minimumDate={new Date()}
+                    onChange={(_, date) => { setShowStartDatePicker(false); if (date) setStartDate(date); }}
+                    themeVariant="dark"
+                  />
+                )}
+              </>
             )}
-          </>
-        )}
-      </View>
-
-      {/* Goal time */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Goal Time (optional)</Text>
-        <View style={styles.goalTimeRow}>
-          <View style={styles.goalTimeInput}>
-            <TextInput
-              style={styles.goalTimeField}
-              value={goalTimeHours}
-              onChangeText={setGoalTimeHours}
-              placeholder="0"
-              placeholderTextColor={Colors.textMuted}
-              keyboardType="number-pad"
-              maxLength={2}
-            />
-            <Text style={styles.goalTimeLabel}>hours</Text>
           </View>
-          <View style={styles.goalTimeInput}>
-            <TextInput
-              style={styles.goalTimeField}
-              value={goalTimeMinutes}
-              onChangeText={setGoalTimeMinutes}
-              placeholder="0"
-              placeholderTextColor={Colors.textMuted}
-              keyboardType="number-pad"
-              maxLength={2}
-            />
-            <Text style={styles.goalTimeLabel}>min</Text>
+
+          {/* Goal time (skip for custom/general) */}
+          {raceType !== 'custom' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Goal Time (optional)</Text>
+              <View style={styles.goalTimeRow}>
+                <View style={styles.goalTimeInput}>
+                  <TextInput
+                    style={styles.goalTimeField}
+                    value={goalTimeHours}
+                    onChangeText={setGoalTimeHours}
+                    placeholder="0"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                  <Text style={styles.goalTimeLabel}>hours</Text>
+                </View>
+                <View style={styles.goalTimeInput}>
+                  <TextInput
+                    style={styles.goalTimeField}
+                    value={goalTimeMinutes}
+                    onChangeText={setGoalTimeMinutes}
+                    placeholder="0"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                  <Text style={styles.goalTimeLabel}>min</Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          <View style={styles.stepNavRow}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => setStep(1)} activeOpacity={0.7}>
+              <Ionicons name="arrow-back" size={18} color={Colors.textSecondary} />
+              <Text style={styles.backBtnText}>Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.continueBtn} onPress={() => setStep(3)} activeOpacity={0.8}>
+              <Text style={styles.continueBtnText}>Continue</Text>
+              <Ionicons name="arrow-forward" size={18} color={Colors.black} />
+            </TouchableOpacity>
           </View>
         </View>
-      </View>
+      )}
 
-      {/* Days per week */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Training Days per Week</Text>
-        <View style={styles.chipRow}>
-          {DAYS_PER_WEEK_OPTIONS.map((n) => (
+      {/* Step 3: Availability */}
+      {step === 3 && (
+        <View>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Training Days per Week</Text>
+            <View style={styles.chipRow}>
+              {DAYS_PER_WEEK_OPTIONS.map((n) => (
+                <TouchableOpacity
+                  key={n}
+                  style={[styles.dayChip, daysPerWeek === n && styles.dayChipActive]}
+                  onPress={() => setDaysPerWeek(n)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.dayChipText, daysPerWeek === n && styles.dayChipTextActive]}>
+                    {n}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.stepNavRow}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => setStep(2)} activeOpacity={0.7}>
+              <Ionicons name="arrow-back" size={18} color={Colors.textSecondary} />
+              <Text style={styles.backBtnText}>Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.continueBtn} onPress={() => setStep(4)} activeOpacity={0.8}>
+              <Text style={styles.continueBtnText}>Continue</Text>
+              <Ionicons name="arrow-forward" size={18} color={Colors.black} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Step 4: Review & Generate */}
+      {step === 4 && (
+        <View>
+          <Text style={styles.sectionTitle}>Review & Generate</Text>
+
+          {/* Profile summary */}
+          <TouchableOpacity
+            style={styles.profileCard}
+            onPress={() => router.push('/(tabs)/training/profile' as any)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="person-circle-outline" size={28} color={Colors.textSecondary} />
+            <View style={styles.profileInfo}>
+              {profileLoading ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : profile ? (
+                <>
+                  <Text style={styles.profileName}>
+                    {profile.experience_level?.charAt(0).toUpperCase()}{profile.experience_level?.slice(1)} runner
+                    {profile.typical_run_minutes
+                      ? profile.typical_run_minutes_max
+                        ? ` \u00B7 ${profile.typical_run_minutes}\u2013${profile.typical_run_minutes_max} min`
+                        : ` \u00B7 ${profile.typical_run_minutes} min`
+                      : ''}
+                  </Text>
+                  <Text style={styles.profilePaces}>
+                    {profile.easy_pace ? `Easy: ${paceToMMSS(profile.easy_pace)}/mi` : ''}
+                    {profile.easy_pace && profile.fast_pace ? ' \u00B7 ' : ''}
+                    {profile.fast_pace ? `Fast: ${paceToMMSS(profile.fast_pace)}/mi` : ''}
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.profileEmpty}>Set up your running profile</Text>
+              )}
+            </View>
+            <Text style={styles.profileEdit}>Edit</Text>
+          </TouchableOpacity>
+
+          {/* Effort-based hint when no pace data */}
+          {!profile?.easy_pace && !profile?.fast_pace && (
+            <View style={styles.effortHint}>
+              <Ionicons name="information-circle-outline" size={18} color={Colors.accent} />
+              <Text style={styles.effortHintText}>
+                Don't know your paces yet? No problem — we'll use effort-based targets (easy, moderate, hard) instead.
+              </Text>
+            </View>
+          )}
+
+          {/* Review summary */}
+          <View style={styles.reviewCard}>
+            <View style={styles.reviewRow}>
+              <Text style={styles.reviewLabel}>Race</Text>
+              <Text style={styles.reviewValue}>{RACE_OPTIONS.find((o) => o.value === raceType)?.label}</Text>
+            </View>
+            {raceType !== 'custom' && (
+              <View style={styles.reviewRow}>
+                <Text style={styles.reviewLabel}>Race Date</Text>
+                <Text style={styles.reviewValue}>{formatDateShort(raceDate)}</Text>
+              </View>
+            )}
+            <View style={styles.reviewRow}>
+              <Text style={styles.reviewLabel}>Start Date</Text>
+              <Text style={styles.reviewValue}>{formatDateShort(startDate)}</Text>
+            </View>
+            <View style={styles.reviewRow}>
+              <Text style={styles.reviewLabel}>Days / Week</Text>
+              <Text style={styles.reviewValue}>{daysPerWeek}</Text>
+            </View>
+            {(goalTimeHours || goalTimeMinutes) && (
+              <View style={styles.reviewRow}>
+                <Text style={styles.reviewLabel}>Goal Time</Text>
+                <Text style={styles.reviewValue}>
+                  {goalTimeHours ? `${goalTimeHours}h ` : ''}{goalTimeMinutes || '0'}m
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Pro gate */}
+          {!canGeneratePlan && (
+            <View style={styles.proGateCard}>
+              <Ionicons name="lock-closed" size={18} color={Colors.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.proGateTitle}>PaceCue Pro Required</Text>
+                <Text style={styles.proGateDesc}>
+                  You've used your free plan. Upgrade to Pro for unlimited AI training plans that adapt to your progress.
+                </Text>
+              </View>
+            </View>
+          )}
+
+          <View style={styles.stepNavRow}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => setStep(3)} activeOpacity={0.7}>
+              <Ionicons name="arrow-back" size={18} color={Colors.textSecondary} />
+              <Text style={styles.backBtnText}>Back</Text>
+            </TouchableOpacity>
             <TouchableOpacity
-              key={n}
-              style={[styles.dayChip, daysPerWeek === n && styles.dayChipActive]}
-              onPress={() => setDaysPerWeek(n)}
-              activeOpacity={0.7}
+              style={[styles.generateBtn, !canGeneratePlan && styles.generateBtnPro, { flex: 1 }]}
+              onPress={handleGenerate}
+              activeOpacity={0.8}
             >
-              <Text style={[styles.dayChipText, daysPerWeek === n && styles.dayChipTextActive]}>
-                {n}
+              <Ionicons name={canGeneratePlan ? 'sparkles' : 'lock-closed'} size={18} color={Colors.black} />
+              <Text style={styles.generateBtnText}>
+                {canGeneratePlan ? 'Generate Plan' : 'Upgrade to Generate'}
               </Text>
             </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Start date */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Start Date</Text>
-        {Platform.OS === 'ios' ? (
-          <View style={styles.datePickerRow}>
-            <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
-            <DateTimePicker
-              value={startDate}
-              mode="date"
-              display="compact"
-              minimumDate={new Date()}
-              onChange={(_, date) => {
-                if (date) setStartDate(date);
-              }}
-              themeVariant="dark"
-              accentColor={Colors.primary}
-            />
           </View>
-        ) : (
-          <>
-            <TouchableOpacity
-              style={styles.dateBtn}
-              onPress={() => setShowStartDatePicker(true)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
-              <Text style={styles.dateBtnText}>{formatDateShort(startDate)}</Text>
-            </TouchableOpacity>
-            {showStartDatePicker && (
-              <DateTimePicker
-                value={startDate}
-                mode="date"
-                minimumDate={new Date()}
-                onChange={(_, date) => {
-                  setShowStartDatePicker(false);
-                  if (date) setStartDate(date);
-                }}
-                themeVariant="dark"
-              />
-            )}
-          </>
-        )}
-      </View>
-
-      {/* Generate button */}
-      <TouchableOpacity
-        style={styles.generateBtn}
-        onPress={handleGenerate}
-        activeOpacity={0.8}
-      >
-        <Ionicons name="sparkles" size={18} color={Colors.black} />
-        <Text style={styles.generateBtnText}>Generate Training Plan</Text>
-      </TouchableOpacity>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -936,6 +1065,137 @@ const styles = StyleSheet.create({
     color: Colors.black,
     fontSize: FontSize.md,
     fontWeight: '800',
+  },
+  generateBtnPro: {
+    backgroundColor: Colors.accent,
+  },
+  // Wizard
+  wizardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  wizardTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+  },
+  wizardStep: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  wizardProgressTrack: {
+    flexDirection: 'row',
+    gap: 4,
+    marginBottom: Spacing.xl,
+  },
+  wizardProgressSegment: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.surfaceLight,
+  },
+  wizardProgressSegmentActive: {
+    backgroundColor: Colors.primary,
+  },
+  continueBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    gap: Spacing.sm,
+    marginTop: Spacing.lg,
+  },
+  continueBtnText: {
+    color: Colors.black,
+    fontSize: FontSize.md,
+    fontWeight: '800',
+  },
+  stepNavRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.lg,
+  },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.xs,
+  },
+  backBtnText: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+  },
+  reviewCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  reviewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceLight,
+  },
+  reviewLabel: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+  },
+  reviewValue: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  effortHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.accent + '12',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+  },
+  effortHintText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.accent,
+    lineHeight: 20,
+  },
+  proGateCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.accent + '15',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.accent + '30',
+  },
+  proGateTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.accent,
+  },
+  proGateDesc: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    lineHeight: 18,
   },
 
   // Generation progress overlay

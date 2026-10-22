@@ -50,6 +50,8 @@ import {
 import { hapticTap } from '../../../src/audio/haptics';
 import { setDuckingEnabled, setVoiceIdentifier } from '../../../src/audio/audioManager';
 import { TagPicker } from '../../../src/components/TagPicker';
+import { PreRunSettings } from '../../../src/components/PreRunSettings';
+import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
 import { RouteMap } from '../../../src/components/RouteMap';
 import { NewRecordsBanner } from '../../../src/components/PersonalBests';
 import { updateHistoryEntry, loadHistory } from '../../../src/workout/workoutStorage';
@@ -214,7 +216,7 @@ function ActiveWorkoutInner({
             }
           </Text>
           {hasDistanceFeature(workout) && (
-            <Text style={styles.gpsNote}>📍 GPS pace tracking will auto-enable</Text>
+            <Text style={styles.gpsNote}>📍 GPS will auto-enable for distance-based runs</Text>
           )}
         </View>
 
@@ -279,6 +281,11 @@ function ActiveWorkoutInner({
 
         {/* Static footer */}
         <View style={styles.idleFooter}>
+          <PreRunSettings
+            settings={settings}
+            onUpdate={onUpdateSettings}
+            hasDistanceFeature={hasDistanceFeature(workout)}
+          />
           <TouchableOpacity
             style={styles.bigStartBtn}
             onPress={() => {
@@ -363,6 +370,12 @@ function ActiveWorkoutInner({
           </Text>
           <TagPicker selected={selectedTags} onChange={setSelectedTags} />
         </View>
+
+        {/* Post-workout AI analysis teaser */}
+        <ContextualProPrompt
+          momentId="post_workout_analysis"
+          onUpgrade={() => router.push('/paywall' as any)}
+        />
 
         <TouchableOpacity
           style={styles.doneBtn}
@@ -1299,25 +1312,25 @@ const styles = StyleSheet.create({
   idleContainer: {
     flex: 1,
     backgroundColor: Colors.background,
-    paddingTop: 60,
+    paddingTop: 100,
   },
   idleHeader: {
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.md,
+    paddingBottom: Spacing.sm,
   },
   idleScroll: {
     flex: 1,
   },
   idleScrollContent: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.sm,
+    paddingBottom: Spacing.xs,
   },
   idleFooter: {
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.xxl,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.lg,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Colors.surfaceLight,
   },

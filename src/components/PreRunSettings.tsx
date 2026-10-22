@@ -1,0 +1,237 @@
+/**
+ * PreRunSettings — compact settings summary shown before starting a workout.
+ * Displays current GPS, audio cue, and pace announcement settings with
+ * quick toggles, expandable into a full settings sheet.
+ */
+
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Switch } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import type { AppSettings, AudioCueMode } from '../workout/workoutTypes';
+import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
+import { hapticTap } from '../audio/haptics';
+
+interface PreRunSettingsProps {
+  settings: AppSettings;
+  onUpdate: (partial: Partial<AppSettings>) => void;
+  hasDistanceFeature: boolean;
+}
+
+export function PreRunSettings({ settings, onUpdate, hasDistanceFeature }: PreRunSettingsProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  const audioCueLabel =
+    settings.audioCueMode === 'voice' ? 'Voice' :
+    settings.audioCueMode === 'tone' ? 'Tone' : 'Silent';
+
+  return (
+    <View style={styles.container}>
+      {/* Summary row */}
+      <TouchableOpacity
+        style={styles.summaryRow}
+        onPress={() => setExpanded(!expanded)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.summaryTitle}>Run Settings</Text>
+        <View style={styles.summaryChips}>
+          <View style={[styles.chip, settings.paceTrackingEnabled && styles.chipActive]}>
+            <Ionicons
+              name="navigate"
+              size={12}
+              color={settings.paceTrackingEnabled ? Colors.primary : Colors.textMuted}
+            />
+            <Text style={[styles.chipText, settings.paceTrackingEnabled && styles.chipTextActive]}>
+              GPS {settings.paceTrackingEnabled ? 'On' : 'Off'}
+            </Text>
+          </View>
+          <View style={[styles.chip, settings.audioCueMode !== 'silent' && styles.chipActive]}>
+            <Ionicons
+              name={settings.audioCueMode === 'silent' ? 'volume-mute' : 'volume-high'}
+              size={12}
+              color={settings.audioCueMode !== 'silent' ? Colors.primary : Colors.textMuted}
+            />
+            <Text style={[styles.chipText, settings.audioCueMode !== 'silent' && styles.chipTextActive]}>
+              {audioCueLabel}
+            </Text>
+          </View>
+        </View>
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={16}
+          color={Colors.textMuted}
+        />
+      </TouchableOpacity>
+
+      {/* Expanded settings */}
+      {expanded && (
+        <View style={styles.expandedContent}>
+          {/* GPS tracking */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Ionicons name="navigate" size={18} color={Colors.textSecondary} />
+              <Text style={styles.settingLabel}>GPS Pace Tracking</Text>
+            </View>
+            <Switch
+              value={settings.paceTrackingEnabled}
+              onValueChange={(v) => {
+                hapticTap();
+                onUpdate({ paceTrackingEnabled: v });
+              }}
+              trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
+              thumbColor={Colors.white}
+            />
+          </View>
+
+          {/* Audio cues */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Ionicons name="volume-high" size={18} color={Colors.textSecondary} />
+              <Text style={styles.settingLabel}>Audio Cues</Text>
+            </View>
+            <View style={styles.audioModeRow}>
+              {(['voice', 'tone', 'silent'] as AudioCueMode[]).map((mode) => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[styles.audioChip, settings.audioCueMode === mode && styles.audioChipActive]}
+                  onPress={() => {
+                    hapticTap();
+                    onUpdate({ audioCueMode: mode });
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.audioChipText, settings.audioCueMode === mode && styles.audioChipTextActive]}>
+                    {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Pace announcements (when GPS is on) */}
+          {settings.paceTrackingEnabled && (
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfo}>
+                <Ionicons name="megaphone-outline" size={18} color={Colors.textSecondary} />
+                <Text style={styles.settingLabel}>Pace Announcements</Text>
+              </View>
+              <Switch
+                value={settings.paceCueEnabled !== false}
+                onValueChange={(v) => {
+                  hapticTap();
+                  onUpdate({ paceCueEnabled: v });
+                }}
+                trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
+                thumbColor={Colors.white}
+              />
+            </View>
+          )}
+
+          {hasDistanceFeature && !settings.paceTrackingEnabled && (
+            <View style={styles.hintRow}>
+              <Ionicons name="information-circle-outline" size={16} color={Colors.accent} />
+              <Text style={styles.hintText}>
+                This workout has distance intervals. GPS will auto-enable when you start.
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    overflow: 'hidden',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    gap: Spacing.md,
+  },
+  summaryTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    marginRight: 'auto' as any,
+  },
+  summaryChips: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  },
+  chipActive: {},
+  chipText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  chipTextActive: {
+    color: Colors.primary,
+  },
+  expandedContent: {
+    padding: Spacing.md,
+    paddingTop: 0,
+    gap: Spacing.sm,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.sm,
+  },
+  settingInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  settingLabel: {
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    fontWeight: '500',
+  },
+  audioModeRow: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  audioChip: {
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surfaceLight,
+  },
+  audioChipActive: {
+    backgroundColor: Colors.primary + '20',
+  },
+  audioChipText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  audioChipTextActive: {
+    color: Colors.primary,
+  },
+  hintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.xs,
+  },
+  hintText: {
+    fontSize: FontSize.xs,
+    color: Colors.accent,
+    flex: 1,
+  },
+});
