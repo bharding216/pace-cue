@@ -1,9 +1,7 @@
 /**
- * Workout Detail screen for planned workouts.
+ * Workout Detail screen — view and manage a planned workout.
  *
- * Shows workout structure breakdown, "Why this workout?" explanation,
- * Start/Reschedule/Adjust buttons, and contextual coach chips.
- *
+ * Clean layout: header, workout structure, and action buttons.
  * Accessed via query params: ?workoutId=<plan_workout_id>
  */
 
@@ -11,32 +9,28 @@ import React, { useMemo, useCallback, useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
-import { useAuth } from '../../../src/contexts/AuthContext';
 import { WorkoutStructure } from '../../../src/components/WorkoutStructure';
-import { VoiceInput } from '../../../src/components/VoiceInput';
-import { ModificationReview, type ModificationItem } from '../../../src/components/ModificationReview';
-import { WorkoutDefinition, generateId, totalWorkoutSeconds } from '../../../src/workout/workoutTypes';
+import { MoveWorkoutModal } from '../../../src/components/MoveWorkoutModal';
+import { WorkoutDefinition, generateId, totalWorkoutSeconds, flattenWorkout } from '../../../src/workout/workoutTypes';
 import { saveWorkout } from '../../../src/workout/workoutStorage';
-import {
-  generateWorkoutDetails,
-  adjustPlan,
-  applyPlanModifications,
-  type PlanModification,
-} from '../../../src/ai/planService';
-import { supabase } from '../../../src/analytics/supabaseClient';
-import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
+import { generateWorkoutDetails } from '../../../src/ai/planService';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function formatDateDisplay(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+}
 
 function getIntensityTag(label: string | null): { text: string; color: string } | null {
   if (!label) return null;
@@ -51,13 +45,9 @@ function getIntensityTag(label: string | null): { text: string; color: string } 
 export default function WorkoutDetailScreen() {
   const router = useRouter();
   const { workoutId } = useLocalSearchParams<{ workoutId: string }>();
-  const { user } = useAuth();
-  const { plans, planWorkouts, refresh, removeWorkout } = useTrainingPlan();
+  const { plans, planWorkouts, dayEntries, refresh, skipWorkout, removeWorkout, moveWorkout } = useTrainingPlan();
   const [generatingDetail, setGeneratingDetail] = useState(false);
-  const [adjustText, setAdjustText] = useState('');
-  const [adjusting, setAdjusting] = useState(false);
-  const [modificationItems, setModificationItems] = useState<ModificationItem[]>([]);
-  const [coachResponse, setCoachResponse] = useState<string | null>(null);
+  const [showMoveModal, setShowMoveModal] = useState(false);
 
   const planWorkout = useMemo(
     () => planWorkouts.find((pw) => pw.id === workoutId) ?? null,
@@ -70,22 +60,28 @@ export default function WorkoutDetailScreen() {
   );
 
   const workoutData = planWorkout?.workout_data as WorkoutDefinition | null;
-
-  const weekLabel = planWorkout
-    ? `Week ${planWorkout.week_number}`
-    : '';
-
-  const dayLabel = planWorkout
-    ? DAY_NAMES[new Date(planWorkout.date + 'T12:00:00').getDay()].toUpperCase()
-    : '';
-
   const intensity = getIntensityTag(planWorkout?.day_label ?? null);
 
   const duration = useMemo(() => {
     if (!workoutData) return null;
     const secs = totalWorkoutSeconds(workoutData);
-    return secs > 0 ? `~${Math.round(secs / 60)} min` : null;
+    return secs > 0 ? Math.round(secs / 60) : null;
   }, [workoutData]);
+
+  const intervalCount = useMemo(() => {
+    if (!workoutData) return 0;
+    return flattenWorkout(workoutData).length;
+  }, [workoutData]);
+
+  const dayName = planWorkout
+    ? DAY_NAMES[new Date(planWorkout.date + 'T12:00:00').getDay()]
+    : '';
+
+  const dateDisplay = planWorkout ? formatDateDisplay(planWorkout.date) : '';
+
+  const isRest = planWorkout?.day_label === 'Rest Day';
+  const isCompleted = planWorkout?.status === 'completed';
+  const isSkipped = planWorkout?.status === 'skipped';
 
   const handleStart = useCallback(async () => {
     if (!workoutData) return;
@@ -96,6 +92,17 @@ export default function WorkoutDetailScreen() {
     };
     await saveWorkout(workout);
     router.push(`/workout/run/${workout.id}`);
+  }, [workoutData, router]);
+
+  const handleEdit = useCallback(async () => {
+    if (!workoutData) return;
+    const workout: WorkoutDefinition = {
+      ...workoutData,
+      id: workoutData.id || generateId(),
+      updatedAt: Date.now(),
+    };
+    await saveWorkout(workout);
+    router.push(`/workout/${workout.id}`);
   }, [workoutData, router]);
 
   const handleGenerateDetail = useCallback(async () => {
@@ -111,115 +118,40 @@ export default function WorkoutDetailScreen() {
     }
   }, [planWorkout, ownerPlan, refresh]);
 
-  const handleAdjustRequest = useCallback(async (message: string) => {
-    if (!ownerPlan || !message.trim() || !user) return;
-    setAdjusting(true);
-    setCoachResponse(null);
-    setModificationItems([]);
+  const handleSkip = useCallback(async () => {
+    if (!planWorkout) return;
+    await skipWorkout(planWorkout.id);
+  }, [planWorkout, skipWorkout]);
 
-    try {
-      const context = planWorkout
-        ? `Context: The user is looking at "${planWorkout.day_label}" on ${planWorkout.date} (Week ${planWorkout.week_number}).`
-        : '';
+  const handleMove = useCallback(async (newDate: string) => {
+    if (!planWorkout) return;
+    setShowMoveModal(false);
+    await moveWorkout(planWorkout.id, newDate);
+  }, [planWorkout, moveWorkout]);
 
-      const totalWeeks = Math.max(1, Math.ceil(
-        (new Date(ownerPlan.race_date).getTime() - new Date(ownerPlan.start_date).getTime()) /
-        (7 * 24 * 60 * 60 * 1000)
-      ));
-
-      const { data: profileData } = await supabase
-        .from('running_profiles')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      const result = await adjustPlan({
-        prompt: `${context}\n\nUser request: ${message}`,
-        planSummary: {
-          title: ownerPlan.title,
-          raceType: ownerPlan.race_type,
-          raceDate: ownerPlan.race_date,
-          startDate: ownerPlan.start_date,
-          daysPerWeek: ownerPlan.days_per_week,
-          totalWeeks,
-          workouts: planWorkouts
-            .filter((w) => w.plan_id === ownerPlan.id)
-            .map((w) => ({
-              date: w.date,
-              day_label: w.day_label ?? '',
-              status: w.status,
-              week_number: w.week_number,
-            })),
+  const handleRemove = useCallback(() => {
+    if (!planWorkout) return;
+    Alert.alert(
+      'Remove Workout',
+      'Remove this workout from your plan?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            await removeWorkout(planWorkout.id);
+            router.back();
+          },
         },
-        profile: profileData ? {
-          experience_level: profileData.experience_level,
-          typical_run_minutes: profileData.typical_run_minutes,
-          easy_pace: profileData.easy_pace,
-          fast_pace: profileData.fast_pace,
-        } : undefined,
-      });
-
-      setCoachResponse(result.message);
-
-      if (result.modifications && result.modifications.length > 0) {
-        const items: ModificationItem[] = result.modifications.map((mod) => {
-          const existing = planWorkouts.find((pw) => pw.date === mod.date);
-          return {
-            modification: mod,
-            before: existing
-              ? { day_label: existing.day_label ?? undefined, description: existing.description ?? undefined }
-              : null,
-          };
-        });
-        setModificationItems(items);
-      }
-    } catch (err) {
-      console.warn('Adjustment failed:', err);
-      setCoachResponse("Sorry, I couldn't process that right now. Try again or use the chat for more detailed adjustments.");
-    } finally {
-      setAdjusting(false);
-    }
-  }, [ownerPlan, planWorkout, planWorkouts, user]);
-
-  const handleChipPress = useCallback((prompt: string) => {
-    setAdjustText(prompt);
-    handleAdjustRequest(prompt);
-  }, [handleAdjustRequest]);
-
-  const handleApplyModifications = useCallback(async (mods: PlanModification[]) => {
-    if (!ownerPlan) return;
-    await applyPlanModifications(ownerPlan.id, mods);
-    await refresh();
-    setModificationItems([]);
-  }, [ownerPlan, refresh]);
-
-  const handleKeepOriginal = useCallback(() => {
-    setModificationItems([]);
-    setCoachResponse(null);
-  }, []);
-
-  const handleVoiceTranscription = useCallback((text: string) => {
-    setAdjustText(text);
-    handleAdjustRequest(text);
-  }, [handleAdjustRequest]);
-
-  const handleSendText = useCallback(() => {
-    if (adjustText.trim()) {
-      handleAdjustRequest(adjustText.trim());
-      setAdjustText('');
-    }
-  }, [adjustText, handleAdjustRequest]);
-
-  const coachChips = [
-    { icon: 'bed-outline' as const, label: "I'm feeling tired", prompt: "I'm feeling tired. Can you make this workout easier?" },
-    { icon: 'calendar-outline' as const, label: 'Move this workout', prompt: 'Can you move this workout to a different day?' },
-    { icon: 'time-outline' as const, label: 'Make it shorter', prompt: 'I have limited time. Can you shorten this workout?' },
-    { icon: 'help-circle-outline' as const, label: 'Why this workout?', prompt: 'Why is this workout in my plan? What does it accomplish?' },
-  ];
+      ],
+    );
+  }, [planWorkout, removeWorkout, router]);
 
   if (!planWorkout) {
     return (
       <View style={styles.centered}>
+        <Ionicons name="alert-circle-outline" size={48} color={Colors.textMuted} />
         <Text style={styles.emptyTitle}>Workout not found</Text>
       </View>
     );
@@ -231,12 +163,19 @@ export default function WorkoutDetailScreen() {
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
-      {/* Header */}
-      <View style={styles.headerRow}>
-        <Text style={styles.dayWeek}>{dayLabel} {'\u00B7'} {weekLabel}</Text>
-        {intensity && (
-          <View style={[styles.intensityBadge, { backgroundColor: intensity.color + '20', borderColor: intensity.color + '40' }]}>
-            <Text style={[styles.intensityText, { color: intensity.color }]}>{intensity.text}</Text>
+      {/* Date & status row */}
+      <View style={styles.dateRow}>
+        <Text style={styles.dateText}>{dayName}, {dateDisplay}</Text>
+        {isCompleted && (
+          <View style={[styles.statusPill, { backgroundColor: Colors.primary + '22' }]}>
+            <Ionicons name="checkmark-circle" size={14} color={Colors.primary} />
+            <Text style={[styles.statusText, { color: Colors.primary }]}>Completed</Text>
+          </View>
+        )}
+        {isSkipped && (
+          <View style={[styles.statusPill, { backgroundColor: Colors.textMuted + '22' }]}>
+            <Ionicons name="close-circle" size={14} color={Colors.textMuted} />
+            <Text style={[styles.statusText, { color: Colors.textMuted }]}>Skipped</Text>
           </View>
         )}
       </View>
@@ -244,29 +183,70 @@ export default function WorkoutDetailScreen() {
       {/* Workout name */}
       <Text style={styles.workoutName}>{planWorkout.day_label || 'Training'}</Text>
 
-      {/* Meta */}
-      <View style={styles.metaRow}>
-        {duration && (
-          <View style={styles.metaItem}>
-            <Ionicons name="time-outline" size={16} color={Colors.textSecondary} />
-            <Text style={styles.metaText}>{duration}</Text>
-          </View>
-        )}
-        {intensity && (
-          <View style={styles.metaItem}>
-            <Ionicons name="flame-outline" size={16} color={intensity.color} />
-            <Text style={[styles.metaText, { color: intensity.color }]}>{intensity.text}</Text>
-          </View>
+      {/* Quick stats */}
+      {workoutData && (
+        <View style={styles.statsRow}>
+          {duration && (
+            <View style={styles.statChip}>
+              <Ionicons name="time-outline" size={14} color={Colors.textSecondary} />
+              <Text style={styles.statText}>{duration} min</Text>
+            </View>
+          )}
+          {intervalCount > 0 && (
+            <View style={styles.statChip}>
+              <Ionicons name="layers-outline" size={14} color={Colors.textSecondary} />
+              <Text style={styles.statText}>{intervalCount} intervals</Text>
+            </View>
+          )}
+          {intensity && (
+            <View style={[styles.statChip, { borderColor: intensity.color + '30' }]}>
+              <Ionicons name="flame-outline" size={14} color={intensity.color} />
+              <Text style={[styles.statText, { color: intensity.color }]}>{intensity.text}</Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Week context */}
+      <View style={styles.weekRow}>
+        <Ionicons name="calendar-outline" size={14} color={Colors.textMuted} />
+        <Text style={styles.weekText}>Week {planWorkout.week_number}</Text>
+        {ownerPlan && (
+          <>
+            <Text style={styles.weekDot}>·</Text>
+            <Text style={styles.weekText}>{ownerPlan.title || 'Training Plan'}</Text>
+          </>
         )}
       </View>
 
+      {/* Description */}
+      {planWorkout.description && (
+        <Text style={styles.description}>{planWorkout.description}</Text>
+      )}
+
+      {/* Rest day card */}
+      {isRest && (
+        <View style={styles.restCard}>
+          <Ionicons name="bed-outline" size={28} color={Colors.textMuted} />
+          <Text style={styles.restTitle}>Rest Day</Text>
+          <Text style={styles.restText}>Take it easy — recovery is part of the plan.</Text>
+        </View>
+      )}
+
       {/* Workout structure */}
-      {workoutData ? (
-        <WorkoutStructure workout={workoutData} />
-      ) : (
-        <View style={styles.noDetailCard}>
-          <Text style={styles.noDetailText}>
-            Workout details haven't been generated yet.
+      {workoutData && !isRest && (
+        <View style={styles.structureSection}>
+          <WorkoutStructure workout={workoutData} />
+        </View>
+      )}
+
+      {/* No workout data yet */}
+      {!workoutData && !isRest && planWorkout.status === 'planned' && (
+        <View style={styles.generateCard}>
+          <Ionicons name="sparkles-outline" size={24} color={Colors.accent} />
+          <Text style={styles.generateTitle}>Workout details not generated yet</Text>
+          <Text style={styles.generateDesc}>
+            Generate the full interval structure for this workout.
           </Text>
           <TouchableOpacity
             style={styles.generateBtn}
@@ -278,7 +258,7 @@ export default function WorkoutDetailScreen() {
               <ActivityIndicator size="small" color={Colors.black} />
             ) : (
               <>
-                <Ionicons name="sparkles-outline" size={16} color={Colors.black} />
+                <Ionicons name="sparkles" size={16} color={Colors.black} />
                 <Text style={styles.generateBtnText}>Generate Details</Text>
               </>
             )}
@@ -286,119 +266,73 @@ export default function WorkoutDetailScreen() {
         </View>
       )}
 
-      {/* Why this workout */}
-      {planWorkout.description && (
-        <View style={styles.whySection}>
-          <View style={styles.whyHeader}>
-            <Ionicons name="sparkles-outline" size={16} color={Colors.accent} />
-            <Text style={styles.whyTitle}>Why this workout?</Text>
-          </View>
-          <Text style={styles.whyText}>{planWorkout.description}</Text>
-        </View>
+      {/* Move workout modal */}
+      {planWorkout && (
+        <MoveWorkoutModal
+          visible={showMoveModal}
+          currentDate={planWorkout.date}
+          workoutLabel={planWorkout.day_label || 'Training'}
+          dayEntries={dayEntries}
+          onMove={handleMove}
+          onClose={() => setShowMoveModal(false)}
+        />
       )}
 
       {/* Action buttons */}
-      {workoutData && (
-        <TouchableOpacity
-          style={styles.startBtn}
-          onPress={handleStart}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="play" size={18} color={Colors.black} />
-          <Text style={styles.startBtnText}>Start Workout</Text>
-        </TouchableOpacity>
-      )}
+      {planWorkout.status === 'planned' && !isRest && (
+        <View style={styles.actions}>
+          {workoutData && (
+            <>
+              <TouchableOpacity
+                style={styles.startBtn}
+                onPress={handleStart}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="play" size={18} color={Colors.black} />
+                <Text style={styles.startBtnText}>Start Workout</Text>
+              </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.adjustNavBtn}
-        onPress={() => router.push('/(tabs)/training/chat' as any)}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="sparkles-outline" size={16} color={Colors.textSecondary} />
-        <Text style={styles.adjustNavBtnText}>Adjust Full Plan</Text>
-      </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.editBtn}
+                onPress={handleEdit}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="create-outline" size={16} color={Colors.textPrimary} />
+                <Text style={styles.editBtnText}>Edit Workout</Text>
+              </TouchableOpacity>
+            </>
+          )}
 
-      {/* AI Coach Adjustment */}
-      <View style={styles.coachSection}>
-        <View style={styles.coachHeader}>
-          <Ionicons name="sparkles" size={16} color={Colors.accent} />
-          <Text style={styles.coachTitle}>Ask your coach</Text>
-        </View>
-        <Text style={styles.coachSubtitle}>Need to change today's workout?</Text>
-
-        {/* Voice + text input row */}
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.textInput}
-            placeholder="Type an adjustment…"
-            placeholderTextColor={Colors.textMuted}
-            value={adjustText}
-            onChangeText={setAdjustText}
-            onSubmitEditing={handleSendText}
-            returnKeyType="send"
-            multiline={false}
-          />
-          <VoiceInput
-            onTranscription={handleVoiceTranscription}
-            compact
-          />
-          <TouchableOpacity
-            style={[styles.sendBtn, !adjustText.trim() && styles.sendBtnDisabled]}
-            onPress={handleSendText}
-            disabled={!adjustText.trim() || adjusting}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="send" size={16} color={adjustText.trim() ? Colors.accent : Colors.textMuted} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Quick chips */}
-        <View style={styles.chipGrid}>
-          {coachChips.map((chip) => (
+          <View style={styles.secondaryRow}>
             <TouchableOpacity
-              key={chip.label}
-              style={styles.chip}
-              onPress={() => handleChipPress(chip.prompt)}
-              disabled={adjusting}
+              style={styles.secondaryBtn}
+              onPress={() => setShowMoveModal(true)}
               activeOpacity={0.7}
             >
-              <Ionicons name={chip.icon} size={14} color={Colors.accent} />
-              <Text style={styles.chipLabel}>{chip.label}</Text>
+              <Ionicons name="swap-horizontal-outline" size={14} color={Colors.textSecondary} />
+              <Text style={styles.secondaryBtnText}>Move</Text>
             </TouchableOpacity>
-          ))}
+
+            <TouchableOpacity
+              style={styles.secondaryBtn}
+              onPress={handleSkip}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="play-skip-forward-outline" size={14} color={Colors.textSecondary} />
+              <Text style={styles.secondaryBtnText}>Skip</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryBtn}
+              onPress={handleRemove}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="trash-outline" size={14} color={Colors.danger} />
+              <Text style={[styles.secondaryBtnText, { color: Colors.danger }]}>Remove</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-
-        {/* Pro prompt for voice feature */}
-        <ContextualProPrompt
-          momentId="voice_feature_gate"
-          onUpgrade={() => router.push('/paywall' as any)}
-        />
-
-        {/* Loading state */}
-        {adjusting && (
-          <View style={styles.adjustingRow}>
-            <ActivityIndicator size="small" color={Colors.accent} />
-            <Text style={styles.adjustingText}>Your coach is thinking…</Text>
-          </View>
-        )}
-
-        {/* Coach response */}
-        {coachResponse && !adjusting && (
-          <View style={styles.responseBubble}>
-            <Text style={styles.responseText}>{coachResponse}</Text>
-          </View>
-        )}
-
-        {/* Modification review */}
-        {modificationItems.length > 0 && !adjusting && (
-          <ModificationReview
-            items={modificationItems}
-            coachMessage={coachResponse ?? undefined}
-            onApply={handleApplyModifications}
-            onKeepOriginal={handleKeepOriginal}
-          />
-        )}
-      </View>
+      )}
     </ScrollView>
   );
 }
@@ -417,6 +351,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: Colors.background,
+    gap: Spacing.md,
   },
   emptyTitle: {
     fontSize: FontSize.lg,
@@ -424,32 +359,34 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
 
-  // Header
-  headerRow: {
+  // Date row
+  dateRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: Spacing.xs,
   },
-  dayWeek: {
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    color: Colors.accent,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+  dateText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textMuted,
   },
-  intensityBadge: {
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingHorizontal: Spacing.sm + 2,
     paddingVertical: 3,
     borderRadius: BorderRadius.full,
-    borderWidth: 1,
   },
-  intensityText: {
+  statusText: {
     fontSize: FontSize.xs,
     fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 
-  // Workout name
+  // Name
   workoutName: {
     fontSize: FontSize.xxl,
     fontWeight: '800',
@@ -457,38 +394,103 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
 
-  // Meta
-  metaRow: {
+  // Stats row
+  statsRow: {
     flexDirection: 'row',
-    gap: Spacing.md,
-    marginBottom: Spacing.lg,
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
   },
-  metaItem: {
+  statChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-  },
-  metaText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-
-  // No detail
-  noDetailCard: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.lg,
-    alignItems: 'center',
-    marginBottom: Spacing.lg,
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: Spacing.xs + 2,
+    borderRadius: BorderRadius.full,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
   },
-  noDetailText: {
+  statText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+
+  // Week context
+  weekRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.md,
+  },
+  weekText: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '500',
+  },
+  weekDot: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+
+  // Description
+  description: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 22,
+    marginBottom: Spacing.lg,
+  },
+
+  // Rest day
+  restCard: {
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xl,
+    marginTop: Spacing.md,
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  restTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  restText: {
     fontSize: FontSize.sm,
     color: Colors.textMuted,
     textAlign: 'center',
-    marginBottom: Spacing.md,
+  },
+
+  // Structure section
+  structureSection: {
+    marginBottom: Spacing.sm,
+  },
+
+  // Generate card
+  generateCard: {
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xl,
+    marginBottom: Spacing.lg,
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.accent + '20',
+  },
+  generateTitle: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  generateDesc: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
   },
   generateBtn: {
     flexDirection: 'row',
@@ -497,7 +499,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accent,
     borderRadius: BorderRadius.md,
     paddingVertical: Spacing.sm + 2,
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
     gap: Spacing.xs,
   },
   generateBtnText: {
@@ -506,33 +508,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Why this workout
-  whySection: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Colors.accent + '20',
+  // Actions
+  actions: {
+    gap: Spacing.sm,
   },
-  whyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginBottom: Spacing.sm,
-  },
-  whyTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.accent,
-  },
-  whyText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-
-  // Action buttons
   startBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -541,124 +520,46 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     paddingVertical: Spacing.md,
     gap: Spacing.sm,
-    marginBottom: Spacing.sm,
   },
   startBtnText: {
     color: Colors.black,
     fontSize: FontSize.md,
     fontWeight: '800',
   },
-  adjustNavBtn: {
+  editBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surfaceLight,
+    backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
     paddingVertical: Spacing.sm + 4,
     gap: Spacing.xs,
-    marginBottom: Spacing.xl,
-  },
-  adjustNavBtnText: {
-    color: Colors.textSecondary,
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-  },
-
-  // Coach section
-  coachSection: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Colors.accent + '20',
-  },
-  coachHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginBottom: Spacing.xs,
-  },
-  coachTitle: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  coachSubtitle: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    marginBottom: Spacing.md,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  textInput: {
-    flex: 1,
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm + 2,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
   },
-  sendBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.full,
+  editBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  secondaryRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  secondaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  sendBtnDisabled: {
-    opacity: 0.4,
-  },
-  chipGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm + 2,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-    width: '48%' as any,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surfaceLight,
+    gap: Spacing.xs,
   },
-  chipLabel: {
-    fontSize: FontSize.xs,
+  secondaryBtnText: {
+    fontSize: FontSize.sm,
     fontWeight: '600',
     color: Colors.textSecondary,
-    flex: 1,
-  },
-  adjustingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
-    justifyContent: 'center',
-  },
-  adjustingText: {
-    fontSize: FontSize.sm,
-    color: Colors.accent,
-    fontWeight: '500',
-  },
-  responseBubble: {
-    backgroundColor: Colors.accent + '12',
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginTop: Spacing.md,
-  },
-  responseText: {
-    fontSize: FontSize.sm,
-    color: Colors.accent,
-    lineHeight: 20,
   },
 });

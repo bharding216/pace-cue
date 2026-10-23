@@ -773,6 +773,46 @@ export async function skipPlanWorkout(workoutId: string): Promise<void> {
   }
 }
 
+/** Undo skip — restore a skipped workout back to planned. */
+export async function unskipPlanWorkout(workoutId: string): Promise<void> {
+  const { error } = await supabase
+    .from('plan_workouts')
+    .update({
+      status: 'planned',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', workoutId);
+
+  if (error) {
+    console.warn('Failed to unskip plan workout:', error);
+  }
+}
+
+/** Move a plan workout to a different date, recalculating week_number. */
+export async function movePlanWorkout(
+  workoutId: string,
+  newDate: string,
+  planStartDate: string,
+): Promise<void> {
+  const start = new Date(planStartDate);
+  const target = new Date(newDate);
+  const diffMs = target.getTime() - start.getTime();
+  const weekNumber = Math.max(1, Math.ceil(diffMs / (7 * 24 * 60 * 60 * 1000)));
+
+  const { error } = await supabase
+    .from('plan_workouts')
+    .update({
+      date: newDate,
+      week_number: weekNumber,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', workoutId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 /** Remove a plan workout from the calendar entirely. */
 export async function removePlanWorkout(workoutId: string): Promise<void> {
   const { error } = await supabase

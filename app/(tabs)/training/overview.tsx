@@ -46,8 +46,9 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function PlanOverviewScreen() {
   const router = useRouter();
-  const { plans, archivedPlans, planWorkouts, archivePlan, restorePlan, updatePlan } = useTrainingPlan();
+  const { plans, archivedPlans, planWorkouts, archivePlan, restorePlan, updatePlan, skipWorkout, unskipWorkout, removeWorkout } = useTrainingPlan();
   const [archiving, setArchiving] = useState<string | null>(null);
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [showDaysPicker, setShowDaysPicker] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -83,8 +84,8 @@ export default function PlanOverviewScreen() {
   }, [planWorkouts, currentWeekNumber, primaryPlan]);
 
   const handleWorkoutPress = useCallback((planWorkoutId: string) => {
-    router.push({ pathname: '/(tabs)/training/workout-detail', params: { workoutId: planWorkoutId } } as any);
-  }, [router]);
+    setSelectedWorkoutId((prev) => prev === planWorkoutId ? null : planWorkoutId);
+  }, []);
 
   const handleArchivePlan = useCallback((planId: string, planTitle: string) => {
     Alert.alert(
@@ -419,30 +420,72 @@ export default function PlanOverviewScreen() {
           <>
             {(weekExpanded ? currentWeekWorkouts : currentWeekWorkouts.slice(0, 3)).map((pw) => {
               const dayName = DAY_NAMES[new Date(pw.date + 'T12:00:00').getDay()];
+              const isSelected = selectedWorkoutId === pw.id;
+              const isSkipped = pw.status === 'skipped';
+              const isCompleted = pw.status === 'completed';
+              const isRest = pw.day_label === 'Rest Day';
               return (
-                <TouchableOpacity
-                  key={pw.id}
-                  style={styles.weekWorkout}
-                  onPress={() => handleWorkoutPress(pw.id)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.weekDay}>{dayName}</Text>
-                  <View style={styles.weekWorkoutInfo}>
-                    <Text style={styles.weekWorkoutName} numberOfLines={1}>
-                      {pw.day_label || 'Training'}
-                    </Text>
-                    {pw.description && (
-                      <Text style={styles.weekWorkoutDesc} numberOfLines={1}>{pw.description}</Text>
+                <View key={pw.id}>
+                  <TouchableOpacity
+                    style={[styles.weekWorkout, isSelected && !isCompleted && styles.weekWorkoutExpanded]}
+                    onPress={() => handleWorkoutPress(pw.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.weekDay}>{dayName}</Text>
+                    <View style={styles.weekWorkoutInfo}>
+                      <Text style={styles.weekWorkoutName} numberOfLines={1}>
+                        {pw.day_label || 'Training'}
+                      </Text>
+                      {pw.description && (
+                        <Text style={styles.weekWorkoutDesc} numberOfLines={1}>{pw.description}</Text>
+                      )}
+                    </View>
+                    {isCompleted ? (
+                      <Ionicons name="checkmark-circle" size={18} color={Colors.primary} />
+                    ) : isSkipped ? (
+                      <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+                    ) : (
+                      <Ionicons name={isSelected ? 'chevron-down' : 'chevron-forward'} size={16} color={Colors.textMuted} />
                     )}
-                  </View>
-                  {pw.status === 'completed' ? (
-                    <Ionicons name="checkmark-circle" size={18} color={Colors.primary} />
-                  ) : pw.status === 'skipped' ? (
-                    <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
-                  ) : (
-                    <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+                  </TouchableOpacity>
+
+                  {isSelected && !isCompleted && !isRest && (
+                    <View style={styles.weekWorkoutActions}>
+                      {isSkipped ? (
+                        <TouchableOpacity
+                          style={styles.weekUnskipBtn}
+                          onPress={() => unskipWorkout(pw.id)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="arrow-undo-outline" size={14} color={Colors.accent} />
+                          <Text style={styles.weekUnskipBtnText}>Undo Skip</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          style={styles.weekActionBtn}
+                          onPress={() => skipWorkout(pw.id)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="play-skip-forward-outline" size={14} color={Colors.textSecondary} />
+                          <Text style={styles.weekActionBtnText}>Skip</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity
+                        style={styles.weekActionBtn}
+                        onPress={() => {
+                          Alert.alert('Remove Workout', 'Remove this workout from your plan?', [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Remove', style: 'destructive', onPress: () => removeWorkout(pw.id) },
+                          ]);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="trash-outline" size={14} color={Colors.danger} />
+                        <Text style={[styles.weekActionBtnText, { color: Colors.danger }]}>Remove</Text>
+                      </TouchableOpacity>
+                    </View>
                   )}
-                </TouchableOpacity>
+                </View>
               );
             })}
             {currentWeekWorkouts.length > 3 && (
@@ -785,6 +828,56 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
     marginTop: 1,
+  },
+  weekWorkoutExpanded: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    marginBottom: 0,
+    borderBottomWidth: 0,
+  },
+  weekWorkoutActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.sm + 2,
+    marginBottom: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderBottomLeftRadius: BorderRadius.md,
+    borderBottomRightRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: Colors.surfaceLight,
+  },
+  weekActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceLight,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+  },
+  weekActionBtnText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  weekUnskipBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.accent + '15',
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+  },
+  weekUnskipBtnText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.accent,
   },
   weekEmpty: {
     fontSize: FontSize.sm,

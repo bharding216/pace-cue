@@ -8,7 +8,7 @@
  * Stats accessible via a dedicated button on the page.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,21 +16,29 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { TrainingCalendar, CalendarViewMode } from '../../../src/components/TrainingCalendar';
+import { MoveWorkoutModal } from '../../../src/components/MoveWorkoutModal';
 import { DayDetail } from '../../../src/components/DayDetail';
 import { derivePhases } from '../../../src/components/TrainingPhases';
-import { PlanWeekSummary } from '../../../src/components/PlanWeekSummary';
 import { WorkoutDefinition, generateId } from '../../../src/workout/workoutTypes';
 import { saveWorkout } from '../../../src/workout/workoutStorage';
 import { WorkoutPickerModal } from '../../../src/components/WorkoutPickerModal';
 import { addWorkoutToCalendar, generateWorkoutDetails } from '../../../src/ai/planService';
 import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 function todayKey(): string {
   const d = new Date();
@@ -57,7 +65,7 @@ function formatRaceLabel(raceType: string): string {
 export default function TrainingScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { plans, archivedPlans, plan, planWorkouts, history, dayEntries, loading, refresh, ensurePlan, skipWorkout, removeWorkout } = useTrainingPlan();
+  const { plans, archivedPlans, plan, planWorkouts, dayEntries, loading, refresh, ensurePlan, skipWorkout, unskipWorkout, removeWorkout, moveWorkout } = useTrainingPlan();
 
   const racePlans = useMemo(
     () => plans.filter((p) => p.race_type !== 'custom'),
@@ -72,6 +80,26 @@ export default function TrainingScreen() {
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>('month');
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [pickerDate, setPickerDate] = useState<string | null>(null);
+  const [moveTarget, setMoveTarget] = useState<{ id: string; date: string; label: string } | null>(null);
+  const [heroCollapsed, setHeroCollapsed] = useState(false);
+  const [weekExpanded, setWeekExpanded] = useState(false);
+
+  const HERO_COLLAPSED_KEY = 'training_hero_collapsed';
+
+  useEffect(() => {
+    AsyncStorage.getItem(HERO_COLLAPSED_KEY).then((val) => {
+      if (val === 'true') setHeroCollapsed(true);
+    });
+  }, []);
+
+  const toggleHeroCollapsed = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setHeroCollapsed((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem(HERO_COLLAPSED_KEY, String(next));
+      return next;
+    });
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -102,38 +130,19 @@ export default function TrainingScreen() {
     return phases.find((p) => p.status === 'current') ?? null;
   }, [primaryPlan, currentWeekNumber]);
 
-  const currentWeekWorkouts = useMemo(() => {
-    if (!primaryPlan) return [];
-    return planWorkouts.filter((w) => w.plan_id === primaryPlan.id && w.week_number === currentWeekNumber);
-  }, [planWorkouts, currentWeekNumber, primaryPlan]);
+  // Selected day entry
+  const selectedDayEntry = dayEntries[selectedDate];
 
-  // Today's planned workout
-  const todayEntry = dayEntries[todayKey()];
-  const todayPlanWorkout = todayEntry?.planWorkout;
-
-  // Consolidated upcoming list: today (if planned & not rest) + next few future workouts
-  const upcomingWorkouts = useMemo(() => {
+  // Workouts for the next 7 days (always from today)
+  const next7DaysWorkouts = useMemo(() => {
     const today = todayKey();
-    const future = planWorkouts
-      .filter((w) => w.date > today && w.status === 'planned' && w.day_label !== 'Rest Day')
+    const end = new Date();
+    end.setDate(end.getDate() + 6);
+    const endKey = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+    return planWorkouts
+      .filter((w) => w.date >= today && w.date <= endKey)
       .sort((a, b) => a.date.localeCompare(b.date));
-
-    const items: Array<typeof planWorkouts[number] & { isToday?: boolean }> = [];
-
-    // Include today's workout at the top if it exists and isn't rest
-    if (todayPlanWorkout && todayPlanWorkout.day_label !== 'Rest Day') {
-      items.push({ ...todayPlanWorkout, isToday: true } as any);
-    }
-
-    // Fill remaining slots from future workouts
-    const maxTotal = 4;
-    for (const w of future) {
-      if (items.length >= maxTotal) break;
-      items.push(w as any);
-    }
-
-    return items;
-  }, [planWorkouts, todayPlanWorkout]);
+  }, [planWorkouts]);
 
   const handleStartWorkout = useCallback(async (workoutData: WorkoutDefinition) => {
     const workout: WorkoutDefinition = {
@@ -153,21 +162,40 @@ export default function TrainingScreen() {
     await removeWorkout(workoutId);
   }, [removeWorkout]);
 
-  const handleEditWorkout = useCallback((workoutData: WorkoutDefinition) => {
-    router.push(`/workout/${workoutData.id}`);
+  const handleMoveWorkout = useCallback(async (newDate: string) => {
+    if (!moveTarget) return;
+    setMoveTarget(null);
+    await moveWorkout(moveTarget.id, newDate);
+  }, [moveTarget, moveWorkout]);
+
+  const handleEditWorkout = useCallback(async (workoutData: WorkoutDefinition) => {
+    const workout: WorkoutDefinition = {
+      ...workoutData,
+      id: workoutData.id || generateId(),
+      updatedAt: Date.now(),
+    };
+    await saveWorkout(workout);
+    router.push(`/workout/${workout.id}`);
   }, [router]);
 
-  const handleViewPlannedWorkout = useCallback((planWorkoutId: string) => {
-    router.push({ pathname: '/(tabs)/training/workout-detail', params: { workoutId: planWorkoutId } } as any);
-  }, [router]);
+  const handleUnskipWorkout = useCallback(async (workoutId: string) => {
+    await unskipWorkout(workoutId);
+  }, [unskipWorkout]);
 
   const handleViewRun = useCallback((historyEntryId: string) => {
-    router.push(`/run/${historyEntryId}`);
+    router.push(`/run/${historyEntryId}` as any);
   }, [router]);
 
-  const handleRunAgain = useCallback((workoutId: string) => {
+  const handleRunAgain = useCallback(async (workoutId: string) => {
     router.push(`/workout/run/${workoutId}`);
   }, [router]);
+
+  const handleMoveWorkoutFromDay = useCallback((workoutId: string) => {
+    const pw = planWorkouts.find((w) => w.id === workoutId);
+    if (pw) {
+      setMoveTarget({ id: pw.id, date: pw.date, label: pw.day_label || 'Training' });
+    }
+  }, [planWorkouts]);
 
   const handleGenerateDetail = useCallback(async (workoutId: string) => {
     const pw = planWorkouts.find((w) => w.id === workoutId);
@@ -176,7 +204,7 @@ export default function TrainingScreen() {
     if (!ownerPlan) return;
     await generateWorkoutDetails(ownerPlan, [pw]);
     await refresh();
-  }, [plans, planWorkouts, refresh]);
+  }, [planWorkouts, plans, refresh]);
 
   const handleAddWorkout = useCallback((date: string) => {
     setPickerDate(date);
@@ -208,17 +236,6 @@ export default function TrainingScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Stats button row */}
-      <View style={styles.statsBtnRow}>
-        <TouchableOpacity
-          style={styles.statsBtn}
-          onPress={() => router.push('/(tabs)/training/stats' as any)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="stats-chart" size={18} color={Colors.primary} />
-        </TouchableOpacity>
-      </View>
-
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -261,42 +278,59 @@ export default function TrainingScreen() {
           )}
 
           {!hasPlan && user && (
-            <View style={styles.noPlanHero}>
-              <View style={styles.noPlanIconBg}>
-                <Ionicons name="fitness-outline" size={36} color={Colors.primary} />
-              </View>
-              <Text style={styles.noPlanTitle}>Train toward something great.</Text>
-              <Text style={styles.noPlanDesc}>
-                Whether you're running your first 5K or chasing a new PR, PaceCue can build a training plan around your goals and schedule.
-              </Text>
+            heroCollapsed ? (
               <TouchableOpacity
-                style={styles.createPlanBtn}
-                onPress={() => router.push('/(tabs)/training/setup' as any)}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="sparkles" size={18} color={Colors.black} />
-                <Text style={styles.createPlanBtnText}>Create Training Plan</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handleAddWorkout(todayKey())}
+                style={styles.heroCollapsedBar}
+                onPress={toggleHeroCollapsed}
                 activeOpacity={0.7}
               >
-                <Text style={styles.manualLink}>Or keep planning your workouts manually</Text>
+                <View style={styles.heroCollapsedLeft}>
+                  <Ionicons name="fitness-outline" size={18} color={Colors.primary} />
+                  <Text style={styles.heroCollapsedText}>Create a Training Plan</Text>
+                </View>
+                <Ionicons name="chevron-down" size={16} color={Colors.textMuted} />
               </TouchableOpacity>
-
-              {archivedPlans.length > 0 && (
+            ) : (
+              <View style={styles.noPlanHero}>
+                <View style={styles.noPlanIconBg}>
+                  <Ionicons name="fitness-outline" size={36} color={Colors.primary} />
+                </View>
+                <Text style={styles.noPlanTitle}>Train toward something great.</Text>
+                <Text style={styles.noPlanDesc}>
+                  Whether you're running your first 5K or chasing a new PR, PaceCue can build a training plan around your goals and schedule.
+                </Text>
                 <TouchableOpacity
-                  style={styles.archivedLink}
-                  onPress={() => router.push('/(tabs)/training/overview' as any)}
+                  style={styles.createPlanBtn}
+                  onPress={() => router.push('/(tabs)/training/setup' as any)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="sparkles" size={18} color={Colors.black} />
+                  <Text style={styles.createPlanBtnText}>Create Training Plan</Text>
+                </TouchableOpacity>
+
+                {archivedPlans.length > 0 && (
+                  <TouchableOpacity
+                    style={styles.archivedLink}
+                    onPress={() => router.push('/(tabs)/training/overview' as any)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="archive-outline" size={16} color={Colors.textMuted} />
+                    <Text style={styles.archivedLinkText}>
+                      {archivedPlans.filter((p) => p.race_type !== 'custom').length} archived plan{archivedPlans.filter((p) => p.race_type !== 'custom').length !== 1 ? 's' : ''} — Restore
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={styles.heroDismissBtn}
+                  onPress={toggleHeroCollapsed}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="archive-outline" size={16} color={Colors.textMuted} />
-                  <Text style={styles.archivedLinkText}>
-                    {archivedPlans.filter((p) => p.race_type !== 'custom').length} archived plan{archivedPlans.filter((p) => p.race_type !== 'custom').length !== 1 ? 's' : ''} — Restore
-                  </Text>
+                  <Text style={styles.heroDismissText}>Hide</Text>
+                  <Ionicons name="chevron-up" size={14} color={Colors.textMuted} />
                 </TouchableOpacity>
-              )}
-            </View>
+              </View>
+            )
           )}
 
           {/* ─── State B: Active plan ─── */}
@@ -310,56 +344,70 @@ export default function TrainingScreen() {
               >
                 <View style={styles.planHeaderTop}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.planDate}>My Training Plan</Text>
-                    <Text style={styles.planName}>
+                    <Text style={styles.planName} numberOfLines={1}>
                       {primaryPlan.title || formatRaceLabel(primaryPlan.race_type)}
                     </Text>
                   </View>
                   <View style={styles.weekBadge}>
-                    <Text style={styles.weekBadgeText}>Week {currentWeekNumber} of {totalWeeks}</Text>
+                    <Text style={styles.weekBadgeText}>Wk {currentWeekNumber}/{totalWeeks}</Text>
                   </View>
+                  <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
                 </View>
 
-                {/* Progress bar */}
                 <View style={styles.progressTrack}>
                   <View style={[styles.progressFill, { width: `${Math.min(100, (currentWeekNumber / totalWeeks) * 100)}%` }]} />
                 </View>
 
-                {currentPhase && (
-                  <View style={styles.phaseRow}>
-                    <Ionicons name="flag-outline" size={13} color={Colors.primary} />
-                    <Text style={styles.phaseLabel}>{currentPhase.name}</Text>
-                  </View>
-                )}
-
                 <View style={styles.planMeta}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.planMetaText}>
-                      Race day: {new Date(primaryPlan.race_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </Text>
-                  </View>
+                  {currentPhase && (
+                    <>
+                      <Ionicons name="flag-outline" size={12} color={Colors.primary} />
+                      <Text style={styles.phaseLabel}>{currentPhase.name}</Text>
+                      <Text style={styles.planMetaDot}>·</Text>
+                    </>
+                  )}
                   <Text style={styles.planMetaText}>
-                    {daysUntil(primaryPlan.race_date)} days left
+                    {new Date(primaryPlan.race_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                   </Text>
-                  <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} style={{ marginLeft: Spacing.xs }} />
+                  <Text style={styles.planMetaDot}>·</Text>
+                  <Text style={styles.planMetaText}>
+                    {daysUntil(primaryPlan.race_date)}d left
+                  </Text>
                 </View>
               </TouchableOpacity>
 
             </>
           )}
 
-          {/* Add another plan banner (for authenticated users with plans) */}
-          {hasPlan && user && (
+          {/* Action row */}
+          <View style={styles.actionRow}>
             <TouchableOpacity
-              style={styles.addPlanBanner}
-              onPress={() => router.push('/(tabs)/training/setup' as any)}
+              style={styles.addWorkoutBtn}
+              onPress={() => handleAddWorkout(selectedDate)}
               activeOpacity={0.8}
             >
-              <Ionicons name="add-circle-outline" size={18} color={Colors.accent} />
-              <Text style={styles.addPlanBannerText}>Add Another Training Plan</Text>
-              <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+              <Ionicons name="add" size={18} color={Colors.black} />
+              <Text style={styles.addWorkoutBtnText}>Add Workout to Selected Day</Text>
             </TouchableOpacity>
-          )}
+            {hasPlan && user && (
+              <TouchableOpacity
+                style={styles.addPlanBanner}
+                onPress={() => router.push('/(tabs)/training/setup' as any)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add-circle-outline" size={18} color={Colors.accent} />
+                <Text style={styles.addPlanBannerText}>Add Plan</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.statsBtn}
+              onPress={() => router.push('/(tabs)/training/stats' as any)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="stats-chart" size={18} color={Colors.primary} />
+              <Text style={styles.statsBtnText}>Stats</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Calendar */}
           <TrainingCalendar
@@ -371,86 +419,107 @@ export default function TrainingScreen() {
             raceDates={raceDates}
           />
 
-          {/* Day detail */}
-          <DayDetail
-            entry={dayEntries[selectedDate]}
-            selectedDate={selectedDate}
-            onStartWorkout={handleStartWorkout}
-            onSkipWorkout={handleSkipWorkout}
-            onRemoveWorkout={handleRemoveWorkout}
-            onEditWorkout={handleEditWorkout}
-            onViewPlannedWorkout={handleViewPlannedWorkout}
-            onViewRun={handleViewRun}
-            onRunAgain={handleRunAgain}
-            onAddWorkout={user ? handleAddWorkout : undefined}
-            onGenerateDetail={plans.length > 0 ? handleGenerateDetail : undefined}
-          />
+          {/* ─── Selected day detail ─── */}
+          <View style={styles.dayDetailSection}>
+            <DayDetail
+              entry={selectedDayEntry}
+              selectedDate={selectedDate}
+              onStartWorkout={handleStartWorkout}
+              onSkipWorkout={handleSkipWorkout}
+              onUnskipWorkout={handleUnskipWorkout}
+              onRemoveWorkout={handleRemoveWorkout}
+              onMoveWorkout={handleMoveWorkoutFromDay}
+              onEditWorkout={handleEditWorkout}
+              onViewRun={handleViewRun}
+              onRunAgain={handleRunAgain}
+              onAddWorkout={handleAddWorkout}
+              onGenerateDetail={handleGenerateDetail}
+            />
+          </View>
 
-          {/* Upcoming workouts (consolidated — today + next few) */}
-          {upcomingWorkouts.length > 0 && (
-            <View style={styles.upcomingSection}>
-              <View style={styles.upcomingHeader}>
-                <Text style={styles.upcomingSectionTitle}>Upcoming</Text>
-              </View>
-              {upcomingWorkouts.map((pw: any) => {
-                const isToday = pw.isToday === true;
-                const isCompleted = pw.status === 'completed';
-                const isSkipped = pw.status === 'skipped';
-                return (
-                  <TouchableOpacity
-                    key={pw.id}
-                    style={[styles.upcomingCard, isToday && styles.upcomingCardToday]}
-                    onPress={() => handleViewPlannedWorkout(pw.id)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.upcomingDate}>
-                      <Text style={[styles.upcomingDateDay, isToday && styles.upcomingTodayLabel]}>
-                        {isToday ? 'Today' : new Date(pw.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })}
-                      </Text>
-                      {!isToday && (
-                        <Text style={styles.upcomingDateNum}>
-                          {new Date(pw.date + 'T12:00:00').getDate()}
-                        </Text>
-                      )}
-                    </View>
-                    <View style={styles.upcomingInfo}>
-                      <Text style={styles.upcomingName} numberOfLines={1}>{pw.day_label || 'Training'}</Text>
-                      {pw.description && (
-                        <Text style={styles.upcomingDesc} numberOfLines={1}>{pw.description}</Text>
-                      )}
-                    </View>
-                    {isCompleted ? (
-                      <Ionicons name="checkmark-circle" size={18} color={Colors.primary} />
-                    ) : isSkipped ? (
-                      <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
-                    ) : (
-                      <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
-
-          {/* AI Coach section */}
-          {hasPlan && (
+          {/* ─── This Week toggle ─── */}
+          <View style={styles.weekSection}>
             <TouchableOpacity
-              style={styles.coachSection}
-              onPress={() => router.push('/(tabs)/training/chat' as any)}
-              activeOpacity={0.8}
+              style={styles.weekToggle}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setWeekExpanded((prev) => !prev);
+              }}
+              activeOpacity={0.7}
             >
-              <View style={styles.coachSectionIcon}>
-                <Ionicons name="sparkles" size={18} color={Colors.accent} />
+              <View style={styles.weekToggleLeft}>
+                <Ionicons name="calendar-outline" size={16} color={Colors.textSecondary} />
+                <Text style={styles.weekToggleText}>Workouts This Week</Text>
+                {next7DaysWorkouts.length > 0 && (
+                  <View style={styles.weekCountBadge}>
+                    <Text style={styles.weekCountText}>{next7DaysWorkouts.filter((w) => w.day_label !== 'Rest Day').length}</Text>
+                  </View>
+                )}
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.coachSectionTitle}>Your AI Coach</Text>
-                <Text style={styles.coachSectionDesc}>
-                  Need to change your schedule or understand your training?
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+              <Ionicons name={weekExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textMuted} />
             </TouchableOpacity>
-          )}
+
+            {weekExpanded && next7DaysWorkouts.length > 0 && (
+                <View style={styles.weekList}>
+                  {next7DaysWorkouts.map((pw) => {
+                    const isToday = pw.date === todayKey();
+                    const isSelected = pw.date === selectedDate;
+                    const isCompleted = pw.status === 'completed';
+                    const isSkipped = pw.status === 'skipped';
+                    const isRest = pw.day_label === 'Rest Day';
+                    const dayDate = new Date(pw.date + 'T12:00:00');
+                    return (
+                      <TouchableOpacity
+                        key={pw.id}
+                        style={[
+                          styles.weekCard,
+                          isSelected && styles.weekCardSelected,
+                        ]}
+                        onPress={() => setSelectedDate(pw.date)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.weekCardDate}>
+                          <Text style={[styles.weekCardDay, isToday && styles.weekCardDayToday]}>
+                            {isToday ? 'Today' : dayDate.toLocaleDateString(undefined, { weekday: 'short' })}
+                          </Text>
+                          {!isToday && (
+                            <Text style={styles.weekCardNum}>{dayDate.getDate()}</Text>
+                          )}
+                        </View>
+                        <View style={styles.weekCardInfo}>
+                          <Text
+                            style={[
+                              styles.weekCardLabel,
+                              isRest && styles.weekCardLabelRest,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {pw.day_label || 'Training'}
+                          </Text>
+                          {pw.description && !isRest && (
+                            <Text style={styles.weekCardDesc} numberOfLines={1}>{pw.description}</Text>
+                          )}
+                        </View>
+                        {isCompleted ? (
+                          <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
+                        ) : isSkipped ? (
+                          <Ionicons name="close-circle" size={16} color={Colors.textMuted} />
+                        ) : isRest ? (
+                          <Ionicons name="bed-outline" size={16} color={Colors.textMuted} />
+                        ) : (
+                          <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+            )}
+            {weekExpanded && next7DaysWorkouts.length === 0 && (
+              <View style={styles.weekEmptyState}>
+                <Text style={styles.weekEmptyText}>No workouts scheduled this week</Text>
+              </View>
+            )}
+          </View>
 
           {/* Contextual Pro prompt — weekly progress nudge */}
           {hasPlan && (
@@ -470,6 +539,18 @@ export default function TrainingScreen() {
         onCreateNew={handleCreateNewForPlan}
         onClose={() => setPickerDate(null)}
       />
+
+      {/* Move workout modal */}
+      {moveTarget && (
+        <MoveWorkoutModal
+          visible={!!moveTarget}
+          currentDate={moveTarget.date}
+          workoutLabel={moveTarget.label}
+          dayEntries={dayEntries}
+          onMove={handleMoveWorkout}
+          onClose={() => setMoveTarget(null)}
+        />
+      )}
     </View>
   );
 }
@@ -485,20 +566,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.background,
   },
-  statsBtnRow: {
+  actionRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.xs,
-    paddingBottom: Spacing.xs,
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
   },
-  statsBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#122A1B',
+  addWorkoutBtn: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    gap: Spacing.xs,
+  },
+  addWorkoutBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.black,
+  },
+  statsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  statsBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
   },
   scrollContent: {
     padding: Spacing.md,
@@ -506,6 +608,43 @@ const styles = StyleSheet.create({
   },
 
   // ─── No-plan hero ───
+  heroCollapsedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  heroCollapsedLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  heroCollapsedText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  heroDismissBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.sm + 2,
+    marginTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceLight,
+  },
+  heroDismissText: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
   noPlanHero: {
     alignItems: 'center',
     paddingVertical: Spacing.xl,
@@ -552,11 +691,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '800',
   },
-  manualLink: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    textDecorationLine: 'underline',
-  },
   archivedLink: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -578,26 +712,22 @@ const styles = StyleSheet.create({
   // ─── Plan header ───
   planHeader: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    marginBottom: Spacing.md,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.md,
+    marginBottom: Spacing.sm,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
   },
   planHeaderTop: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: Spacing.sm,
-  },
-  planDate: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    marginBottom: 2,
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xs,
   },
   planName: {
-    fontSize: FontSize.lg,
-    fontWeight: '800',
+    fontSize: FontSize.sm,
+    fontWeight: '700',
     color: Colors.textPrimary,
   },
   weekBadge: {
@@ -612,22 +742,16 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
   progressTrack: {
-    height: 4,
+    height: 3,
     backgroundColor: Colors.surfaceLight,
     borderRadius: 2,
     overflow: 'hidden' as const,
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.xs,
   },
   progressFill: {
     height: '100%',
     backgroundColor: Colors.primary,
     borderRadius: 2,
-  },
-  phaseRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginBottom: Spacing.sm,
   },
   phaseLabel: {
     fontSize: FontSize.xs,
@@ -636,8 +760,12 @@ const styles = StyleSheet.create({
   },
   planMeta: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.sm,
+    alignItems: 'center',
+    gap: 4,
+  },
+  planMetaDot: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
   },
   planMetaText: {
     fontSize: FontSize.xs,
@@ -651,110 +779,124 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
-    marginBottom: Spacing.md,
     gap: Spacing.sm,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
   },
   addPlanBannerText: {
-    flex: 1,
     fontSize: FontSize.sm,
     fontWeight: '600',
     color: Colors.textSecondary,
   },
 
-  // ─── Upcoming workouts ───
-  upcomingSection: {
+  // ─── Day detail section ───
+  dayDetailSection: {
     marginTop: Spacing.md,
   },
-  upcomingHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
+
+  // ─── This Week section ───
+  weekSection: {
+    marginTop: Spacing.md,
   },
-  upcomingSectionTitle: {
+  weekToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  weekToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  weekToggleText: {
     fontSize: FontSize.sm,
     fontWeight: '700',
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    color: Colors.textPrimary,
   },
-  upcomingCard: {
+  weekCountBadge: {
+    backgroundColor: Colors.primary + '18',
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    minWidth: 22,
+    alignItems: 'center',
+  },
+  weekCountText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  weekList: {
+    marginTop: Spacing.sm,
+    gap: Spacing.xs,
+  },
+  weekCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
+    padding: Spacing.sm + 2,
+    paddingHorizontal: Spacing.md,
     gap: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
   },
-  upcomingCardToday: {
-    borderColor: Colors.primary + '40',
+  weekCardSelected: {
+    borderColor: Colors.primary + '50',
+    backgroundColor: Colors.primary + '08',
   },
-  upcomingDate: {
+  weekCardDate: {
     alignItems: 'center',
-    width: 40,
+    width: 36,
   },
-  upcomingDateDay: {
+  weekCardDay: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
     fontWeight: '600',
   },
-  upcomingTodayLabel: {
+  weekCardDayToday: {
     color: Colors.primary,
     fontWeight: '800',
   },
-  upcomingDateNum: {
-    fontSize: FontSize.lg,
+  weekCardNum: {
+    fontSize: FontSize.md,
     fontWeight: '800',
     color: Colors.textPrimary,
   },
-  upcomingInfo: {
+  weekCardInfo: {
     flex: 1,
   },
-  upcomingName: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
+  weekCardLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
     color: Colors.textPrimary,
   },
-  upcomingDesc: {
+  weekCardLabelRest: {
+    color: Colors.textMuted,
+    fontStyle: 'italic',
+  },
+  weekCardDesc: {
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
-    marginTop: 2,
+    marginTop: 1,
   },
-
-  // ─── AI Coach section ───
-  coachSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  weekEmptyState: {
+    marginTop: Spacing.sm,
+    padding: Spacing.md,
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginTop: Spacing.lg,
-    gap: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.accent + '30',
-  },
-  coachSectionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.accent + '18',
     alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
   },
-  coachSectionTitle: {
+  weekEmptyText: {
     fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  coachSectionDesc: {
-    fontSize: FontSize.xs,
     color: Colors.textMuted,
-    marginTop: 1,
   },
 
   // ─── AI Coach promo card (unauthenticated) ───

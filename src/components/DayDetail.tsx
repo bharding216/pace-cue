@@ -1,11 +1,8 @@
 /**
  * DayDetail — shows detail for a selected calendar date.
  *
- * Renders two modes:
- * - Planned workout: day_label, description, intervals summary, Start/Skip actions
- * - Completed run: workout name, duration, distance, splits, share/edit/run-again
- * - Rest day: simple message
- * - Empty day: no content
+ * Renders planned workouts with inline actions (Start, Edit, Skip/Unskip, Remove),
+ * completed runs with stats, and empty/rest states.
  */
 
 import React, { useState } from 'react';
@@ -15,6 +12,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { DayEntry } from '../contexts/TrainingPlanContext';
@@ -29,18 +27,13 @@ interface DayDetailProps {
   selectedDate: string;
   onStartWorkout: (workoutData: WorkoutDefinition) => void;
   onSkipWorkout: (workoutId: string) => void;
-  /** Called to remove a planned workout from the calendar. */
+  onUnskipWorkout?: (workoutId: string) => void;
   onRemoveWorkout?: (workoutId: string) => void;
-  /** Called with the workout data to open the editor/detail view. */
+  onMoveWorkout?: (workoutId: string) => void;
   onEditWorkout?: (workoutData: WorkoutDefinition) => void;
-  /** Called with the plan_workout id to view planned workout detail screen. */
-  onViewPlannedWorkout?: (planWorkoutId: string) => void;
-  /** Called with the history entry ID to view run details. */
   onViewRun: (historyEntryId: string) => void;
   onRunAgain: (workoutId: string) => void;
-  /** When provided, shows an "Add Workout" button on days without a planned workout. */
   onAddWorkout?: (date: string) => void;
-  /** Called to generate detailed workout for a plan workout that lacks workout_data. */
   onGenerateDetail?: (workoutId: string) => Promise<void>;
 }
 
@@ -118,9 +111,10 @@ export function DayDetail({
   selectedDate,
   onStartWorkout,
   onSkipWorkout,
+  onUnskipWorkout,
   onRemoveWorkout,
+  onMoveWorkout,
   onEditWorkout,
-  onViewPlannedWorkout,
   onViewRun,
   onRunAgain,
   onAddWorkout,
@@ -128,6 +122,21 @@ export function DayDetail({
 }: DayDetailProps) {
   const dateDisplay = formatDateDisplay(selectedDate);
   const [generatingDetail, setGeneratingDetail] = useState(false);
+
+  const handleRemove = (workoutId: string) => {
+    Alert.alert(
+      'Remove Workout',
+      'Remove this workout from your plan?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => onRemoveWorkout?.(workoutId),
+        },
+      ],
+    );
+  };
 
   // Empty day
   if (!entry || (!entry.planWorkout && entry.completedRuns.length === 0)) {
@@ -152,124 +161,175 @@ export function DayDetail({
     );
   }
 
+  const pw = entry.planWorkout;
+  const isRest = pw?.day_label === 'Rest Day';
+  const isPlanned = pw?.status === 'planned';
+  const isSkipped = pw?.status === 'skipped';
+  const isCompleted = pw?.status === 'completed';
+  const hasWorkoutData = !!pw?.workout_data;
+
   return (
     <View style={styles.container}>
       <Text style={styles.dateHeader}>{dateDisplay}</Text>
 
       {/* Planned workout */}
-      {entry.planWorkout && (
-        <TouchableOpacity
-          style={styles.planCard}
-          activeOpacity={onViewPlannedWorkout ? 0.7 : 1}
-          onPress={() => onViewPlannedWorkout?.(entry.planWorkout!.id)}
-          disabled={!onViewPlannedWorkout}
-        >
+      {pw && (
+        <View style={styles.planCard}>
           <View style={styles.planHeader}>
-            <View style={[styles.statusBadge, { backgroundColor: statusBadgeColor(entry.planWorkout.status) + '22' }]}>
-              <Text style={[styles.statusText, { color: statusBadgeColor(entry.planWorkout.status) }]}>
-                {entry.planWorkout.status === 'planned' ? 'Planned' :
-                 entry.planWorkout.status === 'completed' ? 'Completed' : 'Skipped'}
+            <View style={[styles.statusBadge, { backgroundColor: statusBadgeColor(pw.status) + '22' }]}>
+              <Text style={[styles.statusText, { color: statusBadgeColor(pw.status) }]}>
+                {isPlanned ? 'Planned' : isCompleted ? 'Completed' : 'Skipped'}
               </Text>
             </View>
-            <View style={styles.planHeaderRow}>
-              <Text style={[styles.dayLabel, { flex: 1 }]}>{entry.planWorkout.day_label}</Text>
-              {onViewPlannedWorkout && (
-                <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-              )}
-            </View>
+            <Text style={styles.dayLabel}>{pw.day_label}</Text>
           </View>
 
-          {entry.planWorkout.description && (
-            <Text style={styles.description}>{entry.planWorkout.description}</Text>
+          {pw.description && (
+            <Text style={styles.description}>{pw.description}</Text>
           )}
 
-          {entry.planWorkout.workout_data && entry.planWorkout.status !== 'completed' && (
-            <WorkoutPreview workoutData={entry.planWorkout.workout_data} />
+          {hasWorkoutData && !isCompleted && (
+            <WorkoutPreview workoutData={pw.workout_data} />
           )}
 
-          {/* Has workout_data — show Start + Remove */}
-          {entry.planWorkout.status === 'planned' && entry.planWorkout.workout_data && (
-            <View style={styles.actionRow}>
-              <TouchableOpacity
-                style={styles.startBtn}
-                onPress={() => onStartWorkout(entry.planWorkout!.workout_data as WorkoutDefinition)}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="play" size={16} color={Colors.black} />
-                <Text style={styles.startBtnText}>Start Workout</Text>
-              </TouchableOpacity>
-
-              {onRemoveWorkout && (
-                <TouchableOpacity
-                  style={styles.removeBtn}
-                  onPress={() => onRemoveWorkout(entry.planWorkout!.id)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="trash-outline" size={14} color={Colors.danger} />
-                  <Text style={styles.removeBtnText}>Remove</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-
-          {/* No workout_data yet — show Generate button for upcoming non-rest days */}
-          {entry.planWorkout.status === 'planned' &&
-            !entry.planWorkout.workout_data &&
-            entry.planWorkout.day_label !== 'Rest Day' && (
-            <View style={styles.actionRow}>
-              {onGenerateDetail ? (
-                <TouchableOpacity
-                  style={styles.generateDetailBtn}
-                  onPress={async () => {
-                    setGeneratingDetail(true);
-                    try {
-                      await onGenerateDetail(entry.planWorkout!.id);
-                    } finally {
-                      setGeneratingDetail(false);
-                    }
-                  }}
-                  disabled={generatingDetail}
-                  activeOpacity={0.8}
-                >
-                  {generatingDetail ? (
-                    <ActivityIndicator size="small" color={Colors.black} />
-                  ) : (
-                    <Ionicons name="sparkles" size={16} color={Colors.black} />
-                  )}
-                  <Text style={styles.generateDetailBtnText}>
-                    {generatingDetail ? 'Generating…' : 'Generate Workout'}
-                  </Text>
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.outlineOnlyHint}>
-                  <Ionicons name="time-outline" size={14} color={Colors.textMuted} />
-                  <Text style={styles.outlineOnlyText}>
-                    Workout details will be generated as this day approaches
-                  </Text>
-                </View>
-              )}
-
-              <TouchableOpacity
-                style={styles.skipBtn}
-                onPress={() => onSkipWorkout(entry.planWorkout!.id)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.skipBtnText}>Skip</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {entry.planWorkout.day_label === 'Rest Day' && (
+          {/* Rest day */}
+          {isRest && (
             <View style={styles.restDay}>
               <Ionicons name="bed-outline" size={20} color={Colors.textMuted} />
               <Text style={styles.restDayText}>Rest and recover</Text>
             </View>
           )}
-        </TouchableOpacity>
+
+          {/* ── Actions for planned workouts ── */}
+          {isPlanned && !isRest && (
+            <>
+              {hasWorkoutData && (
+                <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    style={styles.startBtn}
+                    onPress={() => onStartWorkout(pw.workout_data as WorkoutDefinition)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="play" size={16} color={Colors.black} />
+                    <Text style={styles.startBtnText}>Start</Text>
+                  </TouchableOpacity>
+
+                  {onEditWorkout && (
+                    <TouchableOpacity
+                      style={styles.editBtn}
+                      onPress={() => onEditWorkout(pw.workout_data as WorkoutDefinition)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="create-outline" size={14} color={Colors.textPrimary} />
+                      <Text style={styles.editBtnText}>Edit</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {onMoveWorkout && (
+                    <TouchableOpacity
+                      style={styles.iconBtn}
+                      onPress={() => onMoveWorkout(pw.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="swap-horizontal-outline" size={16} color={Colors.textSecondary} />
+                    </TouchableOpacity>
+                  )}
+
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => onSkipWorkout(pw.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="play-skip-forward-outline" size={16} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+
+                  {onRemoveWorkout && (
+                    <TouchableOpacity
+                      style={styles.iconBtn}
+                      onPress={() => handleRemove(pw.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={Colors.danger} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
+              {/* No workout_data yet */}
+              {!hasWorkoutData && (
+                <View style={styles.actionRow}>
+                  {onGenerateDetail ? (
+                    <TouchableOpacity
+                      style={styles.generateDetailBtn}
+                      onPress={async () => {
+                        setGeneratingDetail(true);
+                        try {
+                          await onGenerateDetail(pw.id);
+                        } finally {
+                          setGeneratingDetail(false);
+                        }
+                      }}
+                      disabled={generatingDetail}
+                      activeOpacity={0.8}
+                    >
+                      {generatingDetail ? (
+                        <ActivityIndicator size="small" color={Colors.black} />
+                      ) : (
+                        <Ionicons name="sparkles" size={16} color={Colors.black} />
+                      )}
+                      <Text style={styles.generateDetailBtnText}>
+                        {generatingDetail ? 'Generating…' : 'Generate Workout'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.outlineOnlyHint}>
+                      <Ionicons name="time-outline" size={14} color={Colors.textMuted} />
+                      <Text style={styles.outlineOnlyText}>
+                        Workout details will be generated as this day approaches
+                      </Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={styles.skipBtn}
+                    onPress={() => onSkipWorkout(pw.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.skipBtnText}>Skip</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </>
+          )}
+
+          {/* ── Skipped workout: offer undo ── */}
+          {isSkipped && onUnskipWorkout && (
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.unskipBtn}
+                onPress={() => onUnskipWorkout(pw.id)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-undo-outline" size={14} color={Colors.accent} />
+                <Text style={styles.unskipBtnText}>Undo Skip</Text>
+              </TouchableOpacity>
+
+              {onRemoveWorkout && (
+                <TouchableOpacity
+                  style={styles.iconBtn}
+                  onPress={() => handleRemove(pw.id)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="trash-outline" size={16} color={Colors.danger} />
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        </View>
       )}
 
       {/* Add workout button — show when there's no planned workout for this day */}
-      {!entry.planWorkout && onAddWorkout && (
+      {!pw && onAddWorkout && (
         <TouchableOpacity
           style={styles.addWorkoutBtn}
           onPress={() => onAddWorkout(selectedDate)}
@@ -371,10 +431,6 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
     marginBottom: Spacing.sm,
   },
-  planHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -453,6 +509,7 @@ const styles = StyleSheet.create({
   // Action row
   actionRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.sm,
   },
   startBtn: {
@@ -470,6 +527,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.black,
   },
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceLight,
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+  },
+  editBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  iconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surfaceLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   skipBtn: {
     paddingVertical: Spacing.sm + 2,
     paddingHorizontal: Spacing.lg,
@@ -481,20 +561,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textSecondary,
   },
-  removeBtn: {
+  unskipBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: Colors.accent + '15',
     paddingVertical: Spacing.sm + 2,
-    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.md,
-    backgroundColor: Colors.danger + '15',
     gap: Spacing.xs,
   },
-  removeBtnText: {
+  unskipBtnText: {
     fontSize: FontSize.sm,
     fontWeight: '600',
-    color: Colors.danger,
+    color: Colors.accent,
   },
   generateDetailBtn: {
     flex: 1,

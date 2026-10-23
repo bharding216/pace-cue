@@ -22,7 +22,9 @@ import {
   loadUserPlanWorkouts,
   ensureCustomPlan,
   skipPlanWorkout as skipPlanWorkoutApi,
+  unskipPlanWorkout as unskipPlanWorkoutApi,
   removePlanWorkout as removePlanWorkoutApi,
+  movePlanWorkout as movePlanWorkoutApi,
   completePlanWorkout as completePlanWorkoutApi,
   archivePlan as archivePlanApi,
   restorePlan as restorePlanApi,
@@ -58,8 +60,12 @@ interface TrainingPlanContextType {
   ensurePlan: () => Promise<TrainingPlan>;
   /** Skip a planned workout */
   skipWorkout: (workoutId: string) => Promise<void>;
+  /** Undo skip — restore a skipped workout back to planned */
+  unskipWorkout: (workoutId: string) => Promise<void>;
   /** Remove a planned workout from the calendar entirely */
   removeWorkout: (workoutId: string) => Promise<void>;
+  /** Move a planned workout to a different date */
+  moveWorkout: (workoutId: string, newDate: string) => Promise<void>;
   /** Mark a planned workout as completed */
   completeWorkout: (workoutId: string, completedWorkoutId: string) => Promise<void>;
   /** Archive a specific plan */
@@ -213,10 +219,33 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
     );
   }, []);
 
+  const unskipWorkout = useCallback(async (workoutId: string) => {
+    await unskipPlanWorkoutApi(workoutId);
+    setPlanWorkouts((prev) =>
+      prev.map((w) => (w.id === workoutId ? { ...w, status: 'planned' as const } : w))
+    );
+  }, []);
+
   const removeWorkout = useCallback(async (workoutId: string) => {
     await removePlanWorkoutApi(workoutId);
     setPlanWorkouts((prev) => prev.filter((w) => w.id !== workoutId));
   }, []);
+
+  const moveWorkout = useCallback(async (workoutId: string, newDate: string) => {
+    const workout = planWorkouts.find((w) => w.id === workoutId);
+    if (!workout) return;
+    const ownerPlan = plans.find((p) => p.id === workout.plan_id);
+    const startDate = ownerPlan?.start_date ?? newDate;
+    await movePlanWorkoutApi(workoutId, newDate, startDate);
+    const start = new Date(startDate);
+    const target = new Date(newDate);
+    const diffMs = target.getTime() - start.getTime();
+    const weekNumber = Math.max(1, Math.ceil(diffMs / (7 * 24 * 60 * 60 * 1000)));
+    setPlanWorkouts((prev) =>
+      prev.map((w) => (w.id === workoutId ? { ...w, date: newDate, week_number: weekNumber } : w))
+        .sort((a, b) => a.date.localeCompare(b.date))
+    );
+  }, [planWorkouts, plans]);
 
   const completeWorkout = useCallback(
     async (workoutId: string, completedWorkoutId: string) => {
@@ -291,7 +320,9 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
         refresh,
         ensurePlan: ensurePlanFn,
         skipWorkout,
+        unskipWorkout,
         removeWorkout,
+        moveWorkout,
         completeWorkout,
         archivePlan: archivePlanFn,
         restorePlan: restorePlanFn,
