@@ -28,6 +28,9 @@ import type { DayEntry } from '../contexts/TrainingPlanContext';
 
 export type CalendarViewMode = 'month' | 'week';
 
+/** Number of days ahead the AI coach auto-generates workout details. */
+const AI_WINDOW_DAYS = 14;
+
 interface TrainingCalendarProps {
   dayEntries: Record<string, DayEntry>;
   selectedDate: string;
@@ -36,6 +39,8 @@ interface TrainingCalendarProps {
   onChangeViewMode: (mode: CalendarViewMode) => void;
   /** ISO date strings (YYYY-MM-DD) of races — shown with flag markers */
   raceDates?: string[];
+  /** When true, shows the 14-day AI coach planning window overlay */
+  showAIWindow?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -82,24 +87,25 @@ function getWeekDays(date: Date): Date[] {
 function dotColor(entry: DayEntry): string[] {
   const dots: string[] = [];
 
-  // Plan workout dot
-  if (entry.planWorkout) {
-    switch (entry.planWorkout.status) {
-      case 'completed':
-        dots.push(Colors.primary);
-        break;
-      case 'skipped':
-        dots.push(Colors.textMuted);
-        break;
-      case 'planned':
-        dots.push(Colors.accent);
-        break;
+  // Plan workout dots — skip rest days so they appear blank on the calendar
+  for (const pw of entry.planWorkouts) {
+    const isRest = pw.day_label === 'Rest Day';
+    if (!isRest) {
+      switch (pw.status) {
+        case 'completed':
+          dots.push(Colors.primary);
+          break;
+        case 'planned':
+          dots.push(Colors.accent);
+          break;
+      }
     }
   }
 
   // Completed runs (non-plan)
+  const linkedIds = new Set(entry.planWorkouts.map((pw) => pw.completed_workout_id).filter(Boolean));
   for (const run of entry.completedRuns) {
-    if (!entry.planWorkout || entry.planWorkout.completed_workout_id !== run.id) {
+    if (!linkedIds.has(run.id)) {
       dots.push(Colors.primary);
     }
   }
@@ -121,9 +127,18 @@ export function TrainingCalendar({
   viewMode,
   onChangeViewMode,
   raceDates,
+  showAIWindow,
 }: TrainingCalendarProps) {
   const raceDateSet = useMemo(() => new Set(raceDates ?? []), [raceDates]);
   const today = todayKey();
+
+  // Compute the 14-day AI coach window boundary
+  const aiWindowEnd = useMemo(() => {
+    if (!showAIWindow) return '';
+    const d = new Date();
+    d.setDate(d.getDate() + AI_WINDOW_DAYS);
+    return toDateKey(d);
+  }, [showAIWindow]);
   const [refDate, setRefDate] = useState(() => new Date());
 
   const monthGrid = useMemo(
@@ -264,6 +279,7 @@ export function TrainingCalendar({
                 const isToday = key === today;
                 const isSelected = key === selectedDate;
                 const isRaceDay = raceDateSet.has(key);
+                const isInAIWindow = showAIWindow && key >= today && key <= aiWindowEnd;
                 const entry = dayEntries[key];
                 const dots = entry ? dotColor(entry) : [];
 
@@ -272,6 +288,7 @@ export function TrainingCalendar({
                     key={key}
                     style={[
                       styles.dayCell,
+                      isInAIWindow && styles.dayCellAIWindow,
                       isSelected && styles.dayCellSelected,
                       isRaceDay && styles.dayCellRace,
                     ]}
@@ -316,14 +333,17 @@ export function TrainingCalendar({
                 const isToday = key === today;
                 const isSelected = key === selectedDate;
                 const isRaceDay = raceDateSet.has(key);
+                const isInAIWindow = showAIWindow && key >= today && key <= aiWindowEnd;
                 const entry = dayEntries[key];
-                const dayLabel = entry?.planWorkout?.day_label;
+                const primaryPw = entry?.planWorkouts?.[0];
+                const dayLabel = primaryPw?.day_label;
 
                 return (
                   <TouchableOpacity
                     key={key}
                     style={[
                       styles.weekDayCard,
+                      isInAIWindow && styles.weekDayCardAIWindow,
                       isSelected && styles.weekDayCardSelected,
                       isRaceDay && styles.weekDayCardRace,
                     ]}
@@ -352,11 +372,9 @@ export function TrainingCalendar({
                       <View style={[
                         styles.weekWorkoutChip,
                         {
-                          borderLeftColor: entry?.planWorkout?.status === 'completed'
+                          borderLeftColor: primaryPw?.status === 'completed'
                             ? Colors.primary
-                            : entry?.planWorkout?.status === 'skipped'
-                              ? Colors.textMuted
-                              : Colors.accent,
+                            : Colors.accent,
                         },
                       ]}>
                         <Text style={styles.weekWorkoutType} numberOfLines={2}>
@@ -379,13 +397,25 @@ export function TrainingCalendar({
           )}
         </Animated.View>
       </GestureDetector>
+
+      {/* AI coach window legend */}
+      {showAIWindow && (
+        <View style={styles.aiWindowLegend}>
+          <View style={styles.aiWindowLegendDot} />
+          <Text style={styles.aiWindowLegendText}>
+            AI coach adds workout details within this 2-week window
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
 
 // ── Styles ───────────────────────────────────────────────────
 
-const CELL_SIZE = Math.floor((SCREEN_WIDTH - Spacing.md * 2) / 7);
+// Account for outer page padding (Spacing.md each side) + calendar container
+// padding (Spacing.sm each side) so Saturday cells don't clip.
+const CELL_SIZE = Math.floor((SCREEN_WIDTH - (Spacing.md + Spacing.sm) * 2) / 7);
 
 const styles = StyleSheet.create({
   container: {
@@ -459,9 +489,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 2,
   },
-  dayCellSelected: {
-    backgroundColor: Colors.surfaceLight,
+  dayCellAIWindow: {
+    backgroundColor: Colors.accent + '0C',
     borderRadius: BorderRadius.sm,
+  },
+  dayCellSelected: {
+    backgroundColor: Colors.primary + '15',
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1.5,
+    borderColor: Colors.primary + '60',
   },
   dayCellRace: {
     backgroundColor: Colors.warning + '10',
@@ -492,6 +528,7 @@ const styles = StyleSheet.create({
   },
   dayTextSelected: {
     fontWeight: '700',
+    color: Colors.primary,
   },
   dotRow: {
     flexDirection: 'row',
@@ -530,8 +567,13 @@ const styles = StyleSheet.create({
     minHeight: 80,
     gap: 4,
   },
+  weekDayCardAIWindow: {
+    backgroundColor: Colors.accent + '0C',
+  },
   weekDayCardSelected: {
-    backgroundColor: Colors.surfaceLight,
+    backgroundColor: Colors.primary + '15',
+    borderWidth: 1.5,
+    borderColor: Colors.primary + '60',
   },
   weekDayCardRace: {
     backgroundColor: Colors.warning + '10',
@@ -584,5 +626,28 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '800',
     color: Colors.warning,
+  },
+
+  // AI window legend
+  aiWindowLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs + 2,
+    paddingTop: Spacing.sm,
+    paddingHorizontal: Spacing.xs,
+  },
+  aiWindowLegendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+    backgroundColor: Colors.accent + '25',
+    borderWidth: 1,
+    borderColor: Colors.accent + '40',
+  },
+  aiWindowLegendText: {
+    fontSize: FontSize.xs - 1,
+    color: Colors.textMuted,
+    fontStyle: 'italic',
+    flex: 1,
   },
 });

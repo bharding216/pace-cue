@@ -168,7 +168,9 @@ export function MoveWorkoutModal({
                 const isCurrent = dateKey === currentDate;
                 const isSelected = dateKey === selected;
                 const entry = dayEntries[dateKey];
-                const hasPlannedWorkout = !!entry?.planWorkout && dateKey !== currentDate;
+                const hasPlannedWorkout = (entry?.planWorkouts ?? []).some(
+                  (pw) => pw.day_label !== 'Rest Day',
+                ) && dateKey !== currentDate;
                 const hasCompletedRun = (entry?.completedRuns?.length ?? 0) > 0;
 
                 return (

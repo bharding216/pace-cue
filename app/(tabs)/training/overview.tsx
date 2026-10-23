@@ -42,23 +42,19 @@ function daysUntil(dateStr: string): number {
   return Math.round((target.getTime() - now.getTime()) / 86400000);
 }
 
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
 export default function PlanOverviewScreen() {
   const router = useRouter();
-  const { plans, archivedPlans, planWorkouts, archivePlan, restorePlan, updatePlan, skipWorkout, unskipWorkout, removeWorkout } = useTrainingPlan();
+  const { plans, archivedPlans, planWorkouts, archivePlan, restorePlan, updatePlan } = useTrainingPlan();
   const [archiving, setArchiving] = useState<string | null>(null);
-  const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [showDaysPicker, setShowDaysPicker] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [phasesExpanded, setPhasesExpanded] = useState(false);
-  const [weekExpanded, setWeekExpanded] = useState(false);
   const [showTitleEditor, setShowTitleEditor] = useState(false);
   const [editingTitle, setEditingTitle] = useState('');
 
   const primaryPlan = useMemo(
-    () => plans.find((p) => p.race_type !== 'custom') ?? null,
+    () => plans.find((p) => p.race_type !== 'custom' || (p.outline && p.outline.length > 0)) ?? null,
     [plans],
   );
 
@@ -75,17 +71,6 @@ export default function PlanOverviewScreen() {
     const end = new Date(primaryPlan.race_date);
     return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)));
   }, [primaryPlan]);
-
-  const currentWeekWorkouts = useMemo(() => {
-    if (!primaryPlan) return [];
-    return planWorkouts
-      .filter((w) => w.plan_id === primaryPlan.id && w.week_number === currentWeekNumber)
-      .sort((a, b) => a.date.localeCompare(b.date));
-  }, [planWorkouts, currentWeekNumber, primaryPlan]);
-
-  const handleWorkoutPress = useCallback((planWorkoutId: string) => {
-    setSelectedWorkoutId((prev) => prev === planWorkoutId ? null : planWorkoutId);
-  }, []);
 
   const handleArchivePlan = useCallback((planId: string, planTitle: string) => {
     Alert.alert(
@@ -161,14 +146,14 @@ export default function PlanOverviewScreen() {
     }
   }, [primaryPlan, updatePlan]);
 
-  // All non-custom plans (for the manage section)
+  // All real training plans (for the manage section) — includes custom-distance plans with outlines
   const allRacePlans = useMemo(
-    () => plans.filter((p) => p.race_type !== 'custom'),
+    () => plans.filter((p) => p.race_type !== 'custom' || (p.outline && p.outline.length > 0)),
     [plans],
   );
 
   const archivedRacePlans = useMemo(
-    () => archivedPlans.filter((p) => p.race_type !== 'custom'),
+    () => archivedPlans.filter((p) => p.race_type !== 'custom' || (p.outline && p.outline.length > 0)),
     [archivedPlans],
   );
 
@@ -408,107 +393,6 @@ export default function PlanOverviewScreen() {
         expanded={phasesExpanded}
         onToggleExpanded={() => setPhasesExpanded((v) => !v)}
       />
-
-      {/* This Week */}
-      <View style={styles.weekSection}>
-        <View style={styles.weekHeader}>
-          <Text style={styles.weekTitle}>Workouts This Week</Text>
-          <Text style={styles.weekLabel}>Week {currentWeekNumber}</Text>
-        </View>
-
-        {currentWeekWorkouts.length > 0 ? (
-          <>
-            {(weekExpanded ? currentWeekWorkouts : currentWeekWorkouts.slice(0, 3)).map((pw) => {
-              const dayName = DAY_NAMES[new Date(pw.date + 'T12:00:00').getDay()];
-              const isSelected = selectedWorkoutId === pw.id;
-              const isSkipped = pw.status === 'skipped';
-              const isCompleted = pw.status === 'completed';
-              const isRest = pw.day_label === 'Rest Day';
-              return (
-                <View key={pw.id}>
-                  <TouchableOpacity
-                    style={[styles.weekWorkout, isSelected && !isCompleted && styles.weekWorkoutExpanded]}
-                    onPress={() => handleWorkoutPress(pw.id)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.weekDay}>{dayName}</Text>
-                    <View style={styles.weekWorkoutInfo}>
-                      <Text style={styles.weekWorkoutName} numberOfLines={1}>
-                        {pw.day_label || 'Training'}
-                      </Text>
-                      {pw.description && (
-                        <Text style={styles.weekWorkoutDesc} numberOfLines={1}>{pw.description}</Text>
-                      )}
-                    </View>
-                    {isCompleted ? (
-                      <Ionicons name="checkmark-circle" size={18} color={Colors.primary} />
-                    ) : isSkipped ? (
-                      <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
-                    ) : (
-                      <Ionicons name={isSelected ? 'chevron-down' : 'chevron-forward'} size={16} color={Colors.textMuted} />
-                    )}
-                  </TouchableOpacity>
-
-                  {isSelected && !isCompleted && !isRest && (
-                    <View style={styles.weekWorkoutActions}>
-                      {isSkipped ? (
-                        <TouchableOpacity
-                          style={styles.weekUnskipBtn}
-                          onPress={() => unskipWorkout(pw.id)}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="arrow-undo-outline" size={14} color={Colors.accent} />
-                          <Text style={styles.weekUnskipBtnText}>Undo Skip</Text>
-                        </TouchableOpacity>
-                      ) : (
-                        <TouchableOpacity
-                          style={styles.weekActionBtn}
-                          onPress={() => skipWorkout(pw.id)}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="play-skip-forward-outline" size={14} color={Colors.textSecondary} />
-                          <Text style={styles.weekActionBtnText}>Skip</Text>
-                        </TouchableOpacity>
-                      )}
-                      <TouchableOpacity
-                        style={styles.weekActionBtn}
-                        onPress={() => {
-                          Alert.alert('Remove Workout', 'Remove this workout from your plan?', [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Remove', style: 'destructive', onPress: () => removeWorkout(pw.id) },
-                          ]);
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="trash-outline" size={14} color={Colors.danger} />
-                        <Text style={[styles.weekActionBtnText, { color: Colors.danger }]}>Remove</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              );
-            })}
-            {currentWeekWorkouts.length > 3 && (
-              <TouchableOpacity
-                style={styles.expandBtn}
-                onPress={() => setWeekExpanded((v) => !v)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.expandBtnText}>
-                  {weekExpanded ? 'Show less' : `Show ${currentWeekWorkouts.length - 3} more workout${currentWeekWorkouts.length - 3 !== 1 ? 's' : ''}`}
-                </Text>
-                <Ionicons
-                  name={weekExpanded ? 'chevron-up' : 'chevron-down'}
-                  size={14}
-                  color={Colors.primary}
-                />
-              </TouchableOpacity>
-            )}
-          </>
-        ) : (
-          <Text style={styles.weekEmpty}>No workouts scheduled this week.</Text>
-        )}
-      </View>
 
       {/* Race prediction teaser */}
       <ContextualProPrompt
@@ -777,126 +661,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '700',
     color: Colors.black,
-  },
-
-  // Week section
-  weekSection: {
-    marginBottom: Spacing.lg,
-  },
-  weekHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  weekTitle: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  weekLabel: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    fontWeight: '600',
-  },
-  weekWorkout: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
-    gap: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-  },
-  weekDay: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textMuted,
-    width: 36,
-  },
-  weekWorkoutInfo: {
-    flex: 1,
-  },
-  weekWorkoutName: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  weekWorkoutDesc: {
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-    marginTop: 1,
-  },
-  weekWorkoutExpanded: {
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    marginBottom: 0,
-    borderBottomWidth: 0,
-  },
-  weekWorkoutActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.sm + 2,
-    marginBottom: Spacing.sm,
-    backgroundColor: Colors.surface,
-    borderBottomLeftRadius: BorderRadius.md,
-    borderBottomRightRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderTopWidth: 0,
-    borderColor: Colors.surfaceLight,
-  },
-  weekActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.surfaceLight,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.xs,
-  },
-  weekActionBtnText: {
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  weekUnskipBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.accent + '15',
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.xs,
-  },
-  weekUnskipBtnText: {
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    color: Colors.accent,
-  },
-  weekEmpty: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    paddingVertical: Spacing.lg,
-  },
-  expandBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: Spacing.sm,
-    marginTop: Spacing.xs,
-  },
-  expandBtnText: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.primary,
   },
 
   // Adjust button

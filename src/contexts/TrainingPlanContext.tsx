@@ -21,8 +21,6 @@ import {
   loadPlanWorkouts,
   loadUserPlanWorkouts,
   ensureCustomPlan,
-  skipPlanWorkout as skipPlanWorkoutApi,
-  unskipPlanWorkout as unskipPlanWorkoutApi,
   removePlanWorkout as removePlanWorkoutApi,
   movePlanWorkout as movePlanWorkoutApi,
   completePlanWorkout as completePlanWorkoutApi,
@@ -38,7 +36,7 @@ import { loadHistory } from '../workout/workoutStorage';
 /** A unified entry for a single day, containing both plan and history data. */
 export interface DayEntry {
   date: string; // YYYY-MM-DD
-  planWorkout?: PlanWorkout;
+  planWorkouts: PlanWorkout[];
   completedRuns: CompletedWorkout[];
 }
 
@@ -58,10 +56,6 @@ interface TrainingPlanContextType {
   refresh: () => Promise<void>;
   /** Ensure a custom plan exists (for manual workout additions), then refresh. */
   ensurePlan: () => Promise<TrainingPlan>;
-  /** Skip a planned workout */
-  skipWorkout: (workoutId: string) => Promise<void>;
-  /** Undo skip — restore a skipped workout back to planned */
-  unskipWorkout: (workoutId: string) => Promise<void>;
   /** Remove a planned workout from the calendar entirely */
   removeWorkout: (workoutId: string) => Promise<void>;
   /** Move a planned workout to a different date */
@@ -92,9 +86,8 @@ function buildDayEntries(
 ): Record<string, DayEntry> {
   const entries: Record<string, DayEntry> = {};
 
-  // Plan workouts — process non-primary plans first, then primary plan last.
-  // This ensures the primary plan's workouts "win" for any date that has
-  // workouts from multiple plans.
+  // Plan workouts — sort so the primary plan's workouts come last (appear first in the array
+  // when we unshift), giving them visual priority while keeping all workouts accessible.
   const sorted = [...planWorkouts].sort((a, b) => {
     const aIsPrimary = a.plan_id === primaryPlanId ? 1 : 0;
     const bIsPrimary = b.plan_id === primaryPlanId ? 1 : 0;
@@ -104,16 +97,16 @@ function buildDayEntries(
 
   for (const pw of sorted) {
     if (!entries[pw.date]) {
-      entries[pw.date] = { date: pw.date, completedRuns: [] };
+      entries[pw.date] = { date: pw.date, planWorkouts: [], completedRuns: [] };
     }
-    entries[pw.date].planWorkout = pw;
+    entries[pw.date].planWorkouts.push(pw);
   }
 
   // Completed runs
   for (const run of history) {
     const key = toDateKey(run.completedAt);
     if (!entries[key]) {
-      entries[key] = { date: key, completedRuns: [] };
+      entries[key] = { date: key, planWorkouts: [], completedRuns: [] };
     }
     entries[key].completedRuns.push(run);
   }
@@ -135,8 +128,8 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
   /** Incremented on each refresh so stale background tasks can detect they're outdated. */
   const refreshEpoch = useRef(0);
 
-  // Primary plan: first non-custom active plan (backward compat)
-  const plan = plans.find((p) => p.race_type !== 'custom') ?? plans[0] ?? null;
+  // Primary plan: first real training plan (non-custom, or custom with outline)
+  const plan = plans.find((p) => p.race_type !== 'custom' || !!(p.outline && p.outline.length > 0)) ?? plans[0] ?? null;
 
   const refresh = useCallback(async () => {
     const epoch = ++refreshEpoch.current;
@@ -166,9 +159,9 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
       const activeWorkouts = allWorkouts.filter((w) => activePlanIds.has(w.plan_id));
       setPlanWorkouts(activeWorkouts);
 
-      // Auto-fill upcoming workout details for each non-custom plan
-      // Only start if no other generation is in flight
-      const racePlans = activePlans.filter((p) => p.race_type !== 'custom');
+      // Auto-fill upcoming workout details for each real training plan
+      // (non-custom, or custom with outline). Only start if no other generation is in flight.
+      const racePlans = activePlans.filter((p) => p.race_type !== 'custom' || !!(p.outline && p.outline.length > 0));
       if (racePlans.length > 0 && !isGeneratingDetails.current) {
         isGeneratingDetails.current = true;
         Promise.all(
@@ -211,20 +204,6 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
   }, [refresh]);
 
   const dayEntries = buildDayEntries(planWorkouts, history, plan?.id ?? null);
-
-  const skipWorkout = useCallback(async (workoutId: string) => {
-    await skipPlanWorkoutApi(workoutId);
-    setPlanWorkouts((prev) =>
-      prev.map((w) => (w.id === workoutId ? { ...w, status: 'skipped' as const } : w))
-    );
-  }, []);
-
-  const unskipWorkout = useCallback(async (workoutId: string) => {
-    await unskipPlanWorkoutApi(workoutId);
-    setPlanWorkouts((prev) =>
-      prev.map((w) => (w.id === workoutId ? { ...w, status: 'planned' as const } : w))
-    );
-  }, []);
 
   const removeWorkout = useCallback(async (workoutId: string) => {
     await removePlanWorkoutApi(workoutId);
@@ -319,8 +298,6 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
         loading,
         refresh,
         ensurePlan: ensurePlanFn,
-        skipWorkout,
-        unskipWorkout,
         removeWorkout,
         moveWorkout,
         completeWorkout,

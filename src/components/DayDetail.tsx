@@ -5,19 +5,18 @@
  * completed runs with stats, and empty/rest states.
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Alert,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { DayEntry } from '../contexts/TrainingPlanContext';
-import type { WorkoutDefinition } from '../workout/workoutTypes';
-import { formatTime, totalWorkoutSeconds, flattenWorkout } from '../workout/workoutTypes';
+import type { WorkoutDefinition, WorkoutRepeatBlock, IntervalType } from '../workout/workoutTypes';
+import { formatTime, totalWorkoutSeconds } from '../workout/workoutTypes';
 import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../constants/theme';
 
 // ── Types ────────────────────────────────────────────────────
@@ -26,15 +25,14 @@ interface DayDetailProps {
   entry: DayEntry | undefined;
   selectedDate: string;
   onStartWorkout: (workoutData: WorkoutDefinition) => void;
-  onSkipWorkout: (workoutId: string) => void;
-  onUnskipWorkout?: (workoutId: string) => void;
   onRemoveWorkout?: (workoutId: string) => void;
   onMoveWorkout?: (workoutId: string) => void;
   onEditWorkout?: (workoutData: WorkoutDefinition) => void;
+  /** Open voice-driven AI edit for a specific plan workout */
+  onVoiceEdit?: (workoutId: string) => void;
   onViewRun: (historyEntryId: string) => void;
   onRunAgain: (workoutId: string) => void;
   onAddWorkout?: (date: string) => void;
-  onGenerateDetail?: (workoutId: string) => Promise<void>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -62,41 +60,74 @@ function formatDistance(meters: number): string {
 function statusBadgeColor(status: string): string {
   switch (status) {
     case 'completed': return Colors.primary;
-    case 'skipped': return Colors.textMuted;
     default: return Colors.accent;
   }
 }
 
 // ── Workout Preview (interval summary) ──────────────────────
 
+interface PreviewRow {
+  key: string;
+  repeatCount: number;
+  intervals: { type: IntervalType; label: string; durationSeconds: number }[];
+}
+
+function defaultIntervalLabel(type: IntervalType): string {
+  switch (type) {
+    case 'warmup': return 'Warm Up';
+    case 'cooldown': return 'Cool Down';
+    case 'hard': return 'Hard';
+    case 'easy': return 'Easy';
+  }
+}
+
+function buildPreviewRows(workout: WorkoutDefinition): PreviewRow[] {
+  const rows: PreviewRow[] = [];
+  const allSections: WorkoutRepeatBlock[][] = [workout.warmup, workout.blocks, workout.cooldown];
+  for (const section of allSections) {
+    if (!section) continue;
+    for (let bi = 0; bi < section.length; bi++) {
+      const block = section[bi];
+      rows.push({
+        key: `${rows.length}`,
+        repeatCount: block.repeatCount ?? 1,
+        intervals: block.intervals.map((iv) => ({
+          type: iv.type,
+          label: iv.label || defaultIntervalLabel(iv.type),
+          durationSeconds: iv.durationSeconds,
+        })),
+      });
+    }
+  }
+  return rows;
+}
+
 function WorkoutPreview({ workoutData }: { workoutData: unknown }) {
   const workout = workoutData as WorkoutDefinition;
   if (!workout || !workout.blocks) return null;
 
-  const flat = flattenWorkout(workout);
   const totalSec = totalWorkoutSeconds(workout);
+  const rows = buildPreviewRows(workout);
 
   return (
     <View style={styles.workoutPreview}>
       <Text style={styles.workoutName}>{workout.name}</Text>
       <Text style={styles.workoutDuration}>
-        {formatTime(totalSec)} total · {flat.length} intervals
+        {formatTime(totalSec)} total
       </Text>
       <View style={styles.intervalList}>
-        {flat.slice(0, 6).map((interval, i) => (
-          <View key={i} style={styles.intervalRow}>
-            <View style={[styles.intervalDot, { backgroundColor: intervalColor(interval.type) }]} />
+        {rows.slice(0, 6).map((row) => (
+          <View key={row.key} style={styles.intervalRow}>
+            <View style={[styles.intervalDot, { backgroundColor: intervalColor(row.intervals[0]?.type ?? 'easy') }]} />
             <Text style={styles.intervalLabel} numberOfLines={1}>
-              {interval.label}
-            </Text>
-            <Text style={styles.intervalTime}>
-              {formatTime(interval.durationSeconds)}
+              {row.repeatCount > 1 ? `${row.repeatCount}\u00D7 ` : ''}
+              {row.intervals.map((iv) => `${iv.label} ${formatTime(iv.durationSeconds)}`).join(', ')}
             </Text>
           </View>
         ))}
-        {flat.length > 6 && (
+        {rows.length > 6 && (
           <Text style={styles.moreIntervals}>
-            +{flat.length - 6} more
+            +{rows.length - 6} more
           </Text>
         )}
       </View>
@@ -110,18 +141,15 @@ export function DayDetail({
   entry,
   selectedDate,
   onStartWorkout,
-  onSkipWorkout,
-  onUnskipWorkout,
   onRemoveWorkout,
   onMoveWorkout,
   onEditWorkout,
+  onVoiceEdit,
   onViewRun,
   onRunAgain,
   onAddWorkout,
-  onGenerateDetail,
 }: DayDetailProps) {
   const dateDisplay = formatDateDisplay(selectedDate);
-  const [generatingDetail, setGeneratingDetail] = useState(false);
 
   const handleRemove = (workoutId: string) => {
     Alert.alert(
@@ -138,8 +166,10 @@ export function DayDetail({
     );
   };
 
+  const planWorkouts = (entry?.planWorkouts ?? []).filter((pw) => pw.day_label !== 'Rest Day');
+
   // Empty day
-  if (!entry || (!entry.planWorkout && entry.completedRuns.length === 0)) {
+  if (!entry || (planWorkouts.length === 0 && entry.completedRuns.length === 0)) {
     return (
       <View style={styles.container}>
         <Text style={styles.dateHeader}>{dateDisplay}</Text>
@@ -161,175 +191,123 @@ export function DayDetail({
     );
   }
 
-  const pw = entry.planWorkout;
-  const isRest = pw?.day_label === 'Rest Day';
-  const isPlanned = pw?.status === 'planned';
-  const isSkipped = pw?.status === 'skipped';
-  const isCompleted = pw?.status === 'completed';
-  const hasWorkoutData = !!pw?.workout_data;
-
   return (
     <View style={styles.container}>
       <Text style={styles.dateHeader}>{dateDisplay}</Text>
 
-      {/* Planned workout */}
-      {pw && (
-        <View style={styles.planCard}>
-          <View style={styles.planHeader}>
-            <View style={[styles.statusBadge, { backgroundColor: statusBadgeColor(pw.status) + '22' }]}>
-              <Text style={[styles.statusText, { color: statusBadgeColor(pw.status) }]}>
-                {isPlanned ? 'Planned' : isCompleted ? 'Completed' : 'Skipped'}
-              </Text>
+      {/* Planned workouts — renders all workouts scheduled on this day */}
+      {planWorkouts.map((pw) => {
+        const isRest = pw.day_label === 'Rest Day';
+        const isPlanned = pw.status === 'planned';
+        const isCompleted = pw.status === 'completed';
+        const hasWorkoutData = !!pw.workout_data;
+
+        return (
+          <View key={pw.id} style={styles.planCard}>
+            {/* AI edit button — top-right of card (only for detailed workouts in the 14-day window) */}
+            {onVoiceEdit && isPlanned && !isRest && hasWorkoutData && (
+              <TouchableOpacity
+                style={styles.aiEditBtn}
+                onPress={() => onVoiceEdit(pw.id)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="mic-outline" size={15} color={Colors.accent} />
+                <Text style={styles.aiEditBtnText}>Edit with AI</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.planHeader}>
+              <View style={[styles.statusBadge, { backgroundColor: statusBadgeColor(pw.status) + '22' }]}>
+                <Text style={[styles.statusText, { color: statusBadgeColor(pw.status) }]}>
+                  {isCompleted ? 'Completed' : 'Planned'}
+                </Text>
+              </View>
+              <Text style={styles.dayLabel}>{pw.day_label}</Text>
             </View>
-            <Text style={styles.dayLabel}>{pw.day_label}</Text>
-          </View>
 
-          {pw.description && (
-            <Text style={styles.description}>{pw.description}</Text>
-          )}
+            {pw.description && (
+              <Text style={styles.description}>{pw.description}</Text>
+            )}
 
-          {hasWorkoutData && !isCompleted && (
-            <WorkoutPreview workoutData={pw.workout_data} />
-          )}
+            {hasWorkoutData && !isCompleted && (
+              <WorkoutPreview workoutData={pw.workout_data} />
+            )}
 
-          {/* Rest day */}
-          {isRest && (
-            <View style={styles.restDay}>
-              <Ionicons name="bed-outline" size={20} color={Colors.textMuted} />
-              <Text style={styles.restDayText}>Rest and recover</Text>
-            </View>
-          )}
+            {/* Rest day */}
+            {isRest && (
+              <View style={styles.restDay}>
+                <Ionicons name="bed-outline" size={20} color={Colors.textMuted} />
+                <Text style={styles.restDayText}>Rest and recover</Text>
+              </View>
+            )}
 
-          {/* ── Actions for planned workouts ── */}
-          {isPlanned && !isRest && (
-            <>
-              {hasWorkoutData && (
-                <View style={styles.actionRow}>
-                  <TouchableOpacity
-                    style={styles.startBtn}
-                    onPress={() => onStartWorkout(pw.workout_data as WorkoutDefinition)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="play" size={16} color={Colors.black} />
-                    <Text style={styles.startBtnText}>Start</Text>
-                  </TouchableOpacity>
-
-                  {onEditWorkout && (
+            {/* ── Actions for planned workouts ── */}
+            {isPlanned && !isRest && (
+              <>
+                {hasWorkoutData && (
+                  <View style={styles.actionRow}>
                     <TouchableOpacity
-                      style={styles.editBtn}
-                      onPress={() => onEditWorkout(pw.workout_data as WorkoutDefinition)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="create-outline" size={14} color={Colors.textPrimary} />
-                      <Text style={styles.editBtnText}>Edit</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {onMoveWorkout && (
-                    <TouchableOpacity
-                      style={styles.iconBtn}
-                      onPress={() => onMoveWorkout(pw.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="swap-horizontal-outline" size={16} color={Colors.textSecondary} />
-                    </TouchableOpacity>
-                  )}
-
-                  <TouchableOpacity
-                    style={styles.iconBtn}
-                    onPress={() => onSkipWorkout(pw.id)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="play-skip-forward-outline" size={16} color={Colors.textSecondary} />
-                  </TouchableOpacity>
-
-                  {onRemoveWorkout && (
-                    <TouchableOpacity
-                      style={styles.iconBtn}
-                      onPress={() => handleRemove(pw.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="trash-outline" size={16} color={Colors.danger} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-
-              {/* No workout_data yet */}
-              {!hasWorkoutData && (
-                <View style={styles.actionRow}>
-                  {onGenerateDetail ? (
-                    <TouchableOpacity
-                      style={styles.generateDetailBtn}
-                      onPress={async () => {
-                        setGeneratingDetail(true);
-                        try {
-                          await onGenerateDetail(pw.id);
-                        } finally {
-                          setGeneratingDetail(false);
-                        }
-                      }}
-                      disabled={generatingDetail}
+                      style={styles.startBtn}
+                      onPress={() => onStartWorkout(pw.workout_data as WorkoutDefinition)}
                       activeOpacity={0.8}
                     >
-                      {generatingDetail ? (
-                        <ActivityIndicator size="small" color={Colors.black} />
-                      ) : (
-                        <Ionicons name="sparkles" size={16} color={Colors.black} />
-                      )}
-                      <Text style={styles.generateDetailBtnText}>
-                        {generatingDetail ? 'Generating…' : 'Generate Workout'}
-                      </Text>
+                      <Ionicons name="play" size={16} color={Colors.black} />
+                      <Text style={styles.startBtnText}>Start</Text>
                     </TouchableOpacity>
-                  ) : (
-                    <View style={styles.outlineOnlyHint}>
-                      <Ionicons name="time-outline" size={14} color={Colors.textMuted} />
-                      <Text style={styles.outlineOnlyText}>
-                        Workout details will be generated as this day approaches
-                      </Text>
-                    </View>
-                  )}
 
-                  <TouchableOpacity
-                    style={styles.skipBtn}
-                    onPress={() => onSkipWorkout(pw.id)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.skipBtnText}>Skip</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </>
-          )}
+                    {onEditWorkout && (
+                      <TouchableOpacity
+                        style={styles.editBtn}
+                        onPress={() => onEditWorkout(pw.workout_data as WorkoutDefinition)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="create-outline" size={14} color={Colors.textPrimary} />
+                        <Text style={styles.editBtnText}>Edit</Text>
+                      </TouchableOpacity>
+                    )}
 
-          {/* ── Skipped workout: offer undo ── */}
-          {isSkipped && onUnskipWorkout && (
-            <View style={styles.actionRow}>
-              <TouchableOpacity
-                style={styles.unskipBtn}
-                onPress={() => onUnskipWorkout(pw.id)}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="arrow-undo-outline" size={14} color={Colors.accent} />
-                <Text style={styles.unskipBtnText}>Undo Skip</Text>
-              </TouchableOpacity>
+                    {onMoveWorkout && (
+                      <TouchableOpacity
+                        style={styles.editBtn}
+                        onPress={() => onMoveWorkout(pw.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="swap-horizontal-outline" size={14} color={Colors.textPrimary} />
+                        <Text style={styles.editBtnText}>Move</Text>
+                      </TouchableOpacity>
+                    )}
 
-              {onRemoveWorkout && (
-                <TouchableOpacity
-                  style={styles.iconBtn}
-                  onPress={() => handleRemove(pw.id)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="trash-outline" size={16} color={Colors.danger} />
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-        </View>
-      )}
+                    {onRemoveWorkout && (
+                      <TouchableOpacity
+                        style={styles.iconBtn}
+                        onPress={() => handleRemove(pw.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="trash-outline" size={16} color={Colors.danger} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
 
-      {/* Add workout button — show when there's no planned workout for this day */}
-      {!pw && onAddWorkout && (
+                {/* No workout_data yet — details auto-generated within 14-day window */}
+                {!hasWorkoutData && (
+                  <View style={styles.outlineOnlyHint}>
+                    <Ionicons name="sparkles-outline" size={14} color={Colors.accent} />
+                    <Text style={styles.outlineOnlyText}>
+                      Your AI coach will add workout details when this day is within the 2-week planning window
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
+
+          </View>
+        );
+      })}
+
+      {/* Add workout button — show when there are no planned workouts for this day */}
+      {planWorkouts.length === 0 && onAddWorkout && (
         <TouchableOpacity
           style={styles.addWorkoutBtn}
           onPress={() => onAddWorkout(selectedDate)}
@@ -426,6 +404,25 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
+    position: 'relative' as const,
+  },
+  aiEditBtn: {
+    position: 'absolute' as const,
+    top: Spacing.sm,
+    right: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.accent + '15',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    zIndex: 1,
+  },
+  aiEditBtnText: {
+    fontSize: FontSize.xs - 1,
+    fontWeight: '700',
+    color: Colors.accent,
   },
   planHeader: {
     gap: Spacing.xs,
@@ -494,11 +491,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
   },
-  intervalTime: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontVariant: ['tabular-nums'],
-  },
   moreIntervals: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
@@ -549,47 +541,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceLight,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  skipBtn: {
-    paddingVertical: Spacing.sm + 2,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.surfaceLight,
-  },
-  skipBtnText: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  unskipBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.accent + '15',
-    paddingVertical: Spacing.sm + 2,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.xs,
-  },
-  unskipBtnText: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.accent,
-  },
-  generateDetailBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.accent,
-    paddingVertical: Spacing.sm + 2,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.xs,
-  },
-  generateDetailBtnText: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.black,
   },
   outlineOnlyHint: {
     flex: 1,

@@ -76,47 +76,10 @@ const GEN_STEPS: { phase: GenPhase; label: string; icon: keyof typeof Ionicons.g
   { phase: 'saving', label: 'Saving your plan', icon: 'cloud-upload-outline' },
 ];
 
-interface PlanSummary {
-  totalWeeks: number;
-  totalWorkouts: number;
-  raceType: RaceType;
-  raceDate: string;
-  goalTimeMinutes: number | null;
-}
-
-function formatRaceLabel(raceType: RaceType): string {
-  switch (raceType) {
-    case '5k': return '5K';
-    case '10k': return '10K';
-    case 'half_marathon': return 'half marathon';
-    case 'marathon': return 'marathon';
-    default: return 'race';
-  }
-}
-
-function buildCoachMessage(s: PlanSummary): string {
-  const race = formatRaceLabel(s.raceType);
-
-  let goalPart: string;
-  if (s.goalTimeMinutes && s.goalTimeMinutes > 0) {
-    const hrs = Math.floor(s.goalTimeMinutes / 60);
-    const mins = Math.round(s.goalTimeMinutes % 60);
-    const timeStr =
-      hrs > 0
-        ? `${hrs}:${mins.toString().padStart(2, '0')}`
-        : `${mins}-minute`;
-    goalPart = `run a sub-${timeStr} ${race}`;
-  } else {
-    goalPart = `train for your ${race}`;
-  }
-
-  return `Here's your ${s.totalWeeks}-week plan to ${goalPart}. I've added ${s.totalWorkouts} workouts to your calendar.`;
-}
-
 export default function PlanSetupScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { refresh } = useTrainingPlan();
+  const { plans, refresh, archivePlan } = useTrainingPlan();
   const { tier, canGeneratePlan, planCount } = useSubscription();
   const mountedRef = useRef(true);
   const draftLoaded = useRef(false);
@@ -149,9 +112,8 @@ export default function PlanSetupScreen() {
 
   const [genPhase, setGenPhase] = useState<GenPhase>('idle');
   const [genElapsed, setGenElapsed] = useState(0);
-  const [planSummary, setPlanSummary] = useState<PlanSummary | null>(null);
   const progressAnim = useRef(new Animated.Value(0)).current;
-  const generating = genPhase !== 'idle';
+  const generating = genPhase !== 'idle' && genPhase !== 'done';
 
   // Track mounted state for safe async updates
   useEffect(() => {
@@ -319,6 +281,49 @@ export default function PlanSetupScreen() {
       return;
     }
 
+    // Check for overlapping active training plans
+    const existingRacePlans = plans.filter(
+      (p) => p.race_type !== 'custom' || !!(p.outline && p.outline.length > 0),
+    );
+    if (existingRacePlans.length > 0) {
+      const newStart = new Date(startDateStr);
+      const newEnd = new Date(raceDateStr);
+      const overlapping = existingRacePlans.filter((p) => {
+        const pStart = new Date(p.start_date);
+        const pEnd = new Date(p.race_date);
+        return pStart <= newEnd && newStart <= pEnd;
+      });
+
+      if (overlapping.length > 0) {
+        const names = overlapping
+          .map((p) => `"${p.title || 'Training Plan'}"`)
+          .join(' and ');
+        const choice = await new Promise<'archive' | 'keep' | 'cancel'>((resolve) => {
+          Alert.alert(
+            'Overlapping Plan' + (overlapping.length > 1 ? 's' : ''),
+            `Your new plan overlaps with ${names}. You'll see stacked workouts on days that overlap.\n\nWould you like to archive the existing plan${overlapping.length > 1 ? 's' : ''} first?`,
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve('cancel') },
+              { text: 'Keep Both', onPress: () => resolve('keep') },
+              {
+                text: `Archive ${overlapping.length > 1 ? 'Old Plans' : 'Old Plan'}`,
+                style: 'destructive',
+                onPress: () => resolve('archive'),
+              },
+            ],
+            { onDismiss: () => resolve('cancel') },
+          );
+        });
+
+        if (choice === 'cancel') return;
+        if (choice === 'archive') {
+          for (const p of overlapping) {
+            await archivePlan(p.id);
+          }
+        }
+      }
+    }
+
     setGenPhase('analyzing');
     try {
       const historyData = await loadHistory();
@@ -372,19 +377,15 @@ export default function PlanSetupScreen() {
       if (!mountedRef.current) return;
       setGenPhase('saving');
       const { plan: savedPlan, workouts: savedWorkouts } = await savePlanOutline(user.id, input, outline);
-      AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
 
       if (!mountedRef.current) return;
 
-      setPlanSummary({
-        totalWeeks: outline.weeks.length,
-        totalWorkouts: savedWorkouts.filter((w) => w.day_label !== 'Rest Day').length,
-        raceType: input.raceType,
-        raceDate: input.raceDate,
-        goalTimeMinutes: input.goalTimeMinutes ?? null,
-      });
       setGenPhase('done');
       await refresh();
+      AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
+
+      // Navigate back to training page so the setup screen auto-closes
+      router.back();
 
       // Generate details for the first 3 workouts in the background
       const today = new Date().toISOString().split('T')[0];
@@ -404,7 +405,7 @@ export default function PlanSetupScreen() {
         Alert.alert('Error', err.message || 'Failed to generate plan. Please try again.');
       }
     }
-  }, [user, canGeneratePlan, raceType, customDistance, customDistanceUnit, raceDate, goalTimeHours, goalTimeMinutes, selectedDays, startDate, profile, goals, preferences, limitations, refresh, router]);
+  }, [user, canGeneratePlan, plans, archivePlan, raceType, customDistance, customDistanceUnit, raceDate, goalTimeHours, goalTimeMinutes, selectedDays, startDate, profile, goals, preferences, limitations, refresh, router]);
 
   if (!user) {
     return (
@@ -419,70 +420,6 @@ export default function PlanSetupScreen() {
         >
           <Text style={styles.signInBtnText}>Sign In</Text>
         </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // ── Summary screen after plan is created ────────────────────
-  if (genPhase === 'done' && planSummary) {
-    const raceDateFmt = new Date(planSummary.raceDate + 'T00:00:00').toLocaleDateString(
-      undefined,
-      { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' },
-    );
-
-    return (
-      <View style={styles.genScreen}>
-        <ScrollView
-          style={{ flex: 1, width: '100%' }}
-          contentContainerStyle={styles.summaryScroll}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.genCard}>
-            {/* Header */}
-            <View style={styles.genHeader}>
-              <View style={[styles.genSparkleWrap, styles.genDoneWrap]}>
-                <Ionicons name="checkmark-sharp" size={32} color={Colors.primary} />
-              </View>
-              <Text style={styles.genTitle}>Plan Created!</Text>
-            </View>
-
-            {/* Coach message */}
-            <Text style={styles.summaryMessage}>{buildCoachMessage(planSummary)}</Text>
-
-            {/* Stats row */}
-            <View style={styles.summaryStats}>
-              <View style={styles.summaryStat}>
-                <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
-                <Text style={styles.summaryStatValue}>{planSummary.totalWeeks}</Text>
-                <Text style={styles.summaryStatLabel}>weeks</Text>
-              </View>
-              <View style={styles.summaryStatDivider} />
-              <View style={styles.summaryStat}>
-                <Ionicons name="barbell-outline" size={18} color={Colors.accent} />
-                <Text style={styles.summaryStatValue}>{planSummary.totalWorkouts}</Text>
-                <Text style={styles.summaryStatLabel}>workouts</Text>
-              </View>
-              <View style={styles.summaryStatDivider} />
-              <View style={styles.summaryStat}>
-                <Ionicons name="flag-outline" size={18} color={Colors.warning} />
-                <Text style={styles.summaryStatLabel}>Race day</Text>
-                <Text style={styles.summaryStatDate}>{raceDateFmt}</Text>
-              </View>
-            </View>
-
-            {/* CTA */}
-            <TouchableOpacity
-              style={styles.summaryCta}
-              onPress={() => router.back()}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="calendar" size={18} color={Colors.black} />
-              <Text style={styles.summaryCtaText}>View Your Calendar</Text>
-            </TouchableOpacity>
-
-            <Text style={styles.genTimer}>Completed in {genElapsed}s</Text>
-          </View>
-        </ScrollView>
       </View>
     );
   }
@@ -1449,76 +1386,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: 3,
   },
-  genDoneWrap: {
-    backgroundColor: Colors.primary + '18',
-  },
   genTimer: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
     textAlign: 'center',
     fontVariant: ['tabular-nums'] as any,
-  },
-
-  // Summary screen (done state)
-  summaryScroll: {
-    flexGrow: 1,
-    justifyContent: 'center',
-  },
-  summaryMessage: {
-    fontSize: FontSize.md,
-    color: Colors.textSecondary,
-    lineHeight: 24,
-    textAlign: 'center',
-    marginBottom: Spacing.lg,
-  },
-  summaryStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.background,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: Spacing.lg,
-  },
-  summaryStat: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 2,
-  },
-  summaryStatDivider: {
-    width: 1,
-    height: 36,
-    backgroundColor: Colors.surfaceLight,
-  },
-  summaryStatValue: {
-    fontSize: FontSize.xl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    fontVariant: ['tabular-nums'] as any,
-  },
-  summaryStatLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontWeight: '500',
-  },
-  summaryStatDate: {
-    fontSize: FontSize.xs,
-    color: Colors.textPrimary,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  summaryCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.md,
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  summaryCtaText: {
-    color: Colors.black,
-    fontSize: FontSize.md,
-    fontWeight: '800',
   },
 });

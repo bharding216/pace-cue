@@ -335,11 +335,11 @@ export async function generateWorkoutDetailsWithProfile(
 
 // ── Auto-fill upcoming workouts ─────────────────────────────
 
-/** Number of upcoming workouts to keep detailed (rolling 14-day window). */
-const UPCOMING_DETAIL_COUNT = 7;
+/** Number of days ahead to keep workouts detailed (rolling window). */
+const DETAIL_WINDOW_DAYS = 14;
 
 /**
- * Checks whether the next N upcoming planned workouts have workout_data.
+ * Checks whether upcoming planned workouts within the next 14 days have workout_data.
  * If not, generates details for them. Returns the updated workouts.
  * Safe to call repeatedly — no-ops if workouts already have detail.
  */
@@ -347,18 +347,22 @@ export async function ensureUpcomingWorkoutsDetailed(
   plan: TrainingPlan,
   allWorkouts: PlanWorkout[],
 ): Promise<PlanWorkout[]> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const windowEnd = new Date(today);
+  windowEnd.setDate(windowEnd.getDate() + DETAIL_WINDOW_DAYS);
+  const windowEndStr = windowEnd.toISOString().split('T')[0];
 
-  // Find upcoming planned non-rest workouts without workout_data
+  // Find planned non-rest workouts without workout_data within the 14-day window
   const needsDetail = allWorkouts
     .filter((w) =>
       w.status === 'planned' &&
-      w.date >= today &&
+      w.date >= todayStr &&
+      w.date <= windowEndStr &&
       w.day_label !== 'Rest Day' &&
       !w.workout_data
     )
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(0, UPCOMING_DETAIL_COUNT);
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   if (needsDetail.length === 0) return allWorkouts;
 
@@ -761,36 +765,6 @@ export async function completePlanWorkout(
 
   if (error) {
     console.warn('Failed to complete plan workout:', error);
-  }
-}
-
-/** Mark a plan workout as skipped. */
-export async function skipPlanWorkout(workoutId: string): Promise<void> {
-  const { error } = await supabase
-    .from('plan_workouts')
-    .update({
-      status: 'skipped',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', workoutId);
-
-  if (error) {
-    console.warn('Failed to skip plan workout:', error);
-  }
-}
-
-/** Undo skip — restore a skipped workout back to planned. */
-export async function unskipPlanWorkout(workoutId: string): Promise<void> {
-  const { error } = await supabase
-    .from('plan_workouts')
-    .update({
-      status: 'planned',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', workoutId);
-
-  if (error) {
-    console.warn('Failed to unskip plan workout:', error);
   }
 }
 

@@ -33,7 +33,8 @@ import { WorkoutDefinition, generateId } from '../../../src/workout/workoutTypes
 import { saveWorkout, loadHistory } from '../../../src/workout/workoutStorage';
 import { WorkoutPickerModal } from '../../../src/components/WorkoutPickerModal';
 import { VoiceWorkoutSheet } from '../../../src/components/VoiceWorkoutSheet';
-import { addWorkoutToCalendar, generateWorkoutDetails } from '../../../src/ai/planService';
+import { VoiceEditSheet } from '../../../src/components/VoiceEditSheet';
+import { addWorkoutToCalendar, applyPlanModifications, type PlanModification } from '../../../src/ai/planService';
 import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
 import { useSubscription } from '../../../src/contexts/SubscriptionContext';
 import { supabase } from '../../../src/analytics/supabaseClient';
@@ -71,10 +72,13 @@ export default function TrainingScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { canUseAI } = useSubscription();
-  const { plans, archivedPlans, plan, planWorkouts, dayEntries, loading, refresh, ensurePlan, skipWorkout, unskipWorkout, removeWorkout, moveWorkout } = useTrainingPlan();
+  const { plans, archivedPlans, plan, planWorkouts, dayEntries, loading, refresh, ensurePlan, removeWorkout, moveWorkout } = useTrainingPlan();
 
+  // Include all "real" training plans: non-custom race plans, plus custom-distance
+  // plans created through the setup wizard (which have an outline). Exclude the
+  // lightweight utility plan created by ensureCustomPlan for manual workout additions.
   const racePlans = useMemo(
-    () => plans.filter((p) => p.race_type !== 'custom'),
+    () => plans.filter((p) => p.race_type !== 'custom' || (p.outline && p.outline.length > 0)),
     [plans],
   );
 
@@ -89,8 +93,9 @@ export default function TrainingScreen() {
   const [voiceDate, setVoiceDate] = useState<string | null>(null);
   const [aiContext, setAiContext] = useState<AIContext | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ id: string; date: string; label: string } | null>(null);
+  const [voiceEditTarget, setVoiceEditTarget] = useState<string | null>(null);
   const [heroCollapsed, setHeroCollapsed] = useState(false);
-  const [weekExpanded, setWeekExpanded] = useState(false);
+
 
   const HERO_COLLAPSED_KEY = 'training_hero_collapsed';
 
@@ -141,16 +146,6 @@ export default function TrainingScreen() {
   // Selected day entry
   const selectedDayEntry = dayEntries[selectedDate];
 
-  // Workouts for the next 7 days (always from today)
-  const next7DaysWorkouts = useMemo(() => {
-    const today = todayKey();
-    const end = new Date();
-    end.setDate(end.getDate() + 6);
-    const endKey = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
-    return planWorkouts
-      .filter((w) => w.date >= today && w.date <= endKey)
-      .sort((a, b) => a.date.localeCompare(b.date));
-  }, [planWorkouts]);
 
   const handleStartWorkout = useCallback(async (workoutData: WorkoutDefinition) => {
     const workout: WorkoutDefinition = {
@@ -161,10 +156,6 @@ export default function TrainingScreen() {
     await saveWorkout(workout);
     router.push(`/workout/run/${workout.id}`);
   }, [router]);
-
-  const handleSkipWorkout = useCallback(async (workoutId: string) => {
-    await skipWorkout(workoutId);
-  }, [skipWorkout]);
 
   const handleRemoveWorkout = useCallback(async (workoutId: string) => {
     await removeWorkout(workoutId);
@@ -186,10 +177,6 @@ export default function TrainingScreen() {
     router.push(`/workout/${workout.id}`);
   }, [router]);
 
-  const handleUnskipWorkout = useCallback(async (workoutId: string) => {
-    await unskipWorkout(workoutId);
-  }, [unskipWorkout]);
-
   const handleViewRun = useCallback((historyEntryId: string) => {
     router.push(`/run/${historyEntryId}` as any);
   }, [router]);
@@ -205,14 +192,19 @@ export default function TrainingScreen() {
     }
   }, [planWorkouts]);
 
-  const handleGenerateDetail = useCallback(async (workoutId: string) => {
-    const pw = planWorkouts.find((w) => w.id === workoutId);
+  const handleVoiceEdit = useCallback((workoutId: string) => {
+    setVoiceEditTarget(workoutId);
+  }, []);
+
+  const handleVoiceEditApply = useCallback(async (modifications: PlanModification[]) => {
+    const pw = voiceEditTarget ? planWorkouts.find((w) => w.id === voiceEditTarget) : null;
     if (!pw) return;
     const ownerPlan = plans.find((p) => p.id === pw.plan_id);
     if (!ownerPlan) return;
-    await generateWorkoutDetails(ownerPlan, [pw]);
+    await applyPlanModifications(ownerPlan.id, modifications);
+    setVoiceEditTarget(null);
     await refresh();
-  }, [planWorkouts, plans, refresh]);
+  }, [voiceEditTarget, planWorkouts, plans, refresh]);
 
   // Load AI context for voice builder (lazy — only when needed)
   const loadAiContext = useCallback(async () => {
@@ -362,7 +354,7 @@ export default function TrainingScreen() {
                   >
                     <Ionicons name="archive-outline" size={16} color={Colors.textMuted} />
                     <Text style={styles.archivedLinkText}>
-                      {archivedPlans.filter((p) => p.race_type !== 'custom').length} archived plan{archivedPlans.filter((p) => p.race_type !== 'custom').length !== 1 ? 's' : ''} — Restore
+                      {archivedPlans.filter((p) => p.race_type !== 'custom' || (p.outline && p.outline.length > 0)).length} archived plan{archivedPlans.filter((p) => p.race_type !== 'custom' || (p.outline && p.outline.length > 0)).length !== 1 ? 's' : ''} — Restore
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -433,7 +425,7 @@ export default function TrainingScreen() {
               activeOpacity={0.8}
             >
               <Ionicons name="add" size={18} color={Colors.black} />
-              <Text style={styles.addWorkoutBtnText}>Add Workout to Selected Day</Text>
+              <Text style={styles.addWorkoutBtnText}>Add Workout</Text>
             </TouchableOpacity>
             {hasPlan && user && (
               <TouchableOpacity
@@ -463,6 +455,7 @@ export default function TrainingScreen() {
             viewMode={calendarViewMode}
             onChangeViewMode={setCalendarViewMode}
             raceDates={raceDates}
+            showAIWindow={hasPlan}
           />
 
           {/* ─── Selected day detail ─── */}
@@ -471,100 +464,14 @@ export default function TrainingScreen() {
               entry={selectedDayEntry}
               selectedDate={selectedDate}
               onStartWorkout={handleStartWorkout}
-              onSkipWorkout={handleSkipWorkout}
-              onUnskipWorkout={handleUnskipWorkout}
               onRemoveWorkout={handleRemoveWorkout}
               onMoveWorkout={handleMoveWorkoutFromDay}
               onEditWorkout={handleEditWorkout}
+              onVoiceEdit={user && canUseAI ? handleVoiceEdit : undefined}
               onViewRun={handleViewRun}
               onRunAgain={handleRunAgain}
               onAddWorkout={handleAddWorkout}
-              onGenerateDetail={handleGenerateDetail}
             />
-          </View>
-
-          {/* ─── This Week toggle ─── */}
-          <View style={styles.weekSection}>
-            <TouchableOpacity
-              style={styles.weekToggle}
-              onPress={() => {
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                setWeekExpanded((prev) => !prev);
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={styles.weekToggleLeft}>
-                <Ionicons name="calendar-outline" size={16} color={Colors.textSecondary} />
-                <Text style={styles.weekToggleText}>Workouts This Week</Text>
-                {next7DaysWorkouts.length > 0 && (
-                  <View style={styles.weekCountBadge}>
-                    <Text style={styles.weekCountText}>{next7DaysWorkouts.filter((w) => w.day_label !== 'Rest Day').length}</Text>
-                  </View>
-                )}
-              </View>
-              <Ionicons name={weekExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textMuted} />
-            </TouchableOpacity>
-
-            {weekExpanded && next7DaysWorkouts.length > 0 && (
-                <View style={styles.weekList}>
-                  {next7DaysWorkouts.map((pw) => {
-                    const isToday = pw.date === todayKey();
-                    const isSelected = pw.date === selectedDate;
-                    const isCompleted = pw.status === 'completed';
-                    const isSkipped = pw.status === 'skipped';
-                    const isRest = pw.day_label === 'Rest Day';
-                    const dayDate = new Date(pw.date + 'T12:00:00');
-                    return (
-                      <TouchableOpacity
-                        key={pw.id}
-                        style={[
-                          styles.weekCard,
-                          isSelected && styles.weekCardSelected,
-                        ]}
-                        onPress={() => setSelectedDate(pw.date)}
-                        activeOpacity={0.7}
-                      >
-                        <View style={styles.weekCardDate}>
-                          <Text style={[styles.weekCardDay, isToday && styles.weekCardDayToday]}>
-                            {isToday ? 'Today' : dayDate.toLocaleDateString(undefined, { weekday: 'short' })}
-                          </Text>
-                          {!isToday && (
-                            <Text style={styles.weekCardNum}>{dayDate.getDate()}</Text>
-                          )}
-                        </View>
-                        <View style={styles.weekCardInfo}>
-                          <Text
-                            style={[
-                              styles.weekCardLabel,
-                              isRest && styles.weekCardLabelRest,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {pw.day_label || 'Training'}
-                          </Text>
-                          {pw.description && !isRest && (
-                            <Text style={styles.weekCardDesc} numberOfLines={1}>{pw.description}</Text>
-                          )}
-                        </View>
-                        {isCompleted ? (
-                          <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
-                        ) : isSkipped ? (
-                          <Ionicons name="close-circle" size={16} color={Colors.textMuted} />
-                        ) : isRest ? (
-                          <Ionicons name="bed-outline" size={16} color={Colors.textMuted} />
-                        ) : (
-                          <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} />
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-            )}
-            {weekExpanded && next7DaysWorkouts.length === 0 && (
-              <View style={styles.weekEmptyState}>
-                <Text style={styles.weekEmptyText}>No workouts scheduled this week</Text>
-              </View>
-            )}
           </View>
 
           {/* Contextual Pro prompt — weekly progress nudge */}
@@ -607,6 +514,23 @@ export default function TrainingScreen() {
           onClose={() => setMoveTarget(null)}
         />
       )}
+
+      {/* Voice AI edit sheet */}
+      {voiceEditTarget && (() => {
+        const pw = planWorkouts.find((w) => w.id === voiceEditTarget);
+        const ownerPlan = pw ? plans.find((p) => p.id === pw.plan_id) : null;
+        if (!pw || !ownerPlan) return null;
+        return (
+          <VoiceEditSheet
+            visible
+            workout={pw}
+            plan={ownerPlan}
+            planWorkouts={planWorkouts.filter((w) => w.plan_id === ownerPlan.id)}
+            onApply={handleVoiceEditApply}
+            onClose={() => setVoiceEditTarget(null)}
+          />
+        );
+      })()}
     </View>
   );
 }
@@ -624,7 +548,7 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     gap: Spacing.sm,
     marginBottom: Spacing.md,
   },
@@ -848,111 +772,6 @@ const styles = StyleSheet.create({
   // ─── Day detail section ───
   dayDetailSection: {
     marginTop: Spacing.md,
-  },
-
-  // ─── This Week section ───
-  weekSection: {
-    marginTop: Spacing.md,
-  },
-  weekToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-  },
-  weekToggleLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  weekToggleText: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  weekCountBadge: {
-    backgroundColor: Colors.primary + '18',
-    borderRadius: BorderRadius.full,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    minWidth: 22,
-    alignItems: 'center',
-  },
-  weekCountText: {
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  weekList: {
-    marginTop: Spacing.sm,
-    gap: Spacing.xs,
-  },
-  weekCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.sm + 2,
-    paddingHorizontal: Spacing.md,
-    gap: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-  },
-  weekCardSelected: {
-    borderColor: Colors.primary + '50',
-    backgroundColor: Colors.primary + '08',
-  },
-  weekCardDate: {
-    alignItems: 'center',
-    width: 36,
-  },
-  weekCardDay: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontWeight: '600',
-  },
-  weekCardDayToday: {
-    color: Colors.primary,
-    fontWeight: '800',
-  },
-  weekCardNum: {
-    fontSize: FontSize.md,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-  },
-  weekCardInfo: {
-    flex: 1,
-  },
-  weekCardLabel: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-  },
-  weekCardLabelRest: {
-    color: Colors.textMuted,
-    fontStyle: 'italic',
-  },
-  weekCardDesc: {
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-    marginTop: 1,
-  },
-  weekEmptyState: {
-    marginTop: Spacing.sm,
-    padding: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-  },
-  weekEmptyText: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
   },
 
   // ─── AI Coach promo card (unauthenticated) ───

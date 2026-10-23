@@ -45,7 +45,7 @@ function getIntensityTag(label: string | null): { text: string; color: string } 
 export default function WorkoutDetailScreen() {
   const router = useRouter();
   const { workoutId } = useLocalSearchParams<{ workoutId: string }>();
-  const { plans, planWorkouts, dayEntries, refresh, skipWorkout, removeWorkout, moveWorkout } = useTrainingPlan();
+  const { plans, planWorkouts, dayEntries, refresh, removeWorkout, moveWorkout } = useTrainingPlan();
   const [generatingDetail, setGeneratingDetail] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState(false);
 
@@ -81,7 +81,6 @@ export default function WorkoutDetailScreen() {
 
   const isRest = planWorkout?.day_label === 'Rest Day';
   const isCompleted = planWorkout?.status === 'completed';
-  const isSkipped = planWorkout?.status === 'skipped';
 
   const handleStart = useCallback(async () => {
     if (!workoutData) return;
@@ -117,11 +116,6 @@ export default function WorkoutDetailScreen() {
       setGeneratingDetail(false);
     }
   }, [planWorkout, ownerPlan, refresh]);
-
-  const handleSkip = useCallback(async () => {
-    if (!planWorkout) return;
-    await skipWorkout(planWorkout.id);
-  }, [planWorkout, skipWorkout]);
 
   const handleMove = useCallback(async (newDate: string) => {
     if (!planWorkout) return;
@@ -170,12 +164,6 @@ export default function WorkoutDetailScreen() {
           <View style={[styles.statusPill, { backgroundColor: Colors.primary + '22' }]}>
             <Ionicons name="checkmark-circle" size={14} color={Colors.primary} />
             <Text style={[styles.statusText, { color: Colors.primary }]}>Completed</Text>
-          </View>
-        )}
-        {isSkipped && (
-          <View style={[styles.statusPill, { backgroundColor: Colors.textMuted + '22' }]}>
-            <Ionicons name="close-circle" size={14} color={Colors.textMuted} />
-            <Text style={[styles.statusText, { color: Colors.textMuted }]}>Skipped</Text>
           </View>
         )}
       </View>
@@ -311,15 +299,6 @@ export default function WorkoutDetailScreen() {
             >
               <Ionicons name="swap-horizontal-outline" size={14} color={Colors.textSecondary} />
               <Text style={styles.secondaryBtnText}>Move</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.secondaryBtn}
-              onPress={handleSkip}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="play-skip-forward-outline" size={14} color={Colors.textSecondary} />
-              <Text style={styles.secondaryBtnText}>Skip</Text>
             </TouchableOpacity>
 
             <TouchableOpacity

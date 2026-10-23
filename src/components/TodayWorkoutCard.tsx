@@ -15,7 +15,6 @@ interface TodayWorkoutCardProps {
   planWorkout: PlanWorkout;
   onStart: (workoutData: WorkoutDefinition) => void;
   onAdjust: () => void;
-  onGenerateDetail?: () => void;
 }
 
 function estimateDuration(pw: PlanWorkout): string | null {
@@ -38,10 +37,9 @@ function getIntensityTag(label: string | null): { text: string; color: string } 
   return null;
 }
 
-export function TodayWorkoutCard({ planWorkout, onStart, onAdjust, onGenerateDetail }: TodayWorkoutCardProps) {
+export function TodayWorkoutCard({ planWorkout, onStart, onAdjust }: TodayWorkoutCardProps) {
   const isRest = planWorkout.day_label?.toLowerCase().includes('rest');
   const isCompleted = planWorkout.status === 'completed';
-  const isSkipped = planWorkout.status === 'skipped';
   const workoutData = planWorkout.workout_data as WorkoutDefinition | null;
   const duration = estimateDuration(planWorkout);
   const intensity = getIntensityTag(planWorkout.day_label);
@@ -70,18 +68,6 @@ export function TodayWorkoutCard({ planWorkout, onStart, onAdjust, onGenerateDet
         </View>
         <Text style={styles.title}>{planWorkout.day_label || 'Workout'}</Text>
         <Text style={styles.description}>Great work! You crushed today's session.</Text>
-      </View>
-    );
-  }
-
-  if (isSkipped) {
-    return (
-      <View style={styles.card}>
-        <View style={styles.labelRow}>
-          <Text style={styles.labelBadge}>TODAY'S WORKOUT</Text>
-          <Text style={[styles.statusBadge, { color: Colors.textMuted }]}>Skipped</Text>
-        </View>
-        <Text style={styles.title}>{planWorkout.day_label || 'Workout'}</Text>
       </View>
     );
   }
@@ -134,14 +120,12 @@ export function TodayWorkoutCard({ planWorkout, onStart, onAdjust, onGenerateDet
           </TouchableOpacity>
         </>
       ) : (
-        <TouchableOpacity
-          style={styles.generateBtn}
-          onPress={onGenerateDetail}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="sparkles-outline" size={16} color={Colors.black} />
-          <Text style={styles.generateBtnText}>Generate Workout Details</Text>
-        </TouchableOpacity>
+        <View style={styles.pendingRow}>
+          <Ionicons name="sparkles-outline" size={14} color={Colors.accent} />
+          <Text style={styles.pendingText}>
+            Your AI coach is preparing today's workout details…
+          </Text>
+        </View>
       )}
     </View>
   );
@@ -229,18 +213,16 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: '600',
   },
-  generateBtn: {
+  pendingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.accent,
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.sm + 4,
     gap: Spacing.xs,
+    paddingVertical: Spacing.sm,
   },
-  generateBtnText: {
-    color: Colors.black,
-    fontSize: FontSize.sm,
-    fontWeight: '700',
+  pendingText: {
+    flex: 1,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontStyle: 'italic',
   },
 });
