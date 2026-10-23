@@ -30,10 +30,15 @@ import { MoveWorkoutModal } from '../../../src/components/MoveWorkoutModal';
 import { DayDetail } from '../../../src/components/DayDetail';
 import { derivePhases } from '../../../src/components/TrainingPhases';
 import { WorkoutDefinition, generateId } from '../../../src/workout/workoutTypes';
-import { saveWorkout } from '../../../src/workout/workoutStorage';
+import { saveWorkout, loadHistory } from '../../../src/workout/workoutStorage';
 import { WorkoutPickerModal } from '../../../src/components/WorkoutPickerModal';
+import { VoiceWorkoutSheet } from '../../../src/components/VoiceWorkoutSheet';
 import { addWorkoutToCalendar, generateWorkoutDetails } from '../../../src/ai/planService';
 import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
+import { useSubscription } from '../../../src/contexts/SubscriptionContext';
+import { supabase } from '../../../src/analytics/supabaseClient';
+import { buildHistorySummary } from '../../../src/ai/historySummary';
+import type { AIContext } from '../../../src/ai/aiWorkoutService';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -65,6 +70,7 @@ function formatRaceLabel(raceType: string): string {
 export default function TrainingScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { canUseAI } = useSubscription();
   const { plans, archivedPlans, plan, planWorkouts, dayEntries, loading, refresh, ensurePlan, skipWorkout, unskipWorkout, removeWorkout, moveWorkout } = useTrainingPlan();
 
   const racePlans = useMemo(
@@ -80,6 +86,8 @@ export default function TrainingScreen() {
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>('month');
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [pickerDate, setPickerDate] = useState<string | null>(null);
+  const [voiceDate, setVoiceDate] = useState<string | null>(null);
+  const [aiContext, setAiContext] = useState<AIContext | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ id: string; date: string; label: string } | null>(null);
   const [heroCollapsed, setHeroCollapsed] = useState(false);
   const [weekExpanded, setWeekExpanded] = useState(false);
@@ -206,9 +214,47 @@ export default function TrainingScreen() {
     await refresh();
   }, [planWorkouts, plans, refresh]);
 
+  // Load AI context for voice builder (lazy — only when needed)
+  const loadAiContext = useCallback(async () => {
+    if (aiContext || !user) return;
+    try {
+      const [{ data: profile }, { data: prefs }, history] = await Promise.all([
+        supabase.from('running_profiles').select('*').eq('user_id', user.id).single(),
+        supabase.from('running_preferences').select('content, category').eq('user_id', user.id),
+        loadHistory(),
+      ]);
+      setAiContext({
+        experienceLevel: profile?.experience_level,
+        typicalRunMinutes: profile?.typical_run_minutes,
+        easyPace: profile?.easy_pace,
+        fastPace: profile?.fast_pace,
+        goals: (prefs ?? []).filter((p: any) => p.category === 'goal').map((p: any) => p.content),
+        preferences: (prefs ?? []).filter((p: any) => p.category === 'preference').map((p: any) => p.content),
+        historySummary: buildHistorySummary(history),
+      });
+    } catch (err) {
+      console.warn('Failed to load AI context:', err);
+    }
+  }, [aiContext, user]);
+
   const handleAddWorkout = useCallback((date: string) => {
     setPickerDate(date);
   }, []);
+
+  const handleOpenVoiceBuilder = useCallback(() => {
+    const date = pickerDate ?? selectedDate;
+    setPickerDate(null);
+    setVoiceDate(date);
+    loadAiContext();
+  }, [pickerDate, selectedDate, loadAiContext]);
+
+  const handleVoiceWorkoutAccepted = useCallback(async (workout: WorkoutDefinition) => {
+    if (!user || !voiceDate) return;
+    setVoiceDate(null);
+    const activePlan = await ensurePlan();
+    await addWorkoutToCalendar(activePlan.id, user.id, voiceDate, workout, activePlan.start_date);
+    await refresh();
+  }, [user, voiceDate, ensurePlan, refresh]);
 
   const handleCreateNewForPlan = useCallback(() => {
     const date = pickerDate;
@@ -537,7 +583,17 @@ export default function TrainingScreen() {
         date={pickerDate ?? selectedDate}
         onSelect={handleWorkoutPicked}
         onCreateNew={handleCreateNewForPlan}
+        onVoiceBuilder={user && canUseAI ? handleOpenVoiceBuilder : undefined}
         onClose={() => setPickerDate(null)}
+      />
+
+      {/* Voice workout builder */}
+      <VoiceWorkoutSheet
+        visible={voiceDate !== null}
+        date={voiceDate ?? selectedDate}
+        aiContext={aiContext}
+        onAccept={handleVoiceWorkoutAccepted}
+        onClose={() => setVoiceDate(null)}
       />
 
       {/* Move workout modal */}

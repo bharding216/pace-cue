@@ -30,6 +30,7 @@ import { loadHistory } from '../../../src/workout/workoutStorage';
 import { buildHistorySummary, serializeHistorySummary } from '../../../src/ai/historySummary';
 import type { RaceType, RunningProfile, RunningPreference } from '../../../src/types/database';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
+import { ProfileSheet } from '../../../src/components/ProfileSheet';
 
 const DRAFT_KEY = 'plan-setup-draft';
 
@@ -124,6 +125,8 @@ export default function PlanSetupScreen() {
   const totalSteps = 4;
 
   const [raceType, setRaceType] = useState<RaceType>('half_marathon');
+  const [customDistance, setCustomDistance] = useState('');
+  const [customDistanceUnit, setCustomDistanceUnit] = useState<'mi' | 'km'>('mi');
   const [raceDate, setRaceDate] = useState(() => {
     const d = new Date();
     d.setMonth(d.getMonth() + 4);
@@ -132,7 +135,7 @@ export default function PlanSetupScreen() {
   const [showRaceDatePicker, setShowRaceDatePicker] = useState(false);
   const [goalTimeHours, setGoalTimeHours] = useState('');
   const [goalTimeMinutes, setGoalTimeMinutes] = useState('');
-  const [daysPerWeek, setDaysPerWeek] = useState(4);
+  const [selectedDays, setSelectedDays] = useState<Set<number>>(new Set([4]));
   const [startDate, setStartDate] = useState(getNextMonday());
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
 
@@ -142,6 +145,7 @@ export default function PlanSetupScreen() {
   const [preferences, setPreferences] = useState<string[]>([]);
   const [limitations, setLimitations] = useState<string[]>([]);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [profileSheetVisible, setProfileSheetVisible] = useState(false);
 
   const [genPhase, setGenPhase] = useState<GenPhase>('idle');
   const [genElapsed, setGenElapsed] = useState(0);
@@ -163,10 +167,12 @@ export default function PlanSetupScreen() {
         if (!raw) { draftLoaded.current = true; return; }
         const draft = JSON.parse(raw);
         if (draft.raceType) setRaceType(draft.raceType);
+        if (draft.customDistance != null) setCustomDistance(draft.customDistance);
+        if (draft.customDistanceUnit) setCustomDistanceUnit(draft.customDistanceUnit);
         if (draft.raceDate) setRaceDate(new Date(draft.raceDate));
         if (draft.goalTimeHours != null) setGoalTimeHours(draft.goalTimeHours);
         if (draft.goalTimeMinutes != null) setGoalTimeMinutes(draft.goalTimeMinutes);
-        if (draft.daysPerWeek) setDaysPerWeek(draft.daysPerWeek);
+        if (draft.selectedDays?.length) setSelectedDays(new Set(draft.selectedDays));
         if (draft.startDate) setStartDate(new Date(draft.startDate));
       } catch {}
       draftLoaded.current = true;
@@ -226,56 +232,58 @@ export default function PlanSetupScreen() {
     const timer = setTimeout(() => {
       AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({
         raceType,
+        customDistance,
+        customDistanceUnit,
         raceDate: raceDate.toISOString(),
         goalTimeHours,
         goalTimeMinutes,
-        daysPerWeek,
+        selectedDays: [...selectedDays],
         startDate: startDate.toISOString(),
       })).catch(() => {});
     }, 300);
     return () => clearTimeout(timer);
-  }, [raceType, raceDate, goalTimeHours, goalTimeMinutes, daysPerWeek, startDate]);
+  }, [raceType, customDistance, customDistanceUnit, raceDate, goalTimeHours, goalTimeMinutes, selectedDays, startDate]);
 
   // Load running profile
-  useEffect(() => {
+  const fetchProfile = useCallback(async () => {
     if (!user) {
       setProfileLoading(false);
       return;
     }
 
-    (async () => {
-      const [{ data: profileData }, { data: prefData }] = await Promise.all([
-        supabase
-          .from('running_profiles')
-          .select('*')
-          .eq('user_id', user.id)
-          .maybeSingle(),
-        supabase
-          .from('running_preferences')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at'),
-      ]);
+    const [{ data: profileData }, { data: prefData }] = await Promise.all([
+      supabase
+        .from('running_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle(),
+      supabase
+        .from('running_preferences')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at'),
+    ]);
 
-      setProfile(profileData);
-      setGoals(
-        (prefData ?? [])
-          .filter((p: RunningPreference) => p.category === 'goal')
-          .map((p: RunningPreference) => p.content)
-      );
-      setPreferences(
-        (prefData ?? [])
-          .filter((p: RunningPreference) => p.category === 'preference')
-          .map((p: RunningPreference) => p.content)
-      );
-      setLimitations(
-        (prefData ?? [])
-          .filter((p: RunningPreference) => p.category === 'limitation')
-          .map((p: RunningPreference) => p.content)
-      );
-      setProfileLoading(false);
-    })();
-  }, [user?.id]);
+    setProfile(profileData);
+    setGoals(
+      (prefData ?? [])
+        .filter((p: RunningPreference) => p.category === 'goal')
+        .map((p: RunningPreference) => p.content)
+    );
+    setPreferences(
+      (prefData ?? [])
+        .filter((p: RunningPreference) => p.category === 'preference')
+        .map((p: RunningPreference) => p.content)
+    );
+    setLimitations(
+      (prefData ?? [])
+        .filter((p: RunningPreference) => p.category === 'limitation')
+        .map((p: RunningPreference) => p.content)
+    );
+    setProfileLoading(false);
+  }, [user]);
+
+  useEffect(() => { fetchProfile(); }, [fetchProfile]);
 
   const handleGenerate = useCallback(async () => {
     if (!user) {
@@ -288,8 +296,20 @@ export default function PlanSetupScreen() {
       return;
     }
 
+    if (raceType === 'custom') {
+      const dist = parseFloat(customDistance);
+      if (!dist || dist <= 0) {
+        Alert.alert('Missing Distance', 'Please enter a custom race distance.');
+        return;
+      }
+    }
+
     const goalTimeTotal =
       (parseInt(goalTimeHours || '0', 10) * 60) + parseInt(goalTimeMinutes || '0', 10);
+
+    const customDistanceMeters = raceType === 'custom'
+      ? Math.round(parseFloat(customDistance || '0') * (customDistanceUnit === 'km' ? 1000 : 1609.344))
+      : undefined;
 
     const raceDateStr = `${raceDate.getFullYear()}-${String(raceDate.getMonth() + 1).padStart(2, '0')}-${String(raceDate.getDate()).padStart(2, '0')}`;
     const startDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
@@ -335,10 +355,12 @@ export default function PlanSetupScreen() {
         preferences,
         limitations,
         raceType,
+        customDistanceMeters,
         raceDate: raceDateStr,
         goalTimeMinutes: goalTimeTotal > 0 ? goalTimeTotal : null,
         startDate: startDateStr,
-        daysPerWeek,
+        daysPerWeek: Math.max(...selectedDays),
+        daysPerWeekMin: selectedDays.size > 1 ? Math.min(...selectedDays) : undefined,
         historySummary: summary,
         useEffortBased: !hasPaceData,
       };
@@ -382,7 +404,7 @@ export default function PlanSetupScreen() {
         Alert.alert('Error', err.message || 'Failed to generate plan. Please try again.');
       }
     }
-  }, [user, raceType, raceDate, goalTimeHours, goalTimeMinutes, daysPerWeek, startDate, profile, goals, preferences, refresh, router]);
+  }, [user, canGeneratePlan, raceType, customDistance, customDistanceUnit, raceDate, goalTimeHours, goalTimeMinutes, selectedDays, startDate, profile, goals, preferences, limitations, refresh, router]);
 
   if (!user) {
     return (
@@ -584,8 +606,42 @@ export default function PlanSetupScreen() {
               </TouchableOpacity>
             ))}
           </View>
+
+          {raceType === 'custom' && (
+            <View style={styles.customDistanceSection}>
+              <Text style={styles.customDistanceLabel}>Race Distance</Text>
+              <View style={styles.customDistanceRow}>
+                <TextInput
+                  style={styles.customDistanceField}
+                  value={customDistance}
+                  onChangeText={setCustomDistance}
+                  placeholder="e.g. 15"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="decimal-pad"
+                  maxLength={6}
+                />
+                <View style={styles.unitToggle}>
+                  <TouchableOpacity
+                    style={[styles.unitBtn, customDistanceUnit === 'mi' && styles.unitBtnActive]}
+                    onPress={() => setCustomDistanceUnit('mi')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.unitBtnText, customDistanceUnit === 'mi' && styles.unitBtnTextActive]}>mi</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.unitBtn, customDistanceUnit === 'km' && styles.unitBtnActive]}
+                    onPress={() => setCustomDistanceUnit('km')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.unitBtnText, customDistanceUnit === 'km' && styles.unitBtnTextActive]}>km</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
+
           <TouchableOpacity
-            style={styles.continueBtn}
+            style={[styles.continueBtn, { marginTop: Spacing.lg }]}
             onPress={() => setStep(2)}
             activeOpacity={0.8}
           >
@@ -599,9 +655,8 @@ export default function PlanSetupScreen() {
       {step === 2 && (
         <View>
           {/* Race date */}
-          {raceType !== 'custom' && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Race Date</Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Race Date</Text>
               {Platform.OS === 'ios' ? (
                 <View style={styles.datePickerRow}>
                   <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
@@ -633,11 +688,10 @@ export default function PlanSetupScreen() {
                 </>
               )}
             </View>
-          )}
 
           {/* Start date */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Start Date</Text>
+            <Text style={styles.sectionTitle}>Training Start Date</Text>
             {Platform.OS === 'ios' ? (
               <View style={styles.datePickerRow}>
                 <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
@@ -670,38 +724,36 @@ export default function PlanSetupScreen() {
             )}
           </View>
 
-          {/* Goal time (skip for custom/general) */}
-          {raceType !== 'custom' && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Goal Time (optional)</Text>
-              <View style={styles.goalTimeRow}>
-                <View style={styles.goalTimeInput}>
-                  <TextInput
-                    style={styles.goalTimeField}
-                    value={goalTimeHours}
-                    onChangeText={setGoalTimeHours}
-                    placeholder="0"
-                    placeholderTextColor={Colors.textMuted}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                  />
-                  <Text style={styles.goalTimeLabel}>hours</Text>
-                </View>
-                <View style={styles.goalTimeInput}>
-                  <TextInput
-                    style={styles.goalTimeField}
-                    value={goalTimeMinutes}
-                    onChangeText={setGoalTimeMinutes}
-                    placeholder="0"
-                    placeholderTextColor={Colors.textMuted}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                  />
-                  <Text style={styles.goalTimeLabel}>min</Text>
-                </View>
+          {/* Goal time */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Race Goal Time (optional)</Text>
+            <View style={styles.goalTimeRow}>
+              <View style={styles.goalTimeInput}>
+                <TextInput
+                  style={styles.goalTimeField}
+                  value={goalTimeHours}
+                  onChangeText={setGoalTimeHours}
+                  placeholder="0"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                />
+                <Text style={styles.goalTimeLabel}>hours</Text>
+              </View>
+              <View style={styles.goalTimeInput}>
+                <TextInput
+                  style={styles.goalTimeField}
+                  value={goalTimeMinutes}
+                  onChangeText={setGoalTimeMinutes}
+                  placeholder="0"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                />
+                <Text style={styles.goalTimeLabel}>min</Text>
               </View>
             </View>
-          )}
+          </View>
 
           <View style={styles.stepNavRow}>
             <TouchableOpacity style={styles.backBtn} onPress={() => setStep(1)} activeOpacity={0.7}>
@@ -722,18 +774,29 @@ export default function PlanSetupScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Training Days per Week</Text>
             <View style={styles.chipRow}>
-              {DAYS_PER_WEEK_OPTIONS.map((n) => (
-                <TouchableOpacity
-                  key={n}
-                  style={[styles.dayChip, daysPerWeek === n && styles.dayChipActive]}
-                  onPress={() => setDaysPerWeek(n)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.dayChipText, daysPerWeek === n && styles.dayChipTextActive]}>
-                    {n}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {DAYS_PER_WEEK_OPTIONS.map((n) => {
+                const isSelected = selectedDays.has(n);
+                return (
+                  <TouchableOpacity
+                    key={n}
+                    style={[styles.dayChip, isSelected && styles.dayChipActive]}
+                    onPress={() => {
+                      const next = new Set(selectedDays);
+                      if (next.has(n) && next.size > 1) {
+                        next.delete(n);
+                      } else {
+                        next.add(n);
+                      }
+                      setSelectedDays(next);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.dayChipText, isSelected && styles.dayChipTextActive]}>
+                      {n}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
 
@@ -755,10 +818,44 @@ export default function PlanSetupScreen() {
         <View>
           <Text style={styles.sectionTitle}>Review & Generate</Text>
 
-          {/* Profile summary */}
+          {/* Review summary */}
+          <View style={styles.reviewCard}>
+            <View style={styles.reviewRow}>
+              <Text style={styles.reviewLabel}>Race</Text>
+              <Text style={styles.reviewValue}>
+                {raceType === 'custom' && customDistance
+                  ? `${customDistance} ${customDistanceUnit}`
+                  : RACE_OPTIONS.find((o) => o.value === raceType)?.label}
+              </Text>
+            </View>
+            <View style={styles.reviewRow}>
+              <Text style={styles.reviewLabel}>Race Date</Text>
+              <Text style={styles.reviewValue}>{formatDateShort(raceDate)}</Text>
+            </View>
+            <View style={styles.reviewRow}>
+              <Text style={styles.reviewLabel}>Start Date</Text>
+              <Text style={styles.reviewValue}>{formatDateShort(startDate)}</Text>
+            </View>
+            <View style={styles.reviewRow}>
+              <Text style={styles.reviewLabel}>Days / Week</Text>
+              <Text style={styles.reviewValue}>
+                {[...selectedDays].sort((a, b) => a - b).join(', ')}
+              </Text>
+            </View>
+            {(goalTimeHours || goalTimeMinutes) && (
+              <View style={styles.reviewRow}>
+                <Text style={styles.reviewLabel}>Goal Time</Text>
+                <Text style={styles.reviewValue}>
+                  {goalTimeHours ? `${goalTimeHours}h ` : ''}{goalTimeMinutes || '0'}m
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Profile summary — opens sheet on tap */}
           <TouchableOpacity
             style={styles.profileCard}
-            onPress={() => router.push('/(tabs)/training/profile' as any)}
+            onPress={() => setProfileSheetVisible(true)}
             activeOpacity={0.7}
           >
             <Ionicons name="person-circle-outline" size={28} color={Colors.textSecondary} />
@@ -798,46 +895,31 @@ export default function PlanSetupScreen() {
             </View>
           )}
 
-          {/* Review summary */}
-          <View style={styles.reviewCard}>
-            <View style={styles.reviewRow}>
-              <Text style={styles.reviewLabel}>Race</Text>
-              <Text style={styles.reviewValue}>{RACE_OPTIONS.find((o) => o.value === raceType)?.label}</Text>
-            </View>
-            {raceType !== 'custom' && (
-              <View style={styles.reviewRow}>
-                <Text style={styles.reviewLabel}>Race Date</Text>
-                <Text style={styles.reviewValue}>{formatDateShort(raceDate)}</Text>
-              </View>
-            )}
-            <View style={styles.reviewRow}>
-              <Text style={styles.reviewLabel}>Start Date</Text>
-              <Text style={styles.reviewValue}>{formatDateShort(startDate)}</Text>
-            </View>
-            <View style={styles.reviewRow}>
-              <Text style={styles.reviewLabel}>Days / Week</Text>
-              <Text style={styles.reviewValue}>{daysPerWeek}</Text>
-            </View>
-            {(goalTimeHours || goalTimeMinutes) && (
-              <View style={styles.reviewRow}>
-                <Text style={styles.reviewLabel}>Goal Time</Text>
-                <Text style={styles.reviewValue}>
-                  {goalTimeHours ? `${goalTimeHours}h ` : ''}{goalTimeMinutes || '0'}m
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {/* Pro gate */}
+          {/* Pro gate — value prop */}
           {!canGeneratePlan && (
             <View style={styles.proGateCard}>
-              <Ionicons name="lock-closed" size={18} color={Colors.accent} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.proGateTitle}>PaceCue Pro Required</Text>
-                <Text style={styles.proGateDesc}>
-                  You've used your free plan. Upgrade to Pro for unlimited AI training plans that adapt to your progress.
-                </Text>
+              <View style={styles.proGateHeader}>
+                <Ionicons name="sparkles" size={20} color={Colors.accent} />
+                <Text style={styles.proGateTitle}>AI-Powered Training</Text>
               </View>
+              <Text style={styles.proGateDesc}>
+                Your plan is built by AI using your profile, pace data, and race goals — then adapts week-by-week based on how your workouts actually go.
+              </Text>
+              <View style={styles.proGateFeatures}>
+                {[
+                  { icon: 'analytics-outline' as const, text: 'Personalized to your fitness level' },
+                  { icon: 'sync-outline' as const, text: 'Adjusts based on workout performance' },
+                  { icon: 'calendar-outline' as const, text: 'Periodized plan through race day' },
+                ].map((f) => (
+                  <View key={f.text} style={styles.proGateFeatureRow}>
+                    <Ionicons name={f.icon} size={16} color={Colors.accent} />
+                    <Text style={styles.proGateFeatureText}>{f.text}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.proGateFooter}>
+                You've used your free plan — upgrade to Pro for unlimited AI plans.
+              </Text>
             </View>
           )}
 
@@ -858,6 +940,18 @@ export default function PlanSetupScreen() {
             </TouchableOpacity>
           </View>
         </View>
+      )}
+
+      {/* Profile editing sheet */}
+      {user && (
+        <ProfileSheet
+          visible={profileSheetVisible}
+          userId={user.id}
+          onClose={() => {
+            setProfileSheetVisible(false);
+            fetchProfile();
+          }}
+        />
       )}
     </ScrollView>
   );
@@ -973,6 +1067,56 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
+  // Custom distance
+  customDistanceSection: {
+    marginTop: Spacing.md,
+  },
+  customDistanceLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
+  customDistanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  customDistanceField: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    fontSize: FontSize.lg,
+    color: Colors.textPrimary,
+    fontVariant: ['tabular-nums'],
+  },
+  unitToggle: {
+    flexDirection: 'row',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    overflow: 'hidden' as const,
+  },
+  unitBtn: {
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md + 4,
+  },
+  unitBtnActive: {
+    backgroundColor: Colors.primary + '20',
+  },
+  unitBtnText: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textMuted,
+  },
+  unitBtnTextActive: {
+    color: Colors.primary,
+  },
+
   // Date buttons
   datePickerRow: {
     flexDirection: 'row',
@@ -1059,7 +1203,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     paddingVertical: Spacing.md,
     gap: Spacing.sm,
-    marginTop: Spacing.md,
+    minHeight: 50,
   },
   generateBtnText: {
     color: Colors.black,
@@ -1109,7 +1253,6 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     paddingVertical: Spacing.md,
     gap: Spacing.sm,
-    marginTop: Spacing.lg,
   },
   continueBtnText: {
     color: Colors.black,
@@ -1130,6 +1273,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
     gap: Spacing.xs,
+    minHeight: 50,
   },
   backBtnText: {
     color: Colors.textSecondary,
@@ -1176,26 +1320,48 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   proGateCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.accent + '15',
+    backgroundColor: Colors.accent + '10',
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     marginBottom: Spacing.md,
-    gap: Spacing.sm,
     borderWidth: 1,
     borderColor: Colors.accent + '30',
   },
+  proGateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
   proGateTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
+    fontSize: FontSize.md,
+    fontWeight: '800',
     color: Colors.accent,
   },
   proGateDesc: {
-    fontSize: FontSize.xs,
+    fontSize: FontSize.sm,
     color: Colors.textSecondary,
-    marginTop: 2,
-    lineHeight: 18,
+    lineHeight: 20,
+    marginBottom: Spacing.md,
+  },
+  proGateFeatures: {
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  proGateFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  proGateFeatureText: {
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    fontWeight: '500',
+  },
+  proGateFooter: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontStyle: 'italic',
   },
 
   // Generation progress overlay

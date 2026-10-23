@@ -48,6 +48,7 @@ interface RequestBody {
   goal_time_minutes?: number | null;
   start_date: string;
   days_per_week: number;
+  days_per_week_min?: number | null;
   history_summary?: string | null;
 }
 
@@ -126,7 +127,10 @@ OUTLINE only — no detailed workout structures. Just day labels and short coach
     const mins = Math.round(body.goal_time_minutes % 60);
     raceParts.push(`Goal: ${hrs > 0 ? `${hrs}h ` : ''}${mins}m`);
   }
-  raceParts.push(`${body.days_per_week} training days/week, start ${body.start_date}`);
+  const daysLabel = body.days_per_week_min && body.days_per_week_min < body.days_per_week
+    ? `${body.days_per_week_min}–${body.days_per_week}`
+    : `${body.days_per_week}`;
+  raceParts.push(`${daysLabel} training days/week, start ${body.start_date}`);
   sections.push(`## Race\n${raceParts.join(" | ")}`);
 
   if (body.goals?.length) {
@@ -169,7 +173,7 @@ Rules:
 - Training day = ["label", "short description"]. Rest day = [null].
 - Labels: Easy Run, Long Run, Tempo, Intervals, Recovery, Fartlek, Race Day, etc.
 - Weeks 1–${dims.totalWeeks > 1 ? dims.totalWeeks - 1 : 1}: exactly 7 entries each.${dims.totalWeeks > 1 ? `\n- Week ${dims.totalWeeks}: exactly ${dims.lastWeekDays} entries. Last entry must be ["Race Day", "Race day! Trust your training."].` : ''}
-- ${body.days_per_week} training days per full week; rest days fill remaining slots.
+- ${daysLabel} training days per full week; rest days fill remaining slots.
 - miles = reasonable weekly mileage for runner's level and phase.
 - Keep descriptions to one short sentence.`);
 

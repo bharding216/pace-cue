@@ -35,10 +35,14 @@ export interface PlanGenerationInput {
   preferences: string[];
   limitations: string[];
   raceType: RaceType;
+  /** For custom races — the distance in meters. */
+  customDistanceMeters?: number;
   raceDate: string;
   goalTimeMinutes?: number | null;
   startDate: string;
   daysPerWeek: number;
+  /** If set, the user prefers a flexible range from daysPerWeekMin to daysPerWeek days. */
+  daysPerWeekMin?: number;
   historySummary?: string | null;
   /** When true, AI should prescribe effort/RPE-based workouts instead of pace targets. */
   useEffortBased?: boolean;
@@ -154,10 +158,12 @@ export async function generatePlanOutline(input: PlanGenerationInput): Promise<P
       preferences: input.preferences,
       limitations: input.limitations,
       race_type: input.raceType,
+      race_distance_meters: input.raceType === 'custom' ? (input.customDistanceMeters ?? null) : getRaceDistanceMeters(input.raceType),
       race_date: input.raceDate,
       goal_time_minutes: input.goalTimeMinutes,
       start_date: input.startDate,
       days_per_week: input.daysPerWeek,
+      days_per_week_min: input.daysPerWeekMin ?? null,
       history_summary: input.historySummary,
       use_effort_based: input.useEffortBased ?? false,
     },
@@ -584,7 +590,7 @@ export async function savePlanOutline(
       user_id: userId,
       title: result.title,
       race_type: input.raceType,
-      race_distance_meters: input.raceType === 'custom' ? null : getRaceDistanceMeters(input.raceType),
+      race_distance_meters: input.raceType === 'custom' ? (input.customDistanceMeters ?? null) : getRaceDistanceMeters(input.raceType),
       race_date: input.raceDate,
       goal_time_minutes: input.goalTimeMinutes ?? null,
       start_date: input.startDate,

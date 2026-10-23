@@ -61,6 +61,9 @@ type SubscriptionContextType = {
   refreshSubscription: () => Promise<void>;
   manageSubscription: () => void;
   incrementAIUsage: (workoutId: string, workoutName: string) => Promise<void>;
+  /** DEV ONLY: override the effective tier without a real subscription. */
+  devOverrideTier: SubscriptionTier | null;
+  setDevOverrideTier: (tier: SubscriptionTier | null) => void;
 };
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(
@@ -80,6 +83,7 @@ export function SubscriptionProvider({
   const [rcInitialized, setRcInitialized] = useState(false);
   const [offerings, setOfferings] = useState<PurchasesOfferings | null>(null);
   const [offeringsLoading, setOfferingsLoading] = useState(true);
+  const [devOverrideTier, setDevOverrideTier] = useState<SubscriptionTier | null>(null);
 
   // ─── Initialize RevenueCat ────────────────────────────────
 
@@ -211,7 +215,10 @@ export function SubscriptionProvider({
 
   // ─── Derived state ────────────────────────────────────────
 
-  const tier = getEffectiveTier(subscription);
+  const tier: SubscriptionTier =
+    __DEV__ && devOverrideTier != null
+      ? devOverrideTier
+      : getEffectiveTier(subscription);
 
   const aiWorkoutsLimit =
     tier === 'free' ? FREE_TIER_AI_WORKOUTS : null;
@@ -320,6 +327,8 @@ export function SubscriptionProvider({
         refreshSubscription,
         manageSubscription,
         incrementAIUsage,
+        devOverrideTier,
+        setDevOverrideTier,
       }}
     >
       {children}

@@ -35,6 +35,7 @@ interface WorkoutPickerModalProps {
   date: string;
   onSelect: (workout: WorkoutDefinition) => void;
   onCreateNew: () => void;
+  onVoiceBuilder?: () => void;
   onClose: () => void;
 }
 
@@ -70,6 +71,7 @@ export function WorkoutPickerModal({
   date,
   onSelect,
   onCreateNew,
+  onVoiceBuilder,
   onClose,
 }: WorkoutPickerModalProps) {
   const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
@@ -219,20 +221,44 @@ export function WorkoutPickerModal({
                 showsVerticalScrollIndicator={false}
                 ListHeaderComponent={
                   !search && !activeCategory ? (
-                    <TouchableOpacity
-                      style={styles.createNewRow}
-                      onPress={onCreateNew}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[styles.workoutIcon, { backgroundColor: Colors.primary + '22' }]}>
-                        <Ionicons name="add" size={20} color={Colors.primary} />
-                      </View>
-                      <View style={styles.workoutInfo}>
-                        <Text style={styles.workoutName}>Create New Workout</Text>
-                        <Text style={styles.workoutMeta}>Build a custom workout from scratch</Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
-                    </TouchableOpacity>
+                    <>
+                      {/* Voice workout builder */}
+                      {onVoiceBuilder && (
+                        <TouchableOpacity
+                          style={styles.voiceBuilderRow}
+                          onPress={onVoiceBuilder}
+                          activeOpacity={0.7}
+                        >
+                          <View style={[styles.workoutIcon, { backgroundColor: Colors.accent + '22' }]}>
+                            <Ionicons name="mic" size={20} color={Colors.accent} />
+                          </View>
+                          <View style={styles.workoutInfo}>
+                            <Text style={styles.workoutName}>Describe with Voice</Text>
+                            <Text style={styles.workoutMeta}>Tell the AI coach what you want</Text>
+                          </View>
+                          <View style={styles.aiBadge}>
+                            <Ionicons name="sparkles" size={12} color={Colors.accent} />
+                            <Text style={styles.aiBadgeText}>AI</Text>
+                          </View>
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Create new manually */}
+                      <TouchableOpacity
+                        style={styles.createNewRow}
+                        onPress={onCreateNew}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[styles.workoutIcon, { backgroundColor: Colors.primary + '22' }]}>
+                          <Ionicons name="add" size={20} color={Colors.primary} />
+                        </View>
+                        <View style={styles.workoutInfo}>
+                          <Text style={styles.workoutName}>Create New Workout</Text>
+                          <Text style={styles.workoutMeta}>Build a custom workout from scratch</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+                      </TouchableOpacity>
+                    </>
                   ) : null
                 }
                 ListEmptyComponent={
@@ -411,6 +437,33 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
+  },
+  voiceBuilderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    gap: Spacing.md,
+    borderWidth: 1.5,
+    borderColor: Colors.accent + '44',
+    borderStyle: 'dashed',
+  },
+  aiBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: Colors.accent + '18',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+  },
+  aiBadgeText: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.accent,
+    letterSpacing: 0.5,
   },
   createNewRow: {
     flexDirection: 'row',

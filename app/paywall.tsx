@@ -26,12 +26,13 @@ import { Colors, Spacing, FontSize, BorderRadius } from '../src/constants/theme'
 const FEATURES_FREE = [
   'Unlimited workouts & intervals',
   'Full pace tracking',
-  '5 AI-built workouts / month',
+  '1 AI training plan',
   'Cloud sync',
 ];
 
 const FEATURES_PRO = [
-  'Unlimited AI workout builder',
+  'Unlimited AI training plans',
+  'Plans adapt to your performance',
   'Unlimited cloud history',
   'Priority support',
 ];
@@ -41,8 +42,7 @@ export default function PaywallScreen() {
   const insets = useSafeAreaInsets();
   const {
     tier,
-    aiWorkoutsUsed,
-    aiWorkoutsLimit,
+    planCount,
     offerings,
     offeringsLoading,
     purchasePackage,
@@ -118,7 +118,7 @@ export default function PaywallScreen() {
           <Ionicons name="checkmark-circle" size={48} color={Colors.primary} />
           <Text style={styles.activeTitle}>You're on PaceCue Pro</Text>
           <Text style={styles.activeSubtitle}>
-            Unlimited AI workouts and all premium features.
+            Unlimited AI training plans and all premium features.
           </Text>
           <TouchableOpacity
             style={styles.doneButton}
@@ -151,7 +151,7 @@ export default function PaywallScreen() {
 
       {/* Header */}
       <Text style={styles.header}>PaceCue Pro</Text>
-      <Text style={styles.headerSub}>AI-powered workouts, unlimited</Text>
+      <Text style={styles.headerSub}>AI training plans that adapt to you</Text>
 
       {/* Plan selector */}
       {!offeringsLoading && (showMonthly || showAnnual) && (
@@ -233,28 +233,23 @@ export default function PaywallScreen() {
       )}
 
       {/* Usage context */}
-      {aiWorkoutsLimit != null && (
+      {tier === 'free' && (
         <View style={styles.usageCard}>
           <Text style={styles.usageText}>
-            AI workouts built: {aiWorkoutsUsed} / {aiWorkoutsLimit}
+            AI training plans created: {planCount} / 1
           </Text>
           <View style={styles.usageBar}>
             <View
               style={[
                 styles.usageBarFill,
-                {
-                  width: `${Math.min(
-                    (aiWorkoutsUsed / aiWorkoutsLimit) * 100,
-                    100,
-                  )}%`,
-                },
-                aiWorkoutsUsed >= aiWorkoutsLimit && styles.usageBarFull,
+                { width: `${Math.min(planCount * 100, 100)}%` },
+                planCount >= 1 && styles.usageBarFull,
               ]}
             />
           </View>
-          {aiWorkoutsUsed >= aiWorkoutsLimit && (
+          {planCount >= 1 && (
             <Text style={styles.usageLimitText}>
-              Monthly limit reached — upgrade for unlimited AI workouts.
+              Free plan used — upgrade for unlimited AI training plans.
             </Text>
           )}
         </View>
@@ -286,11 +281,11 @@ export default function PaywallScreen() {
                 color={Colors.primary}
               />
               <Text style={styles.featureTextPro}>
-                {f.replace('5 AI-built workouts / month', 'Unlimited AI workouts')}
+                {f.replace('1 AI training plan', 'Unlimited AI plans')}
               </Text>
             </View>
           ))}
-          {FEATURES_PRO.filter((f) => f !== 'Unlimited AI workout builder').map(
+          {FEATURES_PRO.filter((f) => f !== 'Unlimited AI training plans').map(
             (f) => (
               <View key={f} style={styles.featureRow}>
                 <Ionicons

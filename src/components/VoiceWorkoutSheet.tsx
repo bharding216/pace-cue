@@ -1,0 +1,861 @@
+/**
+ * VoiceWorkoutSheet — bottom-sheet modal for voice-driven workout generation.
+ *
+ * Flow:
+ *   1. User taps the mic → records voice describing their desired workout
+ *   2. Recording is transcribed via Whisper
+ *   3. Transcription is sent to the generate-workout edge function
+ *   4. Proposed workout is shown with Accept / Edit actions
+ *   5. User can apply directly or open WorkoutEditorForm to tweak first
+ */
+
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Modal,
+  ActivityIndicator,
+  ScrollView,
+  Alert,
+  Animated,
+} from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import {
+  useAudioRecorder,
+  AudioModule,
+  RecordingPresets,
+  setAudioModeAsync,
+  useAudioRecorderState,
+} from 'expo-audio';
+import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../constants/theme';
+import { transcribeAudio } from '../ai/transcriptionService';
+import {
+  generateWorkout,
+  AIContext,
+  ChatMessage,
+} from '../ai/aiWorkoutService';
+import {
+  WorkoutDefinition,
+  WorkoutRepeatBlock,
+  WorkoutInterval,
+  flattenWorkout,
+  formatTime,
+  totalWorkoutSeconds,
+} from '../workout/workoutTypes';
+import { WorkoutEditorForm } from './WorkoutEditorForm';
+import { hapticTap } from '../audio/haptics';
+
+// ── Types ────────────────────────────────────────────────────
+
+interface Props {
+  visible: boolean;
+  date: string;
+  aiContext: AIContext | null;
+  onAccept: (workout: WorkoutDefinition) => void;
+  onClose: () => void;
+}
+
+type Phase =
+  | 'idle'
+  | 'recording'
+  | 'transcribing'
+  | 'generating'
+  | 'review'
+  | 'editing';
+
+// ── Sound Bars ───────────────────────────────────────────────
+
+const BAR_COUNT = 7;
+
+function meterToLevel(db: number | undefined): number {
+  if (db === undefined || db <= -50) return 0;
+  if (db >= 0) return 1;
+  return (db + 50) / 50;
+}
+
+function SoundBars({ metering, isActive }: { metering?: number; isActive: boolean }) {
+  const anims = useRef(
+    Array.from({ length: BAR_COUNT }, () => new Animated.Value(0.15)),
+  ).current;
+  const hasMetering = metering !== undefined && metering > -160;
+  const level = meterToLevel(metering);
+
+  useEffect(() => {
+    if (!hasMetering) return;
+    anims.forEach((anim, i) => {
+      const offset = Math.sin(Date.now() / 200 + i * 1.5) * 0.18;
+      const target = Math.max(0.1, Math.min(1, level + offset));
+      Animated.timing(anim, {
+        toValue: target,
+        duration: 100,
+        useNativeDriver: false,
+      }).start();
+    });
+  }, [level, hasMetering, anims]);
+
+  useEffect(() => {
+    if (hasMetering || !isActive) return;
+    const timers = anims.map((anim, i) => {
+      const animate = (): void => {
+        const duration = 180 + Math.random() * 280;
+        const target = 0.2 + Math.random() * 0.8;
+        Animated.timing(anim, {
+          toValue: target,
+          duration,
+          useNativeDriver: false,
+        }).start(() => {
+          if (isActive) animate();
+        });
+      };
+      return setTimeout(() => animate(), i * 60);
+    });
+    return () => {
+      timers.forEach(clearTimeout);
+      anims.forEach((a) => a.stopAnimation());
+      anims.forEach((a) => a.setValue(0.15));
+    };
+  }, [isActive, hasMetering, anims]);
+
+  return (
+    <View style={barStyles.container}>
+      {anims.map((anim, i) => (
+        <Animated.View
+          key={i}
+          style={[
+            barStyles.bar,
+            {
+              height: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [4, 28],
+              }),
+              backgroundColor: Colors.accent,
+              opacity: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.4, 1],
+              }),
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+const barStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 32,
+    gap: 3,
+  },
+  bar: {
+    width: 4,
+    borderRadius: 2,
+  },
+});
+
+// ── Workout Preview Card ─────────────────────────────────────
+
+function intervalLabel(i: WorkoutInterval): string {
+  if (i.label) return i.label;
+  switch (i.type) {
+    case 'warmup': return 'Warm Up';
+    case 'cooldown': return 'Cool Down';
+    case 'hard': return 'Hard';
+    case 'easy': return 'Easy';
+  }
+}
+
+function SectionPreview({ label, blocks }: { label: string; blocks: WorkoutRepeatBlock[] }) {
+  if (blocks.length === 0) return null;
+  return (
+    <View style={prevStyles.section}>
+      <Text style={prevStyles.sectionLabel}>{label}</Text>
+      {blocks.map((block, bi) => (
+        <View key={bi} style={prevStyles.block}>
+          {(block.repeatCount > 1 || block.name) && (
+            <View style={prevStyles.blockHeader}>
+              {block.name && <Text style={prevStyles.blockName}>{block.name}</Text>}
+              {block.repeatCount > 1 && (
+                <View style={prevStyles.repeatBadge}>
+                  <Text style={prevStyles.repeatText}>×{block.repeatCount}</Text>
+                </View>
+              )}
+            </View>
+          )}
+          {block.intervals.map((interval, ii) => (
+            <View key={ii} style={prevStyles.intervalRow}>
+              <View style={[prevStyles.dot, { backgroundColor: intervalColor(interval.type) }]} />
+              <Text style={prevStyles.intervalName} numberOfLines={1}>
+                {intervalLabel(interval)}
+              </Text>
+              <Text style={prevStyles.intervalDuration}>
+                {formatTime(interval.durationSeconds)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const prevStyles = StyleSheet.create({
+  section: { marginTop: Spacing.sm },
+  sectionLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.textMuted,
+    letterSpacing: 1,
+    marginBottom: Spacing.xs,
+  },
+  block: {
+    backgroundColor: Colors.background + '80',
+    borderRadius: BorderRadius.sm,
+    padding: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  blockHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  blockName: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  repeatBadge: {
+    backgroundColor: Colors.primary + '22',
+    paddingHorizontal: Spacing.xs + 2,
+    paddingVertical: 1,
+    borderRadius: BorderRadius.sm,
+  },
+  repeatText: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  intervalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 3,
+    gap: Spacing.sm,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  intervalName: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    fontWeight: '500',
+  },
+  intervalDuration: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    fontVariant: ['tabular-nums'],
+  },
+});
+
+// ── Main Component ──────────────────────────────────────────
+
+export function VoiceWorkoutSheet({
+  visible,
+  date,
+  aiContext,
+  onAccept,
+  onClose,
+}: Props) {
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [transcription, setTranscription] = useState('');
+  const [aiMessage, setAiMessage] = useState('');
+  const [proposedWorkout, setProposedWorkout] = useState<WorkoutDefinition | null>(null);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder, 100);
+
+  // Request mic permission on mount
+  useEffect(() => {
+    if (!visible) return;
+    (async () => {
+      try {
+        const result = await AudioModule.requestRecordingPermissionsAsync();
+        setHasPermission(result.granted);
+      } catch {
+        setHasPermission(false);
+      }
+    })();
+  }, [visible]);
+
+  // Reset state when sheet opens
+  useEffect(() => {
+    if (visible) {
+      setPhase('idle');
+      setTranscription('');
+      setAiMessage('');
+      setProposedWorkout(null);
+    }
+  }, [visible]);
+
+  const startRecording = useCallback(async () => {
+    if (hasPermission === false) {
+      Alert.alert(
+        'Microphone Access',
+        'PaceCue needs microphone access for voice input. Enable it in Settings.',
+      );
+      return;
+    }
+    try {
+      await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setPhase('recording');
+    } catch (err) {
+      console.error('Failed to start recording:', err);
+      Alert.alert('Recording Error', 'Could not start recording. Please try again.');
+    }
+  }, [hasPermission, recorder]);
+
+  const stopAndProcess = useCallback(async () => {
+    if (phase !== 'recording') return;
+
+    try {
+      await recorder.stop();
+      setPhase('transcribing');
+
+      const uri = recorder.uri;
+      if (!uri) {
+        setPhase('idle');
+        return;
+      }
+
+      const result = await transcribeAudio(uri, 'audio/m4a');
+      const text = result.text.trim();
+
+      if (!text) {
+        Alert.alert('No Speech Detected', 'Please try again and speak clearly.');
+        setPhase('idle');
+        return;
+      }
+
+      setTranscription(text);
+      setPhase('generating');
+
+      const context: AIContext = aiContext ?? { goals: [], preferences: [] };
+      const response = await generateWorkout(text, context, []);
+
+      setAiMessage(response.message);
+      setProposedWorkout(response.workout);
+      setPhase('review');
+    } catch (err: any) {
+      console.error('Voice workout generation failed:', err);
+      Alert.alert(
+        'Generation Failed',
+        err.message || 'Something went wrong. Please try again.',
+      );
+      setPhase('idle');
+    }
+  }, [phase, recorder, aiContext]);
+
+  const handleMicPress = useCallback(() => {
+    hapticTap();
+    if (phase === 'recording') {
+      stopAndProcess();
+    } else if (phase === 'idle' || phase === 'review') {
+      setProposedWorkout(null);
+      setAiMessage('');
+      setTranscription('');
+      startRecording();
+    }
+  }, [phase, startRecording, stopAndProcess]);
+
+  const handleAccept = useCallback(() => {
+    if (!proposedWorkout) return;
+    hapticTap();
+    onAccept(proposedWorkout);
+  }, [proposedWorkout, onAccept]);
+
+  const handleEdit = useCallback(() => {
+    hapticTap();
+    setPhase('editing');
+  }, []);
+
+  const handleEditSave = useCallback(
+    (updated: WorkoutDefinition) => {
+      onAccept(updated);
+    },
+    [onAccept],
+  );
+
+  const handleClose = useCallback(() => {
+    if (phase === 'recording') {
+      recorder.stop().catch(() => {});
+    }
+    onClose();
+  }, [phase, recorder, onClose]);
+
+  const metering = phase === 'recording' ? recorderState.metering : undefined;
+  const flat = proposedWorkout ? flattenWorkout(proposedWorkout) : [];
+  const totalSecs = proposedWorkout ? totalWorkoutSeconds(proposedWorkout) : 0;
+
+  const dateLabel = (() => {
+    const d = new Date(date + 'T12:00:00');
+    return d.toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    });
+  })();
+
+  // Editor modal (full-screen)
+  if (phase === 'editing' && proposedWorkout) {
+    return (
+      <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.editorContainer}>
+          <View style={styles.editorHeader}>
+            <Text style={styles.editorTitle}>Edit Workout</Text>
+            <TouchableOpacity
+              onPress={() => setPhase('review')}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="close" size={24} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <WorkoutEditorForm
+            initial={proposedWorkout}
+            onSave={handleEditSave}
+            onCancel={() => setPhase('review')}
+          />
+        </View>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={handleClose}
+    >
+      <View style={styles.overlay}>
+        <TouchableOpacity style={styles.backdrop} onPress={handleClose} activeOpacity={1} />
+        <View style={styles.sheet}>
+          <View style={styles.handleRow}>
+            <View style={styles.handle} />
+          </View>
+
+          {/* Header */}
+          <View style={styles.header}>
+            <View>
+              <View style={styles.headerTitleRow}>
+                <Ionicons name="sparkles" size={18} color={Colors.accent} />
+                <Text style={styles.headerTitle}>Voice Workout Builder</Text>
+              </View>
+              <Text style={styles.headerDate}>{dateLabel}</Text>
+            </View>
+            <TouchableOpacity onPress={handleClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close" size={24} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.scrollArea}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* ── Idle / Recording states ── */}
+            {(phase === 'idle' || phase === 'recording') && (
+              <View style={styles.voiceSection}>
+                <TouchableOpacity
+                  style={[
+                    styles.micButton,
+                    phase === 'recording' && styles.micButtonActive,
+                  ]}
+                  onPress={handleMicPress}
+                  activeOpacity={0.8}
+                >
+                  {phase === 'recording' ? (
+                    <View style={styles.recordingContent}>
+                      <SoundBars metering={metering} isActive />
+                      <View style={styles.stopIcon}>
+                        <Ionicons name="stop" size={14} color={Colors.danger} />
+                      </View>
+                    </View>
+                  ) : (
+                    <Ionicons name="mic" size={36} color={Colors.accent} />
+                  )}
+                </TouchableOpacity>
+
+                <Text style={styles.voiceLabel}>
+                  {phase === 'recording'
+                    ? 'Listening… tap to stop'
+                    : 'Describe the workout you want'}
+                </Text>
+                <Text style={styles.voiceHint}>
+                  {phase === 'recording'
+                    ? '"30 minute tempo run with warm up and cool down"'
+                    : 'e.g. "6×400m repeats with 90 second recovery"'}
+                </Text>
+              </View>
+            )}
+
+            {/* ── Transcribing ── */}
+            {phase === 'transcribing' && (
+              <View style={styles.processingSection}>
+                <ActivityIndicator color={Colors.accent} size="large" />
+                <Text style={styles.processingLabel}>Transcribing…</Text>
+              </View>
+            )}
+
+            {/* ── Generating ── */}
+            {phase === 'generating' && (
+              <View style={styles.processingSection}>
+                <ActivityIndicator color={Colors.primary} size="large" />
+                <View style={styles.transcriptionBubble}>
+                  <Text style={styles.transcriptionText}>"{transcription}"</Text>
+                </View>
+                <Text style={styles.processingLabel}>Building your workout…</Text>
+              </View>
+            )}
+
+            {/* ── Review proposed workout ── */}
+            {phase === 'review' && proposedWorkout && (
+              <View style={styles.reviewSection}>
+                {/* What the user said */}
+                <View style={styles.transcriptionBubble}>
+                  <Ionicons name="mic" size={14} color={Colors.accent} />
+                  <Text style={styles.transcriptionText}>"{transcription}"</Text>
+                </View>
+
+                {/* AI message */}
+                {aiMessage ? (
+                  <View style={styles.aiMessageBubble}>
+                    <Text style={styles.aiMessageText}>{aiMessage}</Text>
+                  </View>
+                ) : null}
+
+                {/* Workout preview */}
+                <View style={styles.workoutCard}>
+                  <View style={styles.workoutCardHeader}>
+                    <Text style={styles.workoutName}>{proposedWorkout.name}</Text>
+                    <Text style={styles.workoutSummary}>
+                      {formatTime(totalSecs)} · {flat.length} interval{flat.length !== 1 ? 's' : ''}
+                    </Text>
+                  </View>
+
+                  <SectionPreview label="WARM UP" blocks={proposedWorkout.warmup} />
+                  <SectionPreview label="INTERVALS" blocks={proposedWorkout.blocks} />
+                  <SectionPreview label="COOL DOWN" blocks={proposedWorkout.cooldown} />
+                </View>
+
+                {/* Action buttons */}
+                <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    style={styles.editButton}
+                    onPress={handleEdit}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="create-outline" size={16} color={Colors.accent} />
+                    <Text style={styles.editButtonText}>Edit</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.acceptButton}
+                    onPress={handleAccept}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="checkmark-circle" size={16} color={Colors.black} />
+                    <Text style={styles.acceptButtonText}>Add to Calendar</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Try again */}
+                <TouchableOpacity
+                  style={styles.retryButton}
+                  onPress={handleMicPress}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="mic" size={16} color={Colors.textSecondary} />
+                  <Text style={styles.retryButtonText}>Describe a different workout</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ── Styles ──────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  sheet: {
+    backgroundColor: Colors.background,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    maxHeight: '85%',
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceLight,
+  },
+  handleRow: {
+    alignItems: 'center',
+    paddingTop: Spacing.sm,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.textMuted,
+  },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
+  },
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  headerTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+  },
+  headerDate: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+
+  // Scroll area
+  scrollArea: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.xxl,
+  },
+
+  // Voice / Idle section
+  voiceSection: {
+    alignItems: 'center',
+    paddingTop: Spacing.xl,
+    paddingBottom: Spacing.lg,
+  },
+  micButton: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: Colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: Colors.accent + '40',
+    marginBottom: Spacing.lg,
+  },
+  micButtonActive: {
+    borderColor: Colors.danger + '60',
+    backgroundColor: Colors.danger + '10',
+  },
+  recordingContent: {
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  stopIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.danger + '22',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: Spacing.xs,
+  },
+  voiceHint: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+
+  // Processing states
+  processingSection: {
+    alignItems: 'center',
+    paddingTop: Spacing.xxl,
+    paddingBottom: Spacing.lg,
+    gap: Spacing.md,
+  },
+  processingLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+
+  // Transcription bubble
+  transcriptionBubble: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  transcriptionText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontStyle: 'italic',
+    lineHeight: 20,
+  },
+
+  // AI message
+  aiMessageBubble: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.primary + '60',
+  },
+  aiMessageText: {
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    lineHeight: 20,
+  },
+
+  // Review section
+  reviewSection: {
+    paddingTop: Spacing.md,
+  },
+
+  // Workout card
+  workoutCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.primary + '40',
+  },
+  workoutCardHeader: {
+    marginBottom: Spacing.xs,
+  },
+  workoutName: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  workoutSummary: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+
+  // Action buttons
+  actionRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceLight,
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+    borderWidth: 1,
+    borderColor: Colors.accent + '40',
+  },
+  editButtonText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.accent,
+  },
+  acceptButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+  },
+  acceptButtonText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.black,
+  },
+
+  // Retry
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.md,
+  },
+  retryButtonText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+
+  // Editor
+  editorContainer: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  editorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceLight,
+  },
+  editorTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+  },
+});
