@@ -20,6 +20,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
+import { useAuth } from '../../../src/contexts/AuthContext';
 import { WorkoutStructure } from '../../../src/components/WorkoutStructure';
 import { VoiceInput } from '../../../src/components/VoiceInput';
 import { ModificationReview, type ModificationItem } from '../../../src/components/ModificationReview';
@@ -31,6 +32,8 @@ import {
   applyPlanModifications,
   type PlanModification,
 } from '../../../src/ai/planService';
+import { supabase } from '../../../src/analytics/supabaseClient';
+import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -48,7 +51,8 @@ function getIntensityTag(label: string | null): { text: string; color: string } 
 export default function WorkoutDetailScreen() {
   const router = useRouter();
   const { workoutId } = useLocalSearchParams<{ workoutId: string }>();
-  const { plans, planWorkouts, refresh, skipWorkout, removeWorkout } = useTrainingPlan();
+  const { user } = useAuth();
+  const { plans, planWorkouts, refresh, removeWorkout } = useTrainingPlan();
   const [generatingDetail, setGeneratingDetail] = useState(false);
   const [adjustText, setAdjustText] = useState('');
   const [adjusting, setAdjusting] = useState(false);
@@ -107,14 +111,8 @@ export default function WorkoutDetailScreen() {
     }
   }, [planWorkout, ownerPlan, refresh]);
 
-  const handleSkip = useCallback(async () => {
-    if (!planWorkout) return;
-    await skipWorkout(planWorkout.id);
-    router.back();
-  }, [planWorkout, skipWorkout, router]);
-
   const handleAdjustRequest = useCallback(async (message: string) => {
-    if (!ownerPlan || !message.trim()) return;
+    if (!ownerPlan || !message.trim() || !user) return;
     setAdjusting(true);
     setCoachResponse(null);
     setModificationItems([]);
@@ -124,11 +122,46 @@ export default function WorkoutDetailScreen() {
         ? `Context: The user is looking at "${planWorkout.day_label}" on ${planWorkout.date} (Week ${planWorkout.week_number}).`
         : '';
 
-      const result = await adjustPlan(ownerPlan, `${context}\n\nUser request: ${message}`);
+      const totalWeeks = Math.max(1, Math.ceil(
+        (new Date(ownerPlan.race_date).getTime() - new Date(ownerPlan.start_date).getTime()) /
+        (7 * 24 * 60 * 60 * 1000)
+      ));
+
+      const { data: profileData } = await supabase
+        .from('running_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      const result = await adjustPlan({
+        prompt: `${context}\n\nUser request: ${message}`,
+        planSummary: {
+          title: ownerPlan.title,
+          raceType: ownerPlan.race_type,
+          raceDate: ownerPlan.race_date,
+          startDate: ownerPlan.start_date,
+          daysPerWeek: ownerPlan.days_per_week,
+          totalWeeks,
+          workouts: planWorkouts
+            .filter((w) => w.plan_id === ownerPlan.id)
+            .map((w) => ({
+              date: w.date,
+              day_label: w.day_label ?? '',
+              status: w.status,
+              week_number: w.week_number,
+            })),
+        },
+        profile: profileData ? {
+          experience_level: profileData.experience_level,
+          typical_run_minutes: profileData.typical_run_minutes,
+          easy_pace: profileData.easy_pace,
+          fast_pace: profileData.fast_pace,
+        } : undefined,
+      });
 
       setCoachResponse(result.message);
 
-      if (result.modifications.length > 0) {
+      if (result.modifications && result.modifications.length > 0) {
         const items: ModificationItem[] = result.modifications.map((mod) => {
           const existing = planWorkouts.find((pw) => pw.date === mod.date);
           return {
@@ -146,7 +179,7 @@ export default function WorkoutDetailScreen() {
     } finally {
       setAdjusting(false);
     }
-  }, [ownerPlan, planWorkout, planWorkouts]);
+  }, [ownerPlan, planWorkout, planWorkouts, user]);
 
   const handleChipPress = useCallback((prompt: string) => {
     setAdjustText(prompt);
@@ -276,24 +309,14 @@ export default function WorkoutDetailScreen() {
         </TouchableOpacity>
       )}
 
-      <View style={styles.secondaryRow}>
-        <TouchableOpacity
-          style={styles.secondaryBtn}
-          onPress={handleSkip}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="calendar-outline" size={16} color={Colors.textSecondary} />
-          <Text style={styles.secondaryBtnText}>Reschedule</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.secondaryBtn}
-          onPress={() => router.push('/(tabs)/training/chat' as any)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="sparkles-outline" size={16} color={Colors.textSecondary} />
-          <Text style={styles.secondaryBtnText}>Adjust</Text>
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity
+        style={styles.adjustNavBtn}
+        onPress={() => router.push('/(tabs)/training/chat' as any)}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="sparkles-outline" size={16} color={Colors.textSecondary} />
+        <Text style={styles.adjustNavBtnText}>Adjust Full Plan</Text>
+      </TouchableOpacity>
 
       {/* AI Coach Adjustment */}
       <View style={styles.coachSection}>
@@ -525,13 +548,7 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '800',
   },
-  secondaryRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginBottom: Spacing.xl,
-  },
-  secondaryBtn: {
-    flex: 1,
+  adjustNavBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -539,8 +556,9 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     paddingVertical: Spacing.sm + 4,
     gap: Spacing.xs,
+    marginBottom: Spacing.xl,
   },
-  secondaryBtnText: {
+  adjustNavBtnText: {
     color: Colors.textSecondary,
     fontSize: FontSize.sm,
     fontWeight: '600',

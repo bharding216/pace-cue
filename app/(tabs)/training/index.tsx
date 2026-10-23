@@ -5,7 +5,7 @@
  *   A) No plan  → CTA to create plan + manual calendar + "Or keep planning manually"
  *   B) Active plan → Plan header, today's workout card, calendar, day detail, upcoming list
  *
- * Calendar/list/stats toggle preserved for flexibility.
+ * Stats accessible via a dedicated button on the page.
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -16,7 +16,6 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
-  FlatList,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -24,20 +23,14 @@ import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { TrainingCalendar, CalendarViewMode } from '../../../src/components/TrainingCalendar';
 import { DayDetail } from '../../../src/components/DayDetail';
+import { derivePhases } from '../../../src/components/TrainingPhases';
 import { PlanWeekSummary } from '../../../src/components/PlanWeekSummary';
-import { TodayWorkoutCard } from '../../../src/components/TodayWorkoutCard';
-import { WorkoutDefinition, generateId, formatTime } from '../../../src/workout/workoutTypes';
+import { WorkoutDefinition, generateId } from '../../../src/workout/workoutTypes';
 import { saveWorkout } from '../../../src/workout/workoutStorage';
-import { computeStats } from '../../../src/stats/personalRecords';
-import type { StatsSnapshot } from '../../../src/stats/personalRecords';
-import { RecordsGrid, AwardsList, LifetimeStats } from '../../../src/components/PersonalBests';
-import { ProgressChart } from '../../../src/components/ProgressChart';
 import { WorkoutPickerModal } from '../../../src/components/WorkoutPickerModal';
 import { addWorkoutToCalendar, generateWorkoutDetails } from '../../../src/ai/planService';
 import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
-
-type ViewMode = 'calendar' | 'list' | 'stats';
 
 function todayKey(): string {
   const d = new Date();
@@ -64,7 +57,7 @@ function formatRaceLabel(raceType: string): string {
 export default function TrainingScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { plans, plan, planWorkouts, history, dayEntries, loading, refresh, ensurePlan, skipWorkout, removeWorkout } = useTrainingPlan();
+  const { plans, archivedPlans, plan, planWorkouts, history, dayEntries, loading, refresh, ensurePlan, skipWorkout, removeWorkout } = useTrainingPlan();
 
   const racePlans = useMemo(
     () => plans.filter((p) => p.race_type !== 'custom'),
@@ -76,7 +69,6 @@ export default function TrainingScreen() {
     [racePlans],
   );
 
-  const [viewMode, setViewMode] = useState<ViewMode>('calendar');
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>('month');
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [pickerDate, setPickerDate] = useState<string | null>(null);
@@ -104,6 +96,12 @@ export default function TrainingScreen() {
     return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)));
   }, [primaryPlan]);
 
+  const currentPhase = useMemo(() => {
+    if (!primaryPlan) return null;
+    const phases = derivePhases(primaryPlan.outline, currentWeekNumber);
+    return phases.find((p) => p.status === 'current') ?? null;
+  }, [primaryPlan, currentWeekNumber]);
+
   const currentWeekWorkouts = useMemo(() => {
     if (!primaryPlan) return [];
     return planWorkouts.filter((w) => w.plan_id === primaryPlan.id && w.week_number === currentWeekNumber);
@@ -113,31 +111,29 @@ export default function TrainingScreen() {
   const todayEntry = dayEntries[todayKey()];
   const todayPlanWorkout = todayEntry?.planWorkout;
 
-  // Upcoming workouts (next 3 future planned workouts after today)
+  // Consolidated upcoming list: today (if planned & not rest) + next few future workouts
   const upcomingWorkouts = useMemo(() => {
     const today = todayKey();
-    return planWorkouts
+    const future = planWorkouts
       .filter((w) => w.date > today && w.status === 'planned' && w.day_label !== 'Rest Day')
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(0, 3);
-  }, [planWorkouts]);
+      .sort((a, b) => a.date.localeCompare(b.date));
 
-  // Stats
-  const stats = useMemo<StatsSnapshot | null>(() => {
-    if (history.length === 0) return null;
-    return computeStats(history);
-  }, [history]);
+    const items: Array<typeof planWorkouts[number] & { isToday?: boolean }> = [];
 
-  const chartWidth = 320;
+    // Include today's workout at the top if it exists and isn't rest
+    if (todayPlanWorkout && todayPlanWorkout.day_label !== 'Rest Day') {
+      items.push({ ...todayPlanWorkout, isToday: true } as any);
+    }
 
-  const formatPaceForChart = useCallback((v: number) => {
-    const mins = Math.floor(v);
-    const secs = Math.round((v - mins) * 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  }, []);
+    // Fill remaining slots from future workouts
+    const maxTotal = 4;
+    for (const w of future) {
+      if (items.length >= maxTotal) break;
+      items.push(w as any);
+    }
 
-  const formatDistForChart = useCallback((v: number) => `${v.toFixed(1)} mi`, []);
-  const formatDurForChart = useCallback((v: number) => `${Math.round(v)} min`, []);
+    return items;
+  }, [planWorkouts, todayPlanWorkout]);
 
   const handleStartWorkout = useCallback(async (workoutData: WorkoutDefinition) => {
     const workout: WorkoutDefinition = {
@@ -159,6 +155,10 @@ export default function TrainingScreen() {
 
   const handleEditWorkout = useCallback((workoutData: WorkoutDefinition) => {
     router.push(`/workout/${workoutData.id}`);
+  }, [router]);
+
+  const handleViewPlannedWorkout = useCallback((planWorkoutId: string) => {
+    router.push({ pathname: '/(tabs)/training/workout-detail', params: { workoutId: planWorkoutId } } as any);
   }, [router]);
 
   const handleViewRun = useCallback((historyEntryId: string) => {
@@ -208,37 +208,21 @@ export default function TrainingScreen() {
 
   return (
     <View style={styles.container}>
-      {/* View mode toggle */}
-      <View style={styles.tabRow}>
-        {(['calendar', 'list', 'stats'] as ViewMode[]).map((mode) => (
-          <TouchableOpacity
-            key={mode}
-            style={[styles.tab, viewMode === mode && styles.tabActive]}
-            onPress={() => setViewMode(mode)}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={
-                mode === 'calendar' ? 'calendar-outline' :
-                mode === 'list' ? 'list-outline' :
-                'stats-chart-outline'
-              }
-              size={14}
-              color={viewMode === mode ? Colors.primary : Colors.textMuted}
-            />
-            <Text style={[styles.tabLabel, viewMode === mode && styles.tabLabelActive]}>
-              {mode.charAt(0).toUpperCase() + mode.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {/* Stats button row */}
+      <View style={styles.statsBtnRow}>
+        <TouchableOpacity
+          style={styles.statsBtn}
+          onPress={() => router.push('/(tabs)/training/stats' as any)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="stats-chart" size={18} color={Colors.primary} />
+        </TouchableOpacity>
       </View>
 
-      {/* Calendar view */}
-      {viewMode === 'calendar' && (
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
           {/* ─── State A: No active plan ─── */}
           {!hasPlan && !user && (
             <View style={styles.coachCard}>
@@ -299,19 +283,34 @@ export default function TrainingScreen() {
               >
                 <Text style={styles.manualLink}>Or keep planning your workouts manually</Text>
               </TouchableOpacity>
+
+              {archivedPlans.length > 0 && (
+                <TouchableOpacity
+                  style={styles.archivedLink}
+                  onPress={() => router.push('/(tabs)/training/overview' as any)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="archive-outline" size={16} color={Colors.textMuted} />
+                  <Text style={styles.archivedLinkText}>
+                    {archivedPlans.filter((p) => p.race_type !== 'custom').length} archived plan{archivedPlans.filter((p) => p.race_type !== 'custom').length !== 1 ? 's' : ''} — Restore
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
           {/* ─── State B: Active plan ─── */}
           {hasPlan && primaryPlan && (
             <>
-              {/* Plan header */}
-              <View style={styles.planHeader}>
+              {/* Plan header — tappable to view full plan */}
+              <TouchableOpacity
+                style={styles.planHeader}
+                onPress={() => router.push('/(tabs)/training/overview' as any)}
+                activeOpacity={0.7}
+              >
                 <View style={styles.planHeaderTop}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.planDate}>
-                      {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
-                    </Text>
+                    <Text style={styles.planDate}>My Training Plan</Text>
                     <Text style={styles.planName}>
                       {primaryPlan.title || formatRaceLabel(primaryPlan.race_type)}
                     </Text>
@@ -326,34 +325,26 @@ export default function TrainingScreen() {
                   <View style={[styles.progressFill, { width: `${Math.min(100, (currentWeekNumber / totalWeeks) * 100)}%` }]} />
                 </View>
 
+                {currentPhase && (
+                  <View style={styles.phaseRow}>
+                    <Ionicons name="flag-outline" size={13} color={Colors.primary} />
+                    <Text style={styles.phaseLabel}>{currentPhase.name}</Text>
+                  </View>
+                )}
+
                 <View style={styles.planMeta}>
-                  <Text style={styles.planMetaText}>
-                    Race day: {new Date(primaryPlan.race_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.planMetaText}>
+                      Race day: {new Date(primaryPlan.race_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </Text>
+                  </View>
                   <Text style={styles.planMetaText}>
                     {daysUntil(primaryPlan.race_date)} days left
                   </Text>
+                  <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} style={{ marginLeft: Spacing.xs }} />
                 </View>
+              </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.viewPlanLink}
-                  onPress={() => router.push('/(tabs)/training/overview' as any)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.viewPlanLinkText}>View Full Plan</Text>
-                  <Ionicons name="chevron-forward" size={14} color={Colors.primary} />
-                </TouchableOpacity>
-              </View>
-
-              {/* Today's workout card */}
-              {todayPlanWorkout && (
-                <TodayWorkoutCard
-                  planWorkout={todayPlanWorkout}
-                  onStart={handleStartWorkout}
-                  onAdjust={() => router.push('/(tabs)/training/chat' as any)}
-                  onGenerateDetail={() => handleGenerateDetail(todayPlanWorkout.id)}
-                />
-              )}
             </>
           )}
 
@@ -388,42 +379,56 @@ export default function TrainingScreen() {
             onSkipWorkout={handleSkipWorkout}
             onRemoveWorkout={handleRemoveWorkout}
             onEditWorkout={handleEditWorkout}
+            onViewPlannedWorkout={handleViewPlannedWorkout}
             onViewRun={handleViewRun}
             onRunAgain={handleRunAgain}
             onAddWorkout={user ? handleAddWorkout : undefined}
             onGenerateDetail={plans.length > 0 ? handleGenerateDetail : undefined}
           />
 
-          {/* Upcoming workouts */}
+          {/* Upcoming workouts (consolidated — today + next few) */}
           {upcomingWorkouts.length > 0 && (
             <View style={styles.upcomingSection}>
               <View style={styles.upcomingHeader}>
-                <Text style={styles.upcomingSectionTitle}>Upcoming workouts</Text>
+                <Text style={styles.upcomingSectionTitle}>Upcoming</Text>
               </View>
-              {upcomingWorkouts.map((pw) => (
-                <TouchableOpacity
-                  key={pw.id}
-                  style={styles.upcomingCard}
-                  onPress={() => setSelectedDate(pw.date)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.upcomingDate}>
-                    <Text style={styles.upcomingDateDay}>
-                      {new Date(pw.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })}
-                    </Text>
-                    <Text style={styles.upcomingDateNum}>
-                      {new Date(pw.date + 'T12:00:00').getDate()}
-                    </Text>
-                  </View>
-                  <View style={styles.upcomingInfo}>
-                    <Text style={styles.upcomingName} numberOfLines={1}>{pw.day_label || 'Training'}</Text>
-                    {pw.description && (
-                      <Text style={styles.upcomingDesc} numberOfLines={1}>{pw.description}</Text>
+              {upcomingWorkouts.map((pw: any) => {
+                const isToday = pw.isToday === true;
+                const isCompleted = pw.status === 'completed';
+                const isSkipped = pw.status === 'skipped';
+                return (
+                  <TouchableOpacity
+                    key={pw.id}
+                    style={[styles.upcomingCard, isToday && styles.upcomingCardToday]}
+                    onPress={() => handleViewPlannedWorkout(pw.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.upcomingDate}>
+                      <Text style={[styles.upcomingDateDay, isToday && styles.upcomingTodayLabel]}>
+                        {isToday ? 'Today' : new Date(pw.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })}
+                      </Text>
+                      {!isToday && (
+                        <Text style={styles.upcomingDateNum}>
+                          {new Date(pw.date + 'T12:00:00').getDate()}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={styles.upcomingInfo}>
+                      <Text style={styles.upcomingName} numberOfLines={1}>{pw.day_label || 'Training'}</Text>
+                      {pw.description && (
+                        <Text style={styles.upcomingDesc} numberOfLines={1}>{pw.description}</Text>
+                      )}
+                    </View>
+                    {isCompleted ? (
+                      <Ionicons name="checkmark-circle" size={18} color={Colors.primary} />
+                    ) : isSkipped ? (
+                      <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+                    ) : (
+                      <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
                     )}
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-                </TouchableOpacity>
-              ))}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )}
 
@@ -454,120 +459,8 @@ export default function TrainingScreen() {
               onUpgrade={() => router.push('/paywall' as any)}
             />
           )}
-        </ScrollView>
-      )}
 
-      {/* List view */}
-      {viewMode === 'list' && (
-        <FlatList
-          data={history}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          ListHeaderComponent={
-            <>
-              {history.length > 0 && (
-                <Text style={styles.sectionHeader}>
-                  {history.length} workout{history.length !== 1 ? 's' : ''} completed
-                </Text>
-              )}
-            </>
-          }
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.listCard}
-              onPress={() => handleViewRun(item.id)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.listCardAccent} />
-              <View style={styles.listCardContent}>
-                <View style={styles.listCardRow}>
-                  <Text style={styles.listCardName} numberOfLines={1}>{item.workoutName}</Text>
-                  <Text style={styles.listCardDate}>
-                    {new Date(item.completedAt).toLocaleDateString(undefined, {
-                      weekday: 'short',
-                      month: 'short',
-                      day: 'numeric',
-                    })}
-                  </Text>
-                </View>
-                <View style={styles.listCardStats}>
-                  <Text style={styles.listCardDuration}>
-                    {formatTime(Math.floor(item.totalDurationMs / 1000))}
-                  </Text>
-                  {item.totalDistanceMeters != null && item.totalDistanceMeters > 0 && (
-                    <Text style={styles.listCardDistance}>
-                      {(item.totalDistanceMeters / 1609.344).toFixed(2)} mi
-                    </Text>
-                  )}
-                </View>
-              </View>
-            </TouchableOpacity>
-          )}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons name="bar-chart-outline" size={48} color={Colors.textMuted} />
-              <Text style={styles.emptyTitle}>No history yet</Text>
-              <Text style={styles.emptyText}>
-                Complete a workout and it'll show up here.
-              </Text>
-            </View>
-          }
-        />
-      )}
-
-      {/* Stats view */}
-      {viewMode === 'stats' && (
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {stats ? (
-            <View>
-              <LifetimeStats
-                totalWorkouts={stats.totalWorkouts}
-                totalDistanceMeters={stats.totalDistanceMeters}
-                totalDurationMs={stats.totalDurationMs}
-              />
-              <RecordsGrid records={stats.records} />
-              <AwardsList awards={stats.awards} />
-              <View style={styles.chartsSection}>
-                <Text style={styles.chartsSectionTitle}>Progress Over Time</Text>
-                <ProgressChart
-                  data={stats.paceTrend}
-                  title="Pace (min/mi)"
-                  formatValue={formatPaceForChart}
-                  lowerIsBetter
-                  width={chartWidth}
-                  color={Colors.primary}
-                />
-                <ProgressChart
-                  data={stats.distanceTrend}
-                  title="Distance (miles)"
-                  formatValue={formatDistForChart}
-                  width={chartWidth}
-                  color={Colors.accent}
-                />
-                <ProgressChart
-                  data={stats.durationTrend}
-                  title="Duration (minutes)"
-                  formatValue={formatDurForChart}
-                  width={chartWidth}
-                  color={Colors.warning}
-                />
-              </View>
-            </View>
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="stats-chart-outline" size={48} color={Colors.textMuted} />
-              <Text style={styles.emptyTitle}>No stats yet</Text>
-              <Text style={styles.emptyText}>
-                Complete some workouts to see your stats and progress.
-              </Text>
-            </View>
-          )}
         </ScrollView>
-      )}
 
       {/* Workout picker modal */}
       <WorkoutPickerModal
@@ -592,34 +485,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.background,
   },
-  tabRow: {
+  statsBtnRow: {
     flexDirection: 'row',
-    marginHorizontal: Spacing.md,
-    marginTop: Spacing.sm,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: 3,
-    gap: 3,
+    justifyContent: 'flex-end',
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.xs,
   },
-  tab: {
-    flex: 1,
-    flexDirection: 'row',
+  statsBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#122A1B',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: Spacing.sm + 2,
-    borderRadius: BorderRadius.md - 2,
-    gap: Spacing.xs,
-  },
-  tabActive: {
-    backgroundColor: Colors.surfaceLight,
-  },
-  tabLabel: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textMuted,
-  },
-  tabLabelActive: {
-    color: Colors.primary,
   },
   scrollContent: {
     padding: Spacing.md,
@@ -678,6 +557,23 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textDecorationLine: 'underline',
   },
+  archivedLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginTop: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  archivedLinkText: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
 
   // ─── Plan header ───
   planHeader: {
@@ -727,6 +623,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: 2,
   },
+  phaseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  phaseLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
   planMeta: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -735,16 +642,6 @@ const styles = StyleSheet.create({
   planMetaText: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
-  },
-  viewPlanLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  viewPlanLinkText: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.primary,
   },
 
   // ─── Add plan banner ───
@@ -794,6 +691,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
   },
+  upcomingCardToday: {
+    borderColor: Colors.primary + '40',
+  },
   upcomingDate: {
     alignItems: 'center',
     width: 40,
@@ -802,6 +702,10 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.textMuted,
     fontWeight: '600',
+  },
+  upcomingTodayLabel: {
+    color: Colors.primary,
+    fontWeight: '800',
   },
   upcomingDateNum: {
     fontSize: FontSize.lg,
@@ -926,74 +830,6 @@ const styles = StyleSheet.create({
     color: Colors.black,
     fontSize: FontSize.md,
     fontWeight: '800',
-  },
-
-  // ─── List view ───
-  sectionHeader: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.sm,
-  },
-  listCard: {
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-    flexDirection: 'row',
-    overflow: 'hidden',
-    marginBottom: Spacing.sm,
-  },
-  listCardAccent: {
-    width: 4,
-    backgroundColor: Colors.primary,
-  },
-  listCardContent: {
-    flex: 1,
-    padding: Spacing.md,
-  },
-  listCardRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  listCardName: {
-    flex: 1,
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  listCardDate: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    marginLeft: Spacing.sm,
-  },
-  listCardStats: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    marginTop: Spacing.xs,
-  },
-  listCardDuration: {
-    fontSize: FontSize.lg,
-    color: Colors.accent,
-    fontWeight: '600',
-    fontVariant: ['tabular-nums'],
-  },
-  listCardDistance: {
-    fontSize: FontSize.lg,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-    fontVariant: ['tabular-nums'],
-  },
-
-  // ─── Stats ───
-  chartsSection: {
-    marginTop: Spacing.md,
-  },
-  chartsSectionTitle: {
-    fontSize: FontSize.md,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.md,
   },
 
   // ─── Empty ───

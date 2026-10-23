@@ -1,10 +1,12 @@
 /**
  * TrainingPhases — visual timeline of training plan phases.
  * Shows numbered phases with "Current" / "Upcoming" badges.
+ * Supports collapsible mode with maxVisible prop.
  */
 
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import type { PlanOutlineWeek } from '../types/database';
 
@@ -18,9 +20,13 @@ interface Phase {
 interface TrainingPhasesProps {
   outline: PlanOutlineWeek[] | null;
   currentWeekNumber: number;
+  /** Max items to show when collapsed. Omit or 0 = show all (no collapse). */
+  maxVisible?: number;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
 }
 
-function derivePhases(outline: PlanOutlineWeek[] | null, currentWeek: number): Phase[] {
+export function derivePhases(outline: PlanOutlineWeek[] | null, currentWeek: number): Phase[] {
   if (!outline || outline.length === 0) return [];
 
   const themeGroups: { theme: string; weeks: number[] }[] = [];
@@ -53,57 +59,82 @@ function derivePhases(outline: PlanOutlineWeek[] | null, currentWeek: number): P
   });
 }
 
-export function TrainingPhases({ outline, currentWeekNumber }: TrainingPhasesProps) {
+export function TrainingPhases({ outline, currentWeekNumber, maxVisible, expanded, onToggleExpanded }: TrainingPhasesProps) {
   const phases = derivePhases(outline, currentWeekNumber);
 
   if (phases.length === 0) return null;
 
+  const canCollapse = maxVisible != null && maxVisible > 0 && phases.length > maxVisible;
+  const visiblePhases = canCollapse && !expanded ? phases.slice(0, maxVisible) : phases;
+  const hiddenCount = canCollapse ? phases.length - maxVisible : 0;
+
   return (
     <View style={styles.container}>
       <Text style={styles.sectionTitle}>Training phases</Text>
-      {phases.map((phase, i) => (
-        <View key={phase.number} style={styles.phaseRow}>
-          <View style={[
-            styles.phaseCircle,
-            phase.status === 'current' && styles.phaseCircleCurrent,
-            phase.status === 'completed' && styles.phaseCircleCompleted,
-          ]}>
-            <Text style={[
-              styles.phaseNumber,
-              phase.status === 'current' && styles.phaseNumberCurrent,
-              phase.status === 'completed' && styles.phaseNumberCompleted,
-            ]}>
-              {phase.number}
-            </Text>
-          </View>
-
-          {i < phases.length - 1 && (
+      {visiblePhases.map((phase, i) => {
+        const isLastVisible = i === visiblePhases.length - 1;
+        const isLastOverall = phase.number === phases.length;
+        return (
+          <View key={phase.number} style={styles.phaseRow}>
             <View style={[
-              styles.phaseLine,
-              phase.status === 'completed' && styles.phaseLineCompleted,
-            ]} />
-          )}
-
-          <View style={styles.phaseInfo}>
-            <Text style={[
-              styles.phaseName,
-              phase.status === 'current' && styles.phaseNameCurrent,
+              styles.phaseCircle,
+              phase.status === 'current' && styles.phaseCircleCurrent,
+              phase.status === 'completed' && styles.phaseCircleCompleted,
             ]}>
-              {phase.name}
-            </Text>
-            <Text style={styles.phaseWeeks}>{phase.weekRange}</Text>
-          </View>
+              <Text style={[
+                styles.phaseNumber,
+                phase.status === 'current' && styles.phaseNumberCurrent,
+                phase.status === 'completed' && styles.phaseNumberCompleted,
+              ]}>
+                {phase.number}
+              </Text>
+            </View>
 
-          <Text style={[
-            styles.phaseBadge,
-            phase.status === 'current' && styles.phaseBadgeCurrent,
-            phase.status === 'completed' && styles.phaseBadgeCompleted,
-          ]}>
-            {phase.status === 'current' ? 'Current' :
-             phase.status === 'completed' ? 'Done' : 'Upcoming'}
+            {!isLastOverall && !(isLastVisible && !expanded && canCollapse) && (
+              <View style={[
+                styles.phaseLine,
+                phase.status === 'completed' && styles.phaseLineCompleted,
+              ]} />
+            )}
+
+            <View style={styles.phaseInfo}>
+              <Text style={[
+                styles.phaseName,
+                phase.status === 'current' && styles.phaseNameCurrent,
+              ]}>
+                {phase.name}
+              </Text>
+              <Text style={styles.phaseWeeks}>{phase.weekRange}</Text>
+            </View>
+
+            <Text style={[
+              styles.phaseBadge,
+              phase.status === 'current' && styles.phaseBadgeCurrent,
+              phase.status === 'completed' && styles.phaseBadgeCompleted,
+            ]}>
+              {phase.status === 'current' ? 'Current' :
+               phase.status === 'completed' ? 'Done' : 'Upcoming'}
+            </Text>
+          </View>
+        );
+      })}
+
+      {canCollapse && onToggleExpanded && (
+        <TouchableOpacity
+          style={styles.expandBtn}
+          onPress={onToggleExpanded}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.expandBtnText}>
+            {expanded ? 'Show less' : `Show ${hiddenCount} more phase${hiddenCount !== 1 ? 's' : ''}`}
           </Text>
-        </View>
-      ))}
+          <Ionicons
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={Colors.primary}
+          />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -191,5 +222,18 @@ const styles = StyleSheet.create({
   },
   phaseBadgeCompleted: {
     color: Colors.textMuted,
+  },
+  expandBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  expandBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.primary,
   },
 });

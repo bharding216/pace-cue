@@ -403,21 +403,27 @@ export interface PlanAdjustmentInput {
 }
 
 export async function adjustPlan(input: PlanAdjustmentInput): Promise<PlanAdjustmentResult> {
-  const { data, error } = await supabase.functions.invoke('adjust-plan', {
-    body: {
-      prompt: input.prompt,
-      plan_summary: {
-        title: input.planSummary.title,
-        race_type: input.planSummary.raceType,
-        race_date: input.planSummary.raceDate,
-        start_date: input.planSummary.startDate,
-        days_per_week: input.planSummary.daysPerWeek,
-        total_weeks: input.planSummary.totalWeeks,
-        workouts: input.planSummary.workouts,
-      },
-      profile: input.profile,
-      conversation: input.conversation,
+  const requestBody = {
+    prompt: input.prompt,
+    plan_summary: {
+      title: input.planSummary.title,
+      race_type: input.planSummary.raceType,
+      race_date: input.planSummary.raceDate,
+      start_date: input.planSummary.startDate,
+      days_per_week: input.planSummary.daysPerWeek,
+      total_weeks: input.planSummary.totalWeeks,
+      workouts: input.planSummary.workouts,
     },
+    profile: input.profile,
+    conversation: input.conversation,
+  };
+
+  console.log('[adjustPlan] prompt:', input.prompt);
+  console.log('[adjustPlan] workouts count:', input.planSummary.workouts.length);
+  console.log('[adjustPlan] conversation length:', input.conversation?.length ?? 0);
+
+  const { data, error } = await supabase.functions.invoke('adjust-plan', {
+    body: requestBody,
   });
 
   if (error) {
@@ -432,14 +438,34 @@ export async function adjustPlan(input: PlanAdjustmentInput): Promise<PlanAdjust
     } catch {
       // ignore parse errors
     }
+    console.error('[adjustPlan] error:', message);
     throw new Error(message);
   }
 
   if (data?.error) {
+    console.error('[adjustPlan] data error:', data.error);
     throw new Error(data.error);
   }
 
-  return data as PlanAdjustmentResult;
+  const result = data as PlanAdjustmentResult;
+  console.log('[adjustPlan] response message:', result.message?.slice(0, 100));
+  console.log('[adjustPlan] modifications count:', result.modifications?.length ?? 0);
+  if (result.modifications?.length) {
+    result.modifications.forEach((mod, i) => {
+      console.log(`[adjustPlan] mod[${i}]:`, mod.date, mod.action, mod.day_label);
+      if (mod.workout) {
+        const blocks = mod.workout.blocks ?? [];
+        const totalSec = blocks.reduce((sum: number, b: any) => {
+          const rc = b.repeatCount ?? b.repeat ?? 1;
+          const intSec = (b.intervals ?? []).reduce((s: number, int: any) => s + (int.durationSeconds ?? 0), 0);
+          return sum + intSec * rc;
+        }, 0);
+        console.log(`[adjustPlan] mod[${i}] workout:`, mod.workout.name, `blocks=${blocks.length}`, `totalSec=${totalSec}`, `(${Math.round(totalSec / 60)}min)`);
+      }
+    });
+  }
+
+  return result;
 }
 
 // ── Rolling 14-Day Refinement ───────────────────────────────
@@ -764,10 +790,29 @@ export async function applyPlanModifications(
   planId: string,
   modifications: PlanModification[],
 ): Promise<void> {
+  console.log('[applyMods] planId:', planId, 'modifications:', modifications.length);
+
+  // Fetch plan metadata to get user_id and start_date for new rows
+  const { data: planRow, error: planError } = await supabase
+    .from('training_plans')
+    .select('user_id, start_date')
+    .eq('id', planId)
+    .single();
+
+  if (planError) {
+    console.error('[applyMods] Failed to fetch plan:', planError.message);
+  }
+
+  const userId = planRow?.user_id ?? '';
+  const planStartDate = planRow?.start_date ?? '';
+  console.log('[applyMods] userId:', userId, 'planStartDate:', planStartDate);
+
   await Promise.all(
-    modifications.map((mod) => {
+    modifications.map(async (mod) => {
+      console.log(`[applyMods] Processing: ${mod.action} on ${mod.date} (label: ${mod.day_label})`);
+
       if (mod.action === 'skip') {
-        return supabase
+        const { error: skipErr, count } = await supabase
           .from('plan_workouts')
           .update({
             status: 'skipped',
@@ -775,7 +820,12 @@ export async function applyPlanModifications(
           })
           .eq('plan_id', planId)
           .eq('date', mod.date);
-      } else if (mod.action === 'update') {
+
+        console.log(`[applyMods] skip result: count=${count}, error=${skipErr?.message ?? 'none'}`);
+        return;
+      }
+
+      if (mod.action === 'update') {
         const workoutData = mod.workout
           ? {
               id: generateId(),
@@ -788,7 +838,10 @@ export async function applyPlanModifications(
             }
           : null;
 
-        return supabase
+        console.log(`[applyMods] workout data:`, workoutData ? `name=${workoutData.name}, blocks=${workoutData.blocks.length}` : 'null');
+
+        // Try updating the existing row first
+        const { data: updated, error: updateErr } = await supabase
           .from('plan_workouts')
           .update({
             day_label: mod.day_label ?? undefined,
@@ -797,11 +850,46 @@ export async function applyPlanModifications(
             updated_at: new Date().toISOString(),
           })
           .eq('plan_id', planId)
-          .eq('date', mod.date);
+          .eq('date', mod.date)
+          .select('id');
+
+        console.log(`[applyMods] update result: matched=${updated?.length ?? 0}, error=${updateErr?.message ?? 'none'}`);
+
+        // If no existing row matched, insert a new one
+        if (!updated || updated.length === 0) {
+          const weekNumber = planStartDate
+            ? Math.max(1, Math.ceil(
+                (new Date(mod.date).getTime() - new Date(planStartDate).getTime()) /
+                (7 * 24 * 60 * 60 * 1000)
+              ))
+            : 1;
+
+          console.log(`[applyMods] No existing row for ${mod.date}, inserting new row (week ${weekNumber})`);
+
+          const { error: insertErr } = await supabase
+            .from('plan_workouts')
+            .insert({
+              plan_id: planId,
+              user_id: userId,
+              date: mod.date,
+              week_number: weekNumber,
+              day_label: mod.day_label ?? 'Training',
+              description: mod.description ?? null,
+              workout_data: workoutData,
+              status: 'planned',
+            });
+
+          if (insertErr) {
+            console.error(`[applyMods] Insert failed:`, insertErr.message);
+          } else {
+            console.log(`[applyMods] Inserted new row for ${mod.date}`);
+          }
+        }
       }
-      return Promise.resolve();
     })
   );
+
+  console.log('[applyMods] All modifications applied');
 }
 
 /** Add a custom workout to the plan calendar on a specific date. */
@@ -854,6 +942,56 @@ export async function archivePlan(planId: string): Promise<void> {
     .from('training_plans')
     .update({
       status: 'archived',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', planId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+/** Restore an archived plan back to active. */
+export async function restorePlan(planId: string): Promise<void> {
+  const { error } = await supabase
+    .from('training_plans')
+    .update({
+      status: 'active',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', planId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+/** Load all archived training plans for a user. */
+export async function loadArchivedPlans(userId: string): Promise<TrainingPlan[]> {
+  const { data, error } = await supabase
+    .from('training_plans')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('status', 'archived')
+    .order('updated_at', { ascending: false });
+
+  if (error) {
+    console.warn('Failed to load archived plans:', error);
+    return [];
+  }
+
+  return (data ?? []) as TrainingPlan[];
+}
+
+/** Update mutable fields on a training plan (e.g. race_date, days_per_week). */
+export async function updateTrainingPlan(
+  planId: string,
+  fields: Partial<Pick<TrainingPlan, 'race_date' | 'days_per_week' | 'title' | 'goal_time_minutes'>>,
+): Promise<void> {
+  const { error } = await supabase
+    .from('training_plans')
+    .update({
+      ...fields,
       updated_at: new Date().toISOString(),
     })
     .eq('id', planId);

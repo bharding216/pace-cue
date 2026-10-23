@@ -37,10 +37,11 @@ function getSegments(workout: WorkoutDefinition): StructureSegment[] {
   // Blocks
   for (const block of (workout.blocks || [])) {
     const b = block as any;
-    if (b.repeat && b.repeat > 1 && b.intervals?.length > 0) {
+    const repeatCount = b.repeatCount ?? b.repeat ?? 1;
+    if (repeatCount > 1 && b.intervals?.length > 0) {
       const mainInterval = b.intervals[0];
       const recoveryInterval = b.intervals.length > 1 ? b.intervals[1] : null;
-      let label = `${b.repeat} \u00D7 `;
+      let label = `${repeatCount} \u00D7 `;
 
       if (mainInterval.targetDistanceMeters) {
         label += `${mainInterval.targetDistanceMeters}m`;

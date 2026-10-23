@@ -2,7 +2,7 @@
  * VoiceInput — Reusable voice recording component.
  *
  * Tap microphone button to start recording, tap again to stop and transcribe.
- * Shows recording state with animated indicator and transcription loading.
+ * Shows animated sound bars driven by real-time audio metering.
  *
  * Wrapped in an error boundary so a missing native recording module
  * doesn't crash the parent screen.
@@ -35,6 +35,115 @@ interface Props {
   placeholder?: string;
   compact?: boolean;
 }
+
+// ── Sound Bars (metering-driven) ───────────────────────────
+
+const BAR_COUNT = 5;
+const BAR_COUNT_FULL = 12;
+
+/**
+ * Converts a metering dB value (typically -160 to 0) to a 0–1 scale.
+ * -50 dB and below = silence, 0 dB = max.
+ */
+function meterToLevel(db: number | undefined): number {
+  if (db === undefined || db <= -50) return 0;
+  if (db >= 0) return 1;
+  return (db + 50) / 50;
+}
+
+function SoundBars({ metering, isActive = false, count = BAR_COUNT, barWidth = 3, barGap = 2, maxHeight = 18 }: {
+  metering?: number;
+  /** If true and metering is unavailable, animate bars independently. */
+  isActive?: boolean;
+  count?: number;
+  barWidth?: number;
+  barGap?: number;
+  maxHeight?: number;
+}) {
+  const anims = useRef(
+    Array.from({ length: count }, () => new Animated.Value(0.15)),
+  ).current;
+  const hasMetering = metering !== undefined && metering > -160;
+  const level = meterToLevel(metering);
+
+  // When we have real metering data, drive bars from it
+  useEffect(() => {
+    if (!hasMetering) return;
+    anims.forEach((anim, i) => {
+      const offset = Math.sin(Date.now() / 200 + i * 1.8) * 0.15;
+      const target = Math.max(0.1, Math.min(1, level + offset));
+      Animated.timing(anim, {
+        toValue: target,
+        duration: 100,
+        useNativeDriver: false,
+      }).start();
+    });
+  }, [level, hasMetering, anims]);
+
+  // Fallback: when recording is active but no metering, animate independently
+  useEffect(() => {
+    if (hasMetering || !isActive) return;
+
+    const timers = anims.map((anim, i) => {
+      const animate = (): void => {
+        const duration = 180 + Math.random() * 280;
+        const target = 0.2 + Math.random() * 0.8;
+        Animated.timing(anim, {
+          toValue: target,
+          duration,
+          useNativeDriver: false,
+        }).start(() => {
+          if (isActive) animate();
+        });
+      };
+      const timer = setTimeout(() => animate(), i * 60);
+      return timer;
+    });
+
+    return () => {
+      timers.forEach(clearTimeout);
+      anims.forEach((a) => a.stopAnimation());
+      anims.forEach((a) => a.setValue(0.15));
+    };
+  }, [isActive, hasMetering, anims]);
+
+  return (
+    <View style={[soundStyles.container, { gap: barGap }]}>
+      {anims.map((anim, i) => (
+        <Animated.View
+          key={i}
+          style={[
+            soundStyles.bar,
+            {
+              width: barWidth,
+              height: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [barWidth, maxHeight],
+              }),
+              backgroundColor: Colors.accent,
+              opacity: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.4, 1],
+              }),
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+const soundStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 20,
+  },
+  bar: {
+    borderRadius: 2,
+  },
+});
 
 // ── Error Boundary ─────────────────────────────────────────
 
@@ -91,8 +200,9 @@ function VoiceInputInner({
 }: Props) {
   const [status, setStatus] = useState<'idle' | 'recording' | 'transcribing'>('idle');
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  // Poll at 100ms for responsive metering
+  const recorderState = useAudioRecorderState(recorder, 100);
 
   useEffect(() => {
     (async () => {
@@ -104,22 +214,6 @@ function VoiceInputInner({
       }
     })();
   }, []);
-
-  // Pulse animation while recording
-  useEffect(() => {
-    if (status === 'recording') {
-      const pulse = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 1.3, duration: 600, useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-        ]),
-      );
-      pulse.start();
-      return () => pulse.stop();
-    } else {
-      pulseAnim.setValue(1);
-    }
-  }, [status, pulseAnim]);
 
   const startRecording = useCallback(async () => {
     if (hasPermission === false) {
@@ -185,24 +279,29 @@ function VoiceInputInner({
     }
   }, [status, startRecording, stopRecording]);
 
+  // Current metering level from the recorder
+  const metering = status === 'recording' ? recorderState.metering : undefined;
+
   if (compact) {
     return (
       <TouchableOpacity
-        style={[styles.compactBtn, status === 'recording' && styles.compactBtnActive]}
+        style={[
+          styles.compactBtn,
+          status === 'recording' && styles.compactBtnActive,
+        ]}
         onPress={handlePress}
         disabled={status === 'transcribing'}
         activeOpacity={0.7}
       >
         {status === 'transcribing' ? (
           <Ionicons name="ellipsis-horizontal" size={20} color={Colors.textSecondary} />
+        ) : status === 'recording' ? (
+          <View style={styles.compactRecording}>
+            <SoundBars metering={metering} isActive count={3} barWidth={2.5} barGap={1.5} maxHeight={14} />
+            <Ionicons name="stop" size={10} color={Colors.danger} />
+          </View>
         ) : (
-          <Animated.View style={{ transform: [{ scale: status === 'recording' ? pulseAnim : 1 }] }}>
-            <Ionicons
-              name={status === 'recording' ? 'stop-circle' : 'mic'}
-              size={20}
-              color={status === 'recording' ? Colors.danger : Colors.accent}
-            />
-          </Animated.View>
+          <Ionicons name="mic" size={20} color={Colors.accent} />
         )}
       </TouchableOpacity>
     );
@@ -221,18 +320,15 @@ function VoiceInputInner({
             <Ionicons name="ellipsis-horizontal" size={24} color={Colors.textSecondary} />
             <Text style={styles.statusText}>Transcribing…</Text>
           </>
+        ) : status === 'recording' ? (
+          <>
+            <SoundBars metering={metering} isActive count={BAR_COUNT_FULL} barWidth={3} barGap={2} maxHeight={22} />
+            <Ionicons name="stop-circle" size={20} color={Colors.danger} />
+          </>
         ) : (
           <>
-            <Animated.View style={{ transform: [{ scale: status === 'recording' ? pulseAnim : 1 }] }}>
-              <Ionicons
-                name={status === 'recording' ? 'stop-circle' : 'mic'}
-                size={32}
-                color={status === 'recording' ? Colors.danger : Colors.accent}
-              />
-            </Animated.View>
-            <Text style={[styles.statusText, status === 'recording' && styles.recordingText]}>
-              {status === 'recording' ? 'Tap to stop' : placeholder}
-            </Text>
+            <Ionicons name="mic" size={32} color={Colors.accent} />
+            <Text style={styles.statusText}>{placeholder}</Text>
           </>
         )}
       </TouchableOpacity>
@@ -292,5 +388,12 @@ const styles = StyleSheet.create({
   compactBtnActive: {
     borderColor: Colors.danger + '50',
     backgroundColor: Colors.danger + '10',
+    borderWidth: 1,
+    borderRadius: BorderRadius.full,
+  },
+  compactRecording: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
   },
 });

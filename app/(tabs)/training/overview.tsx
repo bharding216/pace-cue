@@ -5,16 +5,21 @@
  * and an "Adjust My Plan" button.
  */
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
+  Alert,
+  Platform,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
 import { TrainingPhases } from '../../../src/components/TrainingPhases';
 import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
@@ -41,7 +46,15 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function PlanOverviewScreen() {
   const router = useRouter();
-  const { plans, planWorkouts } = useTrainingPlan();
+  const { plans, archivedPlans, planWorkouts, archivePlan, restorePlan, updatePlan } = useTrainingPlan();
+  const [archiving, setArchiving] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const [showDaysPicker, setShowDaysPicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [phasesExpanded, setPhasesExpanded] = useState(false);
+  const [weekExpanded, setWeekExpanded] = useState(false);
+  const [showTitleEditor, setShowTitleEditor] = useState(false);
+  const [editingTitle, setEditingTitle] = useState('');
 
   const primaryPlan = useMemo(
     () => plans.find((p) => p.race_type !== 'custom') ?? null,
@@ -69,24 +82,142 @@ export default function PlanOverviewScreen() {
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [planWorkouts, currentWeekNumber, primaryPlan]);
 
-  const handleWorkoutPress = useCallback((date: string) => {
-    router.back();
+  const handleWorkoutPress = useCallback((planWorkoutId: string) => {
+    router.push({ pathname: '/(tabs)/training/workout-detail', params: { workoutId: planWorkoutId } } as any);
   }, [router]);
+
+  const handleArchivePlan = useCallback((planId: string, planTitle: string) => {
+    Alert.alert(
+      'Archive Plan',
+      `Are you sure you want to archive "${planTitle}"? This will remove it from your active plans. You won't lose any completed workout history.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Archive',
+          style: 'destructive',
+          onPress: async () => {
+            setArchiving(planId);
+            try {
+              await archivePlan(planId);
+            } finally {
+              setArchiving(null);
+            }
+          },
+        },
+      ],
+    );
+  }, [archivePlan]);
+
+  const handleRestorePlan = useCallback(async (planId: string) => {
+    setRestoring(planId);
+    try {
+      await restorePlan(planId);
+    } finally {
+      setRestoring(null);
+    }
+  }, [restorePlan]);
+
+  const handleEditTitle = useCallback(() => {
+    if (!primaryPlan) return;
+    setEditingTitle(primaryPlan.title || formatRaceLabel(primaryPlan.race_type));
+    setShowTitleEditor(true);
+  }, [primaryPlan]);
+
+  const handleSaveTitle = useCallback(async () => {
+    if (!primaryPlan) return;
+    const trimmed = editingTitle.trim();
+    setShowTitleEditor(false);
+    if (!trimmed || trimmed === primaryPlan.title) return;
+    try {
+      await updatePlan(primaryPlan.id, { title: trimmed });
+    } catch (err) {
+      console.warn('Failed to update title:', err);
+      Alert.alert('Error', 'Failed to update plan title. Please try again.');
+    }
+  }, [primaryPlan, editingTitle, updatePlan]);
+
+  const handleUpdateDaysPerWeek = useCallback(async (days: number) => {
+    if (!primaryPlan) return;
+    setShowDaysPicker(false);
+    try {
+      await updatePlan(primaryPlan.id, { days_per_week: days });
+    } catch (err) {
+      console.warn('Failed to update days per week:', err);
+      Alert.alert('Error', 'Failed to update runs per week. Please try again.');
+    }
+  }, [primaryPlan, updatePlan]);
+
+  const handleUpdateRaceDate = useCallback(async (_event: any, date?: Date) => {
+    if (Platform.OS === 'android') setShowDatePicker(false);
+    if (!primaryPlan || !date) return;
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    if (dateStr === primaryPlan.race_date) return;
+    try {
+      await updatePlan(primaryPlan.id, { race_date: dateStr });
+    } catch (err) {
+      console.warn('Failed to update race date:', err);
+      Alert.alert('Error', 'Failed to update race date. Please try again.');
+    }
+  }, [primaryPlan, updatePlan]);
+
+  // All non-custom plans (for the manage section)
+  const allRacePlans = useMemo(
+    () => plans.filter((p) => p.race_type !== 'custom'),
+    [plans],
+  );
+
+  const archivedRacePlans = useMemo(
+    () => archivedPlans.filter((p) => p.race_type !== 'custom'),
+    [archivedPlans],
+  );
 
   if (!primaryPlan) {
     return (
-      <View style={styles.centered}>
-        <Ionicons name="calendar-outline" size={48} color={Colors.textMuted} />
-        <Text style={styles.emptyTitle}>No Active Plan</Text>
-        <Text style={styles.emptyText}>Create a training plan first.</Text>
-        <TouchableOpacity
-          style={styles.createBtn}
-          onPress={() => router.push('/(tabs)/training/setup' as any)}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.createBtnText}>Create Plan</Text>
-        </TouchableOpacity>
-      </View>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.centeredScroll}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.centeredInner}>
+          <Ionicons name="calendar-outline" size={48} color={Colors.textMuted} />
+          <Text style={styles.emptyTitle}>No Active Plan</Text>
+          <Text style={styles.emptyText}>Create a training plan to get started.</Text>
+          <TouchableOpacity
+            style={styles.createBtn}
+            onPress={() => router.push('/(tabs)/training/setup' as any)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.createBtnText}>Create Plan</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Show archived plans so user can restore */}
+        {archivedRacePlans.length > 0 && (
+          <View style={styles.managePlansSection}>
+            <Text style={styles.managePlansTitle}>Archived Plans</Text>
+            {archivedRacePlans.map((p) => (
+              <View key={p.id} style={[styles.planRow, styles.planRowArchived]}>
+                <View style={styles.planRowInfo}>
+                  <Text style={[styles.planRowName, styles.archivedName]} numberOfLines={1}>
+                    {p.title || formatRaceLabel(p.race_type)}
+                  </Text>
+                  <Text style={styles.planRowMeta}>
+                    {formatRaceLabel(p.race_type)} · Archived
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.restoreBtn}
+                  onPress={() => handleRestorePlan(p.id)}
+                  disabled={restoring === p.id}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="arrow-undo-outline" size={16} color={Colors.accent} />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+      </ScrollView>
     );
   }
 
@@ -98,7 +229,16 @@ export default function PlanOverviewScreen() {
     >
       {/* Plan header */}
       <View style={styles.header}>
-        <Text style={styles.planTitle}>{primaryPlan.title || formatRaceLabel(primaryPlan.race_type)}</Text>
+        <TouchableOpacity
+          style={styles.titleRow}
+          onPress={handleEditTitle}
+          activeOpacity={0.6}
+        >
+          <Text style={styles.planTitle} numberOfLines={1}>
+            {primaryPlan.title || formatRaceLabel(primaryPlan.race_type)}
+          </Text>
+          <Ionicons name="pencil" size={16} color={Colors.primary} />
+        </TouchableOpacity>
         <Text style={styles.planSubtitle}>
           {totalWeeks}-week training program
         </Text>
@@ -111,61 +251,217 @@ export default function PlanOverviewScreen() {
           <Text style={styles.statLabel}>Current week</Text>
         </View>
         <View style={styles.statDivider} />
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>{primaryPlan.days_per_week}</Text>
+        <TouchableOpacity style={styles.stat} onPress={() => setShowDaysPicker(true)} activeOpacity={0.6}>
+          <View style={styles.editableValue}>
+            <Text style={styles.statValue}>{primaryPlan.days_per_week}</Text>
+            <Ionicons name="pencil" size={14} color={Colors.primary} />
+          </View>
           <Text style={styles.statLabel}>Runs / week</Text>
-        </View>
+        </TouchableOpacity>
         <View style={styles.statDivider} />
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>
-            {new Date(primaryPlan.race_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-          </Text>
+        <TouchableOpacity
+          style={styles.stat}
+          onPress={() => setShowDatePicker(true)}
+          activeOpacity={0.6}
+        >
+          <View style={styles.editableValue}>
+            <Text style={styles.statValue}>
+              {new Date(primaryPlan.race_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            </Text>
+            <Ionicons name="pencil" size={14} color={Colors.primary} />
+          </View>
           <Text style={styles.statLabel}>Race day</Text>
-        </View>
+        </TouchableOpacity>
       </View>
+
+      {/* Days-per-week picker modal */}
+      <Modal
+        visible={showDaysPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDaysPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowDaysPicker(false)}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Runs per week</Text>
+            <View style={styles.daysGrid}>
+              {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                <TouchableOpacity
+                  key={n}
+                  style={[
+                    styles.dayOption,
+                    n === primaryPlan.days_per_week && styles.dayOptionActive,
+                  ]}
+                  onPress={() => handleUpdateDaysPerWeek(n)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.dayOptionText,
+                      n === primaryPlan.days_per_week && styles.dayOptionTextActive,
+                    ]}
+                  >
+                    {n}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Race date picker */}
+      {Platform.OS === 'ios' && showDatePicker && (
+        <Modal
+          visible={showDatePicker}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowDatePicker(false)}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowDatePicker(false)}
+          >
+            <View style={styles.dateModalContent}>
+              <Text style={styles.modalTitle}>Race date</Text>
+              <View style={styles.datePickerWrapper}>
+                <DateTimePicker
+                  value={new Date(primaryPlan.race_date + 'T00:00:00')}
+                  mode="date"
+                  display="spinner"
+                  minimumDate={new Date()}
+                  onChange={(event, date) => {
+                    handleUpdateRaceDate(event, date);
+                  }}
+                  themeVariant="dark"
+                  style={{ height: 180, width: '100%' }}
+                />
+              </View>
+              <TouchableOpacity
+                style={styles.modalDoneBtn}
+                onPress={() => setShowDatePicker(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.modalDoneBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
+      {Platform.OS === 'android' && showDatePicker && (
+        <DateTimePicker
+          value={new Date(primaryPlan.race_date + 'T00:00:00')}
+          mode="date"
+          minimumDate={new Date()}
+          onChange={handleUpdateRaceDate}
+          themeVariant="dark"
+        />
+      )}
+
+      {/* Title editor modal */}
+      <Modal
+        visible={showTitleEditor}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowTitleEditor(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowTitleEditor(false)}
+        >
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>Plan name</Text>
+            <TextInput
+              style={styles.titleInput}
+              value={editingTitle}
+              onChangeText={setEditingTitle}
+              placeholder="Enter plan name"
+              placeholderTextColor={Colors.textMuted}
+              autoFocus
+              selectTextOnFocus
+              returnKeyType="done"
+              onSubmitEditing={handleSaveTitle}
+            />
+            <TouchableOpacity
+              style={styles.modalDoneBtn}
+              onPress={handleSaveTitle}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.modalDoneBtnText}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Training phases */}
       <TrainingPhases
         outline={primaryPlan.outline}
         currentWeekNumber={currentWeekNumber}
+        maxVisible={2}
+        expanded={phasesExpanded}
+        onToggleExpanded={() => setPhasesExpanded((v) => !v)}
       />
 
       {/* This Week */}
       <View style={styles.weekSection}>
         <View style={styles.weekHeader}>
-          <Text style={styles.weekTitle}>This Week</Text>
+          <Text style={styles.weekTitle}>Workouts This Week</Text>
           <Text style={styles.weekLabel}>Week {currentWeekNumber}</Text>
         </View>
 
         {currentWeekWorkouts.length > 0 ? (
-          currentWeekWorkouts.map((pw) => {
-            const dayName = DAY_NAMES[new Date(pw.date + 'T12:00:00').getDay()];
-            return (
+          <>
+            {(weekExpanded ? currentWeekWorkouts : currentWeekWorkouts.slice(0, 3)).map((pw) => {
+              const dayName = DAY_NAMES[new Date(pw.date + 'T12:00:00').getDay()];
+              return (
+                <TouchableOpacity
+                  key={pw.id}
+                  style={styles.weekWorkout}
+                  onPress={() => handleWorkoutPress(pw.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.weekDay}>{dayName}</Text>
+                  <View style={styles.weekWorkoutInfo}>
+                    <Text style={styles.weekWorkoutName} numberOfLines={1}>
+                      {pw.day_label || 'Training'}
+                    </Text>
+                    {pw.description && (
+                      <Text style={styles.weekWorkoutDesc} numberOfLines={1}>{pw.description}</Text>
+                    )}
+                  </View>
+                  {pw.status === 'completed' ? (
+                    <Ionicons name="checkmark-circle" size={18} color={Colors.primary} />
+                  ) : pw.status === 'skipped' ? (
+                    <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+            {currentWeekWorkouts.length > 3 && (
               <TouchableOpacity
-                key={pw.id}
-                style={styles.weekWorkout}
-                onPress={() => handleWorkoutPress(pw.date)}
+                style={styles.expandBtn}
+                onPress={() => setWeekExpanded((v) => !v)}
                 activeOpacity={0.7}
               >
-                <Text style={styles.weekDay}>{dayName}</Text>
-                <View style={styles.weekWorkoutInfo}>
-                  <Text style={styles.weekWorkoutName} numberOfLines={1}>
-                    {pw.day_label || 'Training'}
-                  </Text>
-                  {pw.description && (
-                    <Text style={styles.weekWorkoutDesc} numberOfLines={1}>{pw.description}</Text>
-                  )}
-                </View>
-                {pw.status === 'completed' ? (
-                  <Ionicons name="checkmark-circle" size={18} color={Colors.primary} />
-                ) : pw.status === 'skipped' ? (
-                  <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
-                ) : (
-                  <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-                )}
+                <Text style={styles.expandBtnText}>
+                  {weekExpanded ? 'Show less' : `Show ${currentWeekWorkouts.length - 3} more workout${currentWeekWorkouts.length - 3 !== 1 ? 's' : ''}`}
+                </Text>
+                <Ionicons
+                  name={weekExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={Colors.primary}
+                />
               </TouchableOpacity>
-            );
-          })
+            )}
+          </>
         ) : (
           <Text style={styles.weekEmpty}>No workouts scheduled this week.</Text>
         )}
@@ -186,6 +482,70 @@ export default function PlanOverviewScreen() {
         <Ionicons name="sparkles" size={18} color={Colors.black} />
         <Text style={styles.adjustBtnText}>Adjust My Plan</Text>
       </TouchableOpacity>
+
+      {/* Manage Plans section */}
+      {(allRacePlans.length > 0 || archivedRacePlans.length > 0) && (
+        <View style={styles.managePlansSection}>
+          <Text style={styles.managePlansTitle}>Manage Plans</Text>
+          {allRacePlans.map((p) => {
+            const isPrimary = p.id === primaryPlan?.id;
+            const planDaysToRace = daysUntil(p.race_date);
+            const planWorkoutCount = planWorkouts.filter((w) => w.plan_id === p.id).length;
+            return (
+              <View key={p.id} style={styles.planRow}>
+                <View style={styles.planRowInfo}>
+                  <View style={styles.planRowHeader}>
+                    <Text style={styles.planRowName} numberOfLines={1}>{p.title || formatRaceLabel(p.race_type)}</Text>
+                    {isPrimary && allRacePlans.length > 1 && (
+                      <View style={styles.primaryBadge}>
+                        <Text style={styles.primaryBadgeText}>Active</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.planRowMeta}>
+                    {formatRaceLabel(p.race_type)} · {planWorkoutCount} workouts · {planDaysToRace > 0 ? `${planDaysToRace} days left` : 'Race passed'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.archiveBtn}
+                  onPress={() => handleArchivePlan(p.id, p.title || formatRaceLabel(p.race_type))}
+                  disabled={archiving === p.id}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="archive-outline" size={16} color={Colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+
+          {/* Archived plans */}
+          {archivedRacePlans.length > 0 && (
+            <>
+              <Text style={styles.archivedLabel}>Archived</Text>
+              {archivedRacePlans.map((p) => (
+                <View key={p.id} style={[styles.planRow, styles.planRowArchived]}>
+                  <View style={styles.planRowInfo}>
+                    <Text style={[styles.planRowName, styles.archivedName]} numberOfLines={1}>
+                      {p.title || formatRaceLabel(p.race_type)}
+                    </Text>
+                    <Text style={styles.planRowMeta}>
+                      {formatRaceLabel(p.race_type)} · Archived
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.restoreBtn}
+                    onPress={() => handleRestorePlan(p.id)}
+                    disabled={restoring === p.id}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="arrow-undo-outline" size={16} color={Colors.accent} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </>
+          )}
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -199,12 +559,13 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     paddingBottom: Spacing.xxl * 2,
   },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
+  centeredScroll: {
+    padding: Spacing.lg,
+    paddingBottom: Spacing.xxl * 2,
+  },
+  centeredInner: {
     alignItems: 'center',
-    backgroundColor: Colors.background,
-    padding: Spacing.xl,
+    paddingVertical: Spacing.xxl,
     gap: Spacing.md,
   },
   emptyTitle: {
@@ -234,10 +595,16 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: Spacing.lg,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
   planTitle: {
     fontSize: FontSize.xl,
     fontWeight: '800',
     color: Colors.textPrimary,
+    flexShrink: 1,
   },
   planSubtitle: {
     fontSize: FontSize.sm,
@@ -272,10 +639,101 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontWeight: '500',
   },
+  editableValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   statDivider: {
     width: 1,
     height: 32,
     backgroundColor: Colors.surfaceLight,
+  },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    width: '80%',
+    maxWidth: 320,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  dateModalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    width: '90%',
+    maxWidth: 380,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  datePickerWrapper: {
+    overflow: 'hidden',
+    alignItems: 'center',
+    marginHorizontal: -Spacing.sm,
+  },
+  modalTitle: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: Spacing.lg,
+  },
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+  },
+  dayOption: {
+    width: 52,
+    height: 52,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surfaceLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayOptionActive: {
+    backgroundColor: Colors.primary,
+  },
+  dayOptionText: {
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  dayOptionTextActive: {
+    color: Colors.black,
+  },
+  titleInput: {
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.md,
+    fontSize: FontSize.md,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.md,
+  },
+  modalDoneBtn: {
+    marginTop: Spacing.lg,
+    alignSelf: 'center',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+  },
+  modalDoneBtnText: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.black,
   },
 
   // Week section
@@ -334,6 +792,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: Spacing.lg,
   },
+  expandBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  expandBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
 
   // Adjust button
   adjustBtn: {
@@ -349,5 +820,89 @@ const styles = StyleSheet.create({
     color: Colors.black,
     fontSize: FontSize.md,
     fontWeight: '800',
+  },
+
+  // Manage plans
+  managePlansSection: {
+    marginTop: Spacing.xl,
+  },
+  managePlansTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: Spacing.sm,
+  },
+  planRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  planRowInfo: {
+    flex: 1,
+  },
+  planRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: 2,
+  },
+  planRowName: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    flex: 1,
+  },
+  primaryBadge: {
+    backgroundColor: Colors.primary + '20',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+  },
+  primaryBadgeText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  planRowMeta: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  archiveBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceLight,
+    marginLeft: Spacing.sm,
+  },
+  archivedLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  planRowArchived: {
+    opacity: 0.6,
+  },
+  archivedName: {
+    color: Colors.textSecondary,
+  },
+  restoreBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.accent + '15',
+    marginLeft: Spacing.sm,
   },
 });

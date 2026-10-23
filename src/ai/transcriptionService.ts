@@ -3,7 +3,7 @@
  * edge function (OpenAI Whisper API) and returns the text.
  */
 
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system';
 import { supabase } from '../analytics/supabaseClient';
 
 export interface TranscriptionResult {
@@ -19,10 +19,8 @@ export async function transcribeAudio(
   uri: string,
   mimeType: string = 'audio/m4a',
 ): Promise<TranscriptionResult> {
-  // Read the file as base64
-  const base64 = await FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
+  const file = new File(uri);
+  const base64 = await file.base64();
 
   const { data, error } = await supabase.functions.invoke('transcribe-audio', {
     body: {

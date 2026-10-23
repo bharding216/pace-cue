@@ -17,6 +17,7 @@ import type { TrainingPlan, PlanWorkout } from '../types/database';
 import type { CompletedWorkout } from '../workout/workoutTypes';
 import {
   loadActivePlans,
+  loadArchivedPlans,
   loadPlanWorkouts,
   loadUserPlanWorkouts,
   ensureCustomPlan,
@@ -24,6 +25,8 @@ import {
   removePlanWorkout as removePlanWorkoutApi,
   completePlanWorkout as completePlanWorkoutApi,
   archivePlan as archivePlanApi,
+  restorePlan as restorePlanApi,
+  updateTrainingPlan as updateTrainingPlanApi,
   ensureUpcomingWorkoutsDetailed,
 } from '../ai/planService';
 import { loadHistory } from '../workout/workoutStorage';
@@ -40,6 +43,8 @@ export interface DayEntry {
 interface TrainingPlanContextType {
   /** All active plans */
   plans: TrainingPlan[];
+  /** Archived plans */
+  archivedPlans: TrainingPlan[];
   /** Primary active plan (first non-custom, for backward compat) */
   plan: TrainingPlan | null;
   planWorkouts: PlanWorkout[];
@@ -59,6 +64,10 @@ interface TrainingPlanContextType {
   completeWorkout: (workoutId: string, completedWorkoutId: string) => Promise<void>;
   /** Archive a specific plan */
   archivePlan: (planId?: string) => Promise<void>;
+  /** Restore an archived plan back to active */
+  restorePlan: (planId: string) => Promise<void>;
+  /** Update mutable plan fields (race_date, days_per_week, etc.) */
+  updatePlan: (planId: string, fields: Partial<Pick<import('../types/database').TrainingPlan, 'race_date' | 'days_per_week' | 'title' | 'goal_time_minutes'>>) => Promise<void>;
 }
 
 const TrainingPlanContext = createContext<TrainingPlanContextType | null>(null);
@@ -73,11 +82,21 @@ function toDateKey(epoch: number): string {
 function buildDayEntries(
   planWorkouts: PlanWorkout[],
   history: CompletedWorkout[],
+  primaryPlanId: string | null,
 ): Record<string, DayEntry> {
   const entries: Record<string, DayEntry> = {};
 
-  // Plan workouts
-  for (const pw of planWorkouts) {
+  // Plan workouts — process non-primary plans first, then primary plan last.
+  // This ensures the primary plan's workouts "win" for any date that has
+  // workouts from multiple plans.
+  const sorted = [...planWorkouts].sort((a, b) => {
+    const aIsPrimary = a.plan_id === primaryPlanId ? 1 : 0;
+    const bIsPrimary = b.plan_id === primaryPlanId ? 1 : 0;
+    if (aIsPrimary !== bIsPrimary) return aIsPrimary - bIsPrimary;
+    return a.date.localeCompare(b.date);
+  });
+
+  for (const pw of sorted) {
     if (!entries[pw.date]) {
       entries[pw.date] = { date: pw.date, completedRuns: [] };
     }
@@ -101,16 +120,20 @@ function buildDayEntries(
 export function TrainingPlanProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [plans, setPlans] = useState<TrainingPlan[]>([]);
+  const [archivedPlans, setArchivedPlans] = useState<TrainingPlan[]>([]);
   const [planWorkouts, setPlanWorkouts] = useState<PlanWorkout[]>([]);
   const [history, setHistory] = useState<CompletedWorkout[]>([]);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnce = useRef(false);
   const isGeneratingDetails = useRef(false);
+  /** Incremented on each refresh so stale background tasks can detect they're outdated. */
+  const refreshEpoch = useRef(0);
 
   // Primary plan: first non-custom active plan (backward compat)
   const plan = plans.find((p) => p.race_type !== 'custom') ?? plans[0] ?? null;
 
   const refresh = useCallback(async () => {
+    const epoch = ++refreshEpoch.current;
     if (!hasLoadedOnce.current) setLoading(true);
     try {
       const historyData = await loadHistory();
@@ -123,15 +146,22 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
         return;
       }
 
-      // Load all active plans
-      const activePlans = await loadActivePlans(user.id);
+      // Load all active plans + archived plans
+      const [activePlans, archived] = await Promise.all([
+        loadActivePlans(user.id),
+        loadArchivedPlans(user.id),
+      ]);
       setPlans(activePlans);
+      setArchivedPlans(archived);
 
-      // Load ALL plan workouts for this user (across all plans)
+      // Load plan workouts only for active plans
+      const activePlanIds = new Set(activePlans.map((p) => p.id));
       const allWorkouts = await loadUserPlanWorkouts(user.id);
-      setPlanWorkouts(allWorkouts);
+      const activeWorkouts = allWorkouts.filter((w) => activePlanIds.has(w.plan_id));
+      setPlanWorkouts(activeWorkouts);
 
       // Auto-fill upcoming workout details for each non-custom plan
+      // Only start if no other generation is in flight
       const racePlans = activePlans.filter((p) => p.race_type !== 'custom');
       if (racePlans.length > 0 && !isGeneratingDetails.current) {
         isGeneratingDetails.current = true;
@@ -142,6 +172,13 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
           })
         )
           .then((results) => {
+            // If a newer refresh happened while we were generating, discard these results
+            // to avoid overwriting fresher data with stale data.
+            if (refreshEpoch.current !== epoch) {
+              console.log('[TrainingPlan] Discarding stale detail generation results (epoch', epoch, 'vs current', refreshEpoch.current, ')');
+              return;
+            }
+
             const allUpdated = results.flat();
             if (allUpdated.length > 0) {
               const updatedIds = new Set(allUpdated.map((w) => w.id));
@@ -167,7 +204,7 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
     refresh();
   }, [refresh]);
 
-  const dayEntries = buildDayEntries(planWorkouts, history);
+  const dayEntries = buildDayEntries(planWorkouts, history, plan?.id ?? null);
 
   const skipWorkout = useCallback(async (workoutId: string) => {
     await skipPlanWorkoutApi(workoutId);
@@ -199,9 +236,27 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
     const targetId = planId ?? plan?.id;
     if (!targetId) return;
     await archivePlanApi(targetId);
+    const archivedPlan = plans.find((p) => p.id === targetId);
     setPlans((prev) => prev.filter((p) => p.id !== targetId));
     setPlanWorkouts((prev) => prev.filter((w) => w.plan_id !== targetId));
-  }, [plan?.id]);
+    if (archivedPlan) {
+      setArchivedPlans((prev) => [{ ...archivedPlan, status: 'archived' }, ...prev]);
+    }
+  }, [plan?.id, plans]);
+
+  const restorePlanFn = useCallback(async (planId: string) => {
+    await restorePlanApi(planId);
+    const restoredPlan = archivedPlans.find((p) => p.id === planId);
+    setArchivedPlans((prev) => prev.filter((p) => p.id !== planId));
+    if (restoredPlan) {
+      setPlans((prev) => [...prev, { ...restoredPlan, status: 'active' }]);
+    }
+    // Reload workouts to include the restored plan's workouts
+    if (user) {
+      const allWorkouts = await loadUserPlanWorkouts(user.id);
+      setPlanWorkouts(allWorkouts);
+    }
+  }, [archivedPlans, user]);
 
   const ensurePlanFn = useCallback(async (): Promise<TrainingPlan> => {
     // Return existing custom plan, or create one for manual workout additions
@@ -213,10 +268,21 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
     return created;
   }, [plans, user]);
 
+  const updatePlanFn = useCallback(async (
+    planId: string,
+    fields: Partial<Pick<TrainingPlan, 'race_date' | 'days_per_week' | 'title' | 'goal_time_minutes'>>,
+  ) => {
+    await updateTrainingPlanApi(planId, fields);
+    setPlans((prev) =>
+      prev.map((p) => (p.id === planId ? { ...p, ...fields, updated_at: new Date().toISOString() } : p)),
+    );
+  }, []);
+
   return (
     <TrainingPlanContext.Provider
       value={{
         plans,
+        archivedPlans,
         plan,
         planWorkouts,
         history,
@@ -228,6 +294,8 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
         removeWorkout,
         completeWorkout,
         archivePlan: archivePlanFn,
+        restorePlan: restorePlanFn,
+        updatePlan: updatePlanFn,
       }}
     >
       {children}

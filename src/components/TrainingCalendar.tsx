@@ -2,6 +2,7 @@
  * TrainingCalendar — month/week calendar view adapted from setpoint-ai.
  * Shows colored dots for completed runs and planned workouts.
  * Custom-built with RN core views (no third-party calendar library).
+ * Supports swipe-to-navigate in both month and week views.
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
@@ -12,6 +13,13 @@ import {
   StyleSheet,
   Dimensions,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  runOnJS,
+} from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import type { DayEntry } from '../contexts/TrainingPlanContext';
@@ -171,6 +179,38 @@ export function TrainingCalendar({
         return `${startMonth} ${start.getDate()} - ${endMonth} ${end.getDate()}`;
       })();
 
+  // ── Swipe gesture ──
+  const SWIPE_THRESHOLD = 50;
+  const translateX = useSharedValue(0);
+
+  const swipeGesture = Gesture.Pan()
+    .activeOffsetX([-20, 20])
+    .failOffsetY([-15, 15])
+    .onUpdate((e) => {
+      translateX.value = e.translationX * 0.4;
+    })
+    .onEnd((e) => {
+      if (e.translationX < -SWIPE_THRESHOLD) {
+        translateX.value = withTiming(-SCREEN_WIDTH, { duration: 150 }, () => {
+          runOnJS(navigateNext)();
+          translateX.value = SCREEN_WIDTH;
+          translateX.value = withTiming(0, { duration: 200 });
+        });
+      } else if (e.translationX > SWIPE_THRESHOLD) {
+        translateX.value = withTiming(SCREEN_WIDTH, { duration: 150 }, () => {
+          runOnJS(navigatePrev)();
+          translateX.value = -SCREEN_WIDTH;
+          translateX.value = withTiming(0, { duration: 200 });
+        });
+      } else {
+        translateX.value = withTiming(0, { duration: 150 });
+      }
+    });
+
+  const animatedGridStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
   return (
     <View style={styles.container}>
       {/* Header: navigation + view toggle */}
@@ -203,137 +243,142 @@ export function TrainingCalendar({
         </View>
       </View>
 
-      {/* Weekday headers (month view only — week view cards have their own labels) */}
-      {viewMode === 'month' && (
-        <View style={styles.weekdayRow}>
-          {WEEKDAY_LABELS.map((label) => (
-            <Text key={label} style={styles.weekdayLabel}>{label}</Text>
-          ))}
-        </View>
-      )}
+      {/* Swipeable calendar body */}
+      <GestureDetector gesture={swipeGesture}>
+        <Animated.View style={[styles.swipeContainer, animatedGridStyle]}>
+          {/* Weekday headers (month view only) */}
+          {viewMode === 'month' && (
+            <View style={styles.weekdayRow}>
+              {WEEKDAY_LABELS.map((label) => (
+                <Text key={label} style={styles.weekdayLabel}>{label}</Text>
+              ))}
+            </View>
+          )}
 
-      {/* Month view */}
-      {viewMode === 'month' && monthGrid.map((week, wi) => (
-        <View key={wi} style={styles.weekRow}>
-          {week.map((day) => {
-            const key = toDateKey(day);
-            const isCurrentMonth = day.getMonth() === refDate.getMonth();
-            const isToday = key === today;
-            const isSelected = key === selectedDate;
-            const isRaceDay = raceDateSet.has(key);
-            const entry = dayEntries[key];
-            const dots = entry ? dotColor(entry) : [];
+          {/* Month view */}
+          {viewMode === 'month' && monthGrid.map((week, wi) => (
+            <View key={wi} style={styles.weekRow}>
+              {week.map((day) => {
+                const key = toDateKey(day);
+                const isCurrentMonth = day.getMonth() === refDate.getMonth();
+                const isToday = key === today;
+                const isSelected = key === selectedDate;
+                const isRaceDay = raceDateSet.has(key);
+                const entry = dayEntries[key];
+                const dots = entry ? dotColor(entry) : [];
 
-            return (
-              <TouchableOpacity
-                key={key}
-                style={[
-                  styles.dayCell,
-                  isSelected && styles.dayCellSelected,
-                  isRaceDay && styles.dayCellRace,
-                ]}
-                onPress={() => onSelectDate(key)}
-                activeOpacity={0.6}
-              >
-                <View style={[styles.dayNumber, isToday && styles.dayNumberToday]}>
-                  <Text
+                return (
+                  <TouchableOpacity
+                    key={key}
                     style={[
-                      styles.dayText,
-                      !isCurrentMonth && styles.dayTextMuted,
-                      isToday && styles.dayTextToday,
-                      isSelected && styles.dayTextSelected,
+                      styles.dayCell,
+                      isSelected && styles.dayCellSelected,
+                      isRaceDay && styles.dayCellRace,
                     ]}
+                    onPress={() => onSelectDate(key)}
+                    activeOpacity={0.6}
                   >
-                    {day.getDate()}
-                  </Text>
-                </View>
-                {isRaceDay ? (
-                  <View style={styles.raceBadge}>
-                    <Ionicons name="flag" size={9} color={Colors.warning} />
-                    <Text style={styles.raceBadgeText}>Race</Text>
-                  </View>
-                ) : (
-                  <View style={styles.dotRow}>
-                    {dots.map((color, i) => (
-                      <View key={i} style={[styles.dot, { backgroundColor: color }]} />
-                    ))}
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      ))}
-
-      {/* Week view */}
-      {viewMode === 'week' && (
-        <View style={styles.weekViewRow}>
-          {weekDays.map((day) => {
-            const key = toDateKey(day);
-            const isToday = key === today;
-            const isSelected = key === selectedDate;
-              const isRaceDay = raceDateSet.has(key);
-            const entry = dayEntries[key];
-            const dayLabel = entry?.planWorkout?.day_label;
-
-            return (
-              <TouchableOpacity
-                key={key}
-                style={[
-                  styles.weekDayCard,
-                  isSelected && styles.weekDayCardSelected,
-                  isRaceDay && styles.weekDayCardRace,
-                ]}
-                onPress={() => onSelectDate(key)}
-                activeOpacity={0.6}
-              >
-                <Text style={[styles.weekDayLabel, isToday && styles.weekDayLabelToday]}>
-                  {WEEKDAY_LABELS[day.getDay()]}
-                </Text>
-                <View style={[styles.weekDayNumber, isToday && styles.dayNumberToday]}>
-                  <Text style={[
-                    styles.weekDayDateText,
-                    isToday && styles.dayTextToday,
-                  ]}>
-                    {day.getDate()}
-                  </Text>
-                </View>
-                {isRaceDay ? (
-                  <View style={[styles.weekWorkoutChip, { borderLeftColor: Colors.warning }]}>
-                    <View style={styles.weekRaceRow}>
-                      <Ionicons name="flag" size={10} color={Colors.warning} />
-                      <Text style={styles.weekRaceText}>Race Day</Text>
+                    <View style={[styles.dayNumber, isToday && styles.dayNumberToday]}>
+                      <Text
+                        style={[
+                          styles.dayText,
+                          !isCurrentMonth && styles.dayTextMuted,
+                          isToday && styles.dayTextToday,
+                          isSelected && styles.dayTextSelected,
+                        ]}
+                      >
+                        {day.getDate()}
+                      </Text>
                     </View>
-                  </View>
-                ) : dayLabel ? (
-                  <View style={[
-                    styles.weekWorkoutChip,
-                    {
-                      borderLeftColor: entry?.planWorkout?.status === 'completed'
-                        ? Colors.primary
-                        : entry?.planWorkout?.status === 'skipped'
-                          ? Colors.textMuted
-                          : Colors.accent,
-                    },
-                  ]}>
-                    <Text style={styles.weekWorkoutType} numberOfLines={2}>
-                      {dayLabel}
+                    {isRaceDay ? (
+                      <View style={styles.raceBadge}>
+                        <Ionicons name="flag" size={9} color={Colors.warning} />
+                        <Text style={styles.raceBadgeText}>Race</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.dotRow}>
+                        {dots.map((color, i) => (
+                          <View key={i} style={[styles.dot, { backgroundColor: color }]} />
+                        ))}
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))}
+
+          {/* Week view */}
+          {viewMode === 'week' && (
+            <View style={styles.weekViewRow}>
+              {weekDays.map((day) => {
+                const key = toDateKey(day);
+                const isToday = key === today;
+                const isSelected = key === selectedDate;
+                const isRaceDay = raceDateSet.has(key);
+                const entry = dayEntries[key];
+                const dayLabel = entry?.planWorkout?.day_label;
+
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[
+                      styles.weekDayCard,
+                      isSelected && styles.weekDayCardSelected,
+                      isRaceDay && styles.weekDayCardRace,
+                    ]}
+                    onPress={() => onSelectDate(key)}
+                    activeOpacity={0.6}
+                  >
+                    <Text style={[styles.weekDayLabel, isToday && styles.weekDayLabelToday]}>
+                      {WEEKDAY_LABELS[day.getDay()]}
                     </Text>
-                  </View>
-                ) : entry?.completedRuns.length ? (
-                  <View style={[styles.weekWorkoutChip, { borderLeftColor: Colors.primary }]}>
-                    <Text style={styles.weekWorkoutType} numberOfLines={2}>
-                      {entry.completedRuns[0].workoutName}
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={styles.weekRestLabel}>Rest</Text>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      )}
+                    <View style={[styles.weekDayNumber, isToday && styles.dayNumberToday]}>
+                      <Text style={[
+                        styles.weekDayDateText,
+                        isToday && styles.dayTextToday,
+                      ]}>
+                        {day.getDate()}
+                      </Text>
+                    </View>
+                    {isRaceDay ? (
+                      <View style={[styles.weekWorkoutChip, { borderLeftColor: Colors.warning }]}>
+                        <View style={styles.weekRaceRow}>
+                          <Ionicons name="flag" size={10} color={Colors.warning} />
+                          <Text style={styles.weekRaceText}>Race Day</Text>
+                        </View>
+                      </View>
+                    ) : dayLabel ? (
+                      <View style={[
+                        styles.weekWorkoutChip,
+                        {
+                          borderLeftColor: entry?.planWorkout?.status === 'completed'
+                            ? Colors.primary
+                            : entry?.planWorkout?.status === 'skipped'
+                              ? Colors.textMuted
+                              : Colors.accent,
+                        },
+                      ]}>
+                        <Text style={styles.weekWorkoutType} numberOfLines={2}>
+                          {dayLabel}
+                        </Text>
+                      </View>
+                    ) : entry?.completedRuns.length ? (
+                      <View style={[styles.weekWorkoutChip, { borderLeftColor: Colors.primary }]}>
+                        <Text style={styles.weekWorkoutType} numberOfLines={2}>
+                          {entry.completedRuns[0].workoutName}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.weekRestLabel}>Rest</Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </Animated.View>
+      </GestureDetector>
     </View>
   );
 }
@@ -348,6 +393,10 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     padding: Spacing.sm,
     marginBottom: Spacing.md,
+    overflow: 'hidden',
+  },
+  swipeContainer: {
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',

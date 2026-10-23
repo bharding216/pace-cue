@@ -102,7 +102,17 @@ ${upcomingWorkouts.map((w) => `- ${w.date} (Week ${w.week_number}): ${w.day_labe
   }
 
   // Output schema
-  sections.push(`## Output Schema
+  sections.push(`## CRITICAL RULES — READ FIRST
+
+1. durationSeconds is in SECONDS. 30 minutes = 1800 seconds. 40 minutes = 2400 seconds. 60 minutes = 3600 seconds.
+2. repeatCount means how many times to repeat the block. A simple run = repeatCount: 1. Only use repeatCount > 1 for actual interval repeats (e.g. "4 × 400m").
+3. For easy/recovery runs, tempo runs, long runs, or any single-effort workout: use exactly ONE block with ONE interval and repeatCount: 1.
+   - Example 30-minute easy run: blocks: [{"intervals": [{"type": "easy", "durationSeconds": 1800, "label": "Easy Run"}], "repeatCount": 1}]
+   - Example 45-minute long run: blocks: [{"intervals": [{"type": "easy", "durationSeconds": 2700, "label": "Long Run"}], "repeatCount": 1}]
+4. ALWAYS verify: (sum of all durationSeconds across all intervals × their block's repeatCount) ≈ what the user requested.
+5. Do NOT over-structure simple workouts.
+
+## Output Schema
 
 Respond with ONLY a JSON object (no markdown fences):
 
@@ -145,7 +155,8 @@ Rules:
 - Only include modifications for dates that need changes.
 - action "skip" marks a workout as skipped (no workout data needed).
 - action "update" replaces the workout for that date.
-- If the user wants to swap two days, include both dates as "update" modifications.`);
+- If the user wants to swap two days, include both dates as "update" modifications.
+- warmup and cooldown should be empty arrays for simple runs. Only add warmup/cooldown for structured interval sessions.`);
 
   return sections.join("\n\n");
 }
@@ -193,7 +204,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: "gpt-4o",
         messages,
-        temperature: 0.7,
+        temperature: 0.3,
         max_tokens: 4096,
         response_format: { type: "json_object" },
       }),

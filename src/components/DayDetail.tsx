@@ -33,6 +33,8 @@ interface DayDetailProps {
   onRemoveWorkout?: (workoutId: string) => void;
   /** Called with the workout data to open the editor/detail view. */
   onEditWorkout?: (workoutData: WorkoutDefinition) => void;
+  /** Called with the plan_workout id to view planned workout detail screen. */
+  onViewPlannedWorkout?: (planWorkoutId: string) => void;
   /** Called with the history entry ID to view run details. */
   onViewRun: (historyEntryId: string) => void;
   onRunAgain: (workoutId: string) => void;
@@ -118,6 +120,7 @@ export function DayDetail({
   onSkipWorkout,
   onRemoveWorkout,
   onEditWorkout,
+  onViewPlannedWorkout,
   onViewRun,
   onRunAgain,
   onAddWorkout,
@@ -155,7 +158,12 @@ export function DayDetail({
 
       {/* Planned workout */}
       {entry.planWorkout && (
-        <View style={styles.planCard}>
+        <TouchableOpacity
+          style={styles.planCard}
+          activeOpacity={onViewPlannedWorkout ? 0.7 : 1}
+          onPress={() => onViewPlannedWorkout?.(entry.planWorkout!.id)}
+          disabled={!onViewPlannedWorkout}
+        >
           <View style={styles.planHeader}>
             <View style={[styles.statusBadge, { backgroundColor: statusBadgeColor(entry.planWorkout.status) + '22' }]}>
               <Text style={[styles.statusText, { color: statusBadgeColor(entry.planWorkout.status) }]}>
@@ -163,7 +171,12 @@ export function DayDetail({
                  entry.planWorkout.status === 'completed' ? 'Completed' : 'Skipped'}
               </Text>
             </View>
-            <Text style={styles.dayLabel}>{entry.planWorkout.day_label}</Text>
+            <View style={styles.planHeaderRow}>
+              <Text style={[styles.dayLabel, { flex: 1 }]}>{entry.planWorkout.day_label}</Text>
+              {onViewPlannedWorkout && (
+                <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+              )}
+            </View>
           </View>
 
           {entry.planWorkout.description && (
@@ -171,12 +184,7 @@ export function DayDetail({
           )}
 
           {entry.planWorkout.workout_data && entry.planWorkout.status !== 'completed' && (
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => onEditWorkout?.(entry.planWorkout!.workout_data as WorkoutDefinition)}
-            >
-              <WorkoutPreview workoutData={entry.planWorkout.workout_data} />
-            </TouchableOpacity>
+            <WorkoutPreview workoutData={entry.planWorkout.workout_data} />
           )}
 
           {/* Has workout_data — show Start + Remove */}
@@ -257,7 +265,7 @@ export function DayDetail({
               <Text style={styles.restDayText}>Rest and recover</Text>
             </View>
           )}
-        </View>
+        </TouchableOpacity>
       )}
 
       {/* Add workout button — show when there's no planned workout for this day */}
@@ -362,6 +370,10 @@ const styles = StyleSheet.create({
   planHeader: {
     gap: Spacing.xs,
     marginBottom: Spacing.sm,
+  },
+  planHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   statusBadge: {
     flexDirection: 'row',

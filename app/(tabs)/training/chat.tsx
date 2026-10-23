@@ -3,7 +3,7 @@
  * Features contextual quick-action chips that adapt to the user's plan state.
  */
 
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   StyleSheet,
   FlatList,
   ScrollView,
-  ActivityIndicator,
+  Animated,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -22,9 +22,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
-import { adjustPlan, applyPlanModifications } from '../../../src/ai/planService';
+import { adjustPlan, applyPlanModifications, type PlanModification } from '../../../src/ai/planService';
 import { supabase } from '../../../src/analytics/supabaseClient';
 import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
+import { ModificationReview, type ModificationItem } from '../../../src/components/ModificationReview';
 import { VoiceInput } from '../../../src/components/VoiceInput';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 
@@ -35,7 +36,10 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  /** Set when modifications have been reviewed and applied. */
   modificationsApplied?: boolean;
+  /** Pending modifications waiting for user review. */
+  pendingModifications?: PlanModification[];
 }
 
 interface QuickChip {
@@ -173,10 +177,63 @@ const WELCOME_MESSAGE: ChatMessage = {
   timestamp: Date.now(),
 };
 
+// ── Breathing dot ────────────────────────────────────────────
+
+function BreathingDot() {
+  const scale = useRef(new Animated.Value(0.6)).current;
+  const opacity = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    const breathe = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(scale, { toValue: 1, duration: 900, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 1, duration: 900, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(scale, { toValue: 0.6, duration: 900, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0.4, duration: 900, useNativeDriver: true }),
+        ]),
+      ]),
+    );
+    breathe.start();
+    return () => breathe.stop();
+  }, [scale, opacity]);
+
+  return (
+    <View style={styles.breathingRow}>
+      <Animated.View
+        style={[
+          styles.breathingDot,
+          { transform: [{ scale }], opacity },
+        ]}
+      />
+    </View>
+  );
+}
+
 // ── Message bubble ───────────────────────────────────────────
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({ message, planWorkouts, onApply, onKeep }: {
+  message: ChatMessage;
+  planWorkouts: { date: string; day_label: string | null; description: string | null }[];
+  onApply: (messageId: string, mods: PlanModification[]) => void;
+  onKeep: (messageId: string) => void;
+}) {
   const isUser = message.role === 'user';
+
+  const modificationItems: ModificationItem[] | null = useMemo(() => {
+    if (!message.pendingModifications || message.pendingModifications.length === 0) return null;
+    return message.pendingModifications.map((mod) => {
+      const existing = planWorkouts.find((pw) => pw.date === mod.date);
+      return {
+        modification: mod,
+        before: existing
+          ? { day_label: existing.day_label ?? undefined, description: existing.description ?? undefined }
+          : null,
+      };
+    });
+  }, [message.pendingModifications, planWorkouts]);
 
   return (
     <View style={[styles.bubbleRow, isUser && styles.bubbleRowUser]}>
@@ -191,6 +248,17 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           </View>
         )}
       </View>
+
+      {/* Pending modifications — show review card below the bubble */}
+      {modificationItems && modificationItems.length > 0 && (
+        <View style={styles.reviewContainer}>
+          <ModificationReview
+            items={modificationItems}
+            onApply={(mods) => onApply(message.id, mods)}
+            onKeepOriginal={() => onKeep(message.id)}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -241,12 +309,32 @@ export default function PlanChatScreen() {
         .eq('user_id', user.id)
         .maybeSingle();
 
+      // Only include last 4 messages for context (avoid overwhelming the AI with old history)
       const conversationHistory = messages
         .filter((m) => m.id !== 'welcome')
+        .slice(-4)
         .map((m) => ({ role: m.role, content: m.content }));
 
+      // Filter workouts to only include the current plan (not other plans)
+      const relevantWorkouts = planWorkouts
+        .filter((w) => w.plan_id === plan.id)
+        .map((w) => ({
+          date: w.date,
+          day_label: w.day_label ?? '',
+          status: w.status,
+          week_number: w.week_number,
+        }));
+
+      // Build today's date context so the AI knows what "today" and "tomorrow" mean
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const dateContext = `Today is ${todayStr}. `;
+
+      console.log('[chat] sending message:', userMessage.content);
+      console.log('[chat] plan.id:', plan.id, 'relevant workouts:', relevantWorkouts.length, 'conversation:', conversationHistory.length);
+
       const result = await adjustPlan({
-        prompt: userMessage.content,
+        prompt: `${dateContext}${userMessage.content}`,
         planSummary: {
           title: plan.title,
           raceType: plan.race_type,
@@ -254,12 +342,7 @@ export default function PlanChatScreen() {
           startDate: plan.start_date,
           daysPerWeek: plan.days_per_week,
           totalWeeks,
-          workouts: planWorkouts.map((w) => ({
-            date: w.date,
-            day_label: w.day_label ?? '',
-            status: w.status,
-            week_number: w.week_number,
-          })),
+          workouts: relevantWorkouts,
         },
         profile: profileData ? {
           experience_level: profileData.experience_level,
@@ -270,21 +353,20 @@ export default function PlanChatScreen() {
         conversation: conversationHistory,
       });
 
-      if (result.modifications && result.modifications.length > 0) {
-        await applyPlanModifications(plan.id, result.modifications);
-        await refresh();
-      }
+      const hasMods = result.modifications && result.modifications.length > 0;
+      console.log('[chat] result: hasMods =', hasMods, 'message =', result.message?.slice(0, 80));
 
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: result.message,
         timestamp: Date.now(),
-        modificationsApplied: result.modifications && result.modifications.length > 0,
+        pendingModifications: hasMods ? result.modifications : undefined,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err: any) {
+      console.error('[chat] adjustPlan failed:', err);
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -309,6 +391,40 @@ export default function PlanChatScreen() {
     sendMessage(text);
   }, [sendMessage]);
 
+  const handleApplyModifications = useCallback(async (messageId: string, mods: PlanModification[]) => {
+    if (!plan) {
+      console.error('[chat] handleApplyModifications: plan is null!');
+      return;
+    }
+    console.log('[chat] Applying modifications:', mods.length, 'to plan:', plan.id);
+    mods.forEach((m, i) => console.log(`[chat] mod[${i}]:`, m.date, m.action, m.day_label));
+
+    try {
+      await applyPlanModifications(plan.id, mods);
+      await refresh();
+      console.log('[chat] Modifications applied and plan refreshed');
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, modificationsApplied: true, pendingModifications: undefined }
+            : m
+        ),
+      );
+    } catch (err: any) {
+      console.error('[chat] Apply failed:', err);
+    }
+  }, [plan, refresh]);
+
+  const handleKeepOriginal = useCallback((messageId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId
+          ? { ...m, pendingModifications: undefined }
+          : m
+      ),
+    );
+  }, []);
+
   if (!plan) {
     return (
       <View style={styles.centered}>
@@ -332,7 +448,14 @@ export default function PlanChatScreen() {
         ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <MessageBubble message={item} />}
+        renderItem={({ item }) => (
+          <MessageBubble
+            message={item}
+            planWorkouts={planWorkouts}
+            onApply={handleApplyModifications}
+            onKeep={handleKeepOriginal}
+          />
+        )}
         contentContainerStyle={styles.messageList}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -350,12 +473,7 @@ export default function PlanChatScreen() {
       )}
 
       {/* Loading indicator */}
-      {loading && (
-        <View style={styles.loadingRow}>
-          <ActivityIndicator size="small" color={Colors.accent} />
-          <Text style={styles.loadingText}>Thinking...</Text>
-        </View>
-      )}
+      {loading && <BreathingDot />}
 
       {/* Quick-action chips */}
       {!loading && quickChips.length > 0 && (
@@ -444,6 +562,10 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
     alignItems: 'flex-start',
   },
+  reviewContainer: {
+    marginTop: Spacing.sm,
+    width: '100%',
+  },
   bubbleRowUser: {
     alignItems: 'flex-end',
   },
@@ -482,16 +604,16 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontWeight: '600',
   },
-  loadingRow: {
-    flexDirection: 'row',
+  breathingRow: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.sm,
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.md,
   },
-  loadingText: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
+  breathingDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: Colors.accent,
   },
 
   // Quick-action chips
@@ -503,7 +625,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.md,
     gap: 6,
   },
   chip: {
