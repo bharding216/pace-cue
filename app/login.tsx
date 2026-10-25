@@ -110,7 +110,7 @@ export default function LoginScreen() {
 
         {/* Branding */}
         <View style={styles.brandContainer}>
-          <Text style={styles.title}>PaceCue</Text>
+          <Text style={styles.title}>SplitCue</Text>
           <Text style={styles.subtitle}>Create an account</Text>
           <Text style={styles.tagline}>
             Sign in to unlock AI workout building and cloud sync.
@@ -265,7 +265,7 @@ export default function LoginScreen() {
 
         {/* Footer */}
         <Text style={styles.footerText}>
-          You can always use PaceCue without an account.{'\n'}
+          You can always use SplitCue without an account.{'\n'}
           Signing in unlocks AI features and cloud backup.
         </Text>
       </View>

@@ -1,5 +1,5 @@
 /**
- * Database types for PaceCue cloud features.
+ * Database types for SplitCue cloud features.
  *
  * These mirror the Supabase tables defined in SETUP.md.
  */

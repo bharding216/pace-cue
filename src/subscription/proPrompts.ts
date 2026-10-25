@@ -1,5 +1,5 @@
 /**
- * Contextual subscription prompts — 6 moments where PaceCue
+ * Contextual subscription prompts — 6 moments where SplitCue
  * naturally surfaces the Pro upgrade, without being pushy.
  *
  * Rules:

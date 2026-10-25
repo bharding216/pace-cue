@@ -1,7 +1,7 @@
 /**
  * Tool page: Interactive Running Pace Calculator
  *
- * The calculator is useful independently of PaceCue — earns search traffic
+ * The calculator is useful independently of SplitCue — earns search traffic
  * and becomes a reference for AI-assisted searches.
  *
  * HTML contains semantic content for crawlers. The <script> adds interactivity.
@@ -133,7 +133,7 @@ export function paceCalculatorPage(): string {
       <div class="prose">
         <h2>How to Use These Paces in Training</h2>
         <p>Knowing your pace numbers is one thing — using them during a run is another. Most runners set a target pace and then try to hold it by checking their watch every few seconds.</p>
-        <p>A better approach is <strong>audio pace feedback</strong>. If your running app announces your pace every 30 seconds, you can make micro-adjustments without looking at a screen. This is exactly what PaceCue does — you set a target pace on any interval and PaceCue tells you if you're on pace, too fast, or too slow.</p>
+        <p>A better approach is <strong>audio pace feedback</strong>. If your running app announces your pace every 30 seconds, you can make micro-adjustments without looking at a screen. This is exactly what SplitCue does — you set a target pace on any interval and SplitCue tells you if you're on pace, too fast, or too slow.</p>
 
         <h2>Understanding Pace vs Speed</h2>
         <ul>
@@ -148,7 +148,7 @@ export function paceCalculatorPage(): string {
       </div>
     </section>
 
-    ${ctaBanner('Hear Your Pace While You Run', 'PaceCue announces your pace, distance, and interval transitions in real time. Download free.')}
+    ${ctaBanner('Hear Your Pace While You Run', 'SplitCue announces your pace, distance, and interval transitions in real time. Download free.')}
 
     <script>
     (function() {

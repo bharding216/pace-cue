@@ -1,5 +1,5 @@
 /**
- * Export / Import PaceCue data as a single JSON file.
+ * Export / Import SplitCue data as a single JSON file.
  *
  * Export: serialises workouts + history + settings → writes a temp .json
  *         file → opens the native share sheet so the user can save it
@@ -72,7 +72,7 @@ export async function exportData(): Promise<void> {
 
   await Sharing.shareAsync(file.uri, {
     mimeType: 'application/json',
-    dialogTitle: 'Save PaceCue Backup',
+    dialogTitle: 'Save SplitCue Backup',
   });
 
   track('workout_shared', {
@@ -106,7 +106,7 @@ export async function importData(): Promise<ImportResult | null> {
 
   if (!isValidBackup(parsed)) {
     throw new Error(
-      "This file doesn't look like a PaceCue backup. Make sure you selected the right file."
+      "This file doesn't look like a SplitCue backup. Make sure you selected the right file."
     );
   }
 

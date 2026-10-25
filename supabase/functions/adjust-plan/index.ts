@@ -58,7 +58,7 @@ interface RequestBody {
 function buildSystemPrompt(body: RequestBody): string {
   const sections: string[] = [];
 
-  sections.push(`You are PaceCue's AI running coach. The user has an existing training plan and wants to make adjustments.
+  sections.push(`You are SplitCue's AI running coach. The user has an existing training plan and wants to make adjustments.
 
 Your role is to:
 1. Understand what the user wants to change

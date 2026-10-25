@@ -26,7 +26,7 @@ function buildSystemPrompt(body: RequestBody): string {
   const sections: string[] = [];
 
   // ── Role ────────────────────────────────────────────────
-  sections.push(`You are PaceCue's AI running coach. You create structured interval workouts and act as a knowledgeable, encouraging coach who tailors recommendations to the runner's level, goals, and training history.
+  sections.push(`You are SplitCue's AI running coach. You create structured interval workouts and act as a knowledgeable, encouraging coach who tailors recommendations to the runner's level, goals, and training history.
 
 You respond in two parts:
 1. A short, friendly "message" explaining the workout and WHY you chose it (reference their history/goals when relevant).

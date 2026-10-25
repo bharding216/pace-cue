@@ -1,5 +1,5 @@
 /**
- * Shared HTML layout for pacecue.dev.
+ * Shared HTML layout for SplitCue (splitcue.app).
  *
  * Every page is server-rendered HTML — no client-side JS required for content.
  * Includes Schema.org JSON-LD, Open Graph tags, and canonical URLs.
@@ -7,7 +7,7 @@
 
 const APP_STORE_URL =
   'https://apps.apple.com/us/app/pacecue-interval-timer/id6809834816';
-const BASE_URL = 'https://pacecue.dev';
+const BASE_URL = 'https://splitcue.app';
 
 export { APP_STORE_URL, BASE_URL };
 
@@ -21,7 +21,7 @@ interface PageMeta {
 const APP_JSON_LD = {
   '@context': 'https://schema.org',
   '@type': 'MobileApplication',
-  name: 'PaceCue',
+  name: 'SplitCue',
   description:
     'A running app for iPhone providing real-time audio pace announcements, structured interval workouts with voice coaching, and an AI workout builder. Supports GPS pace tracking, customizable audio cues, and hands-free operation for runners.',
   applicationCategory: 'SportsApplication',
@@ -78,7 +78,7 @@ export function renderPage(meta: PageMeta, body: string): string {
   <meta property="og:title" content="${escapeAttr(meta.title)}">
   <meta property="og:description" content="${escapeAttr(meta.description)}">
   <meta property="og:url" content="${canonical}">
-  <meta property="og:site_name" content="PaceCue">
+  <meta property="og:site_name" content="SplitCue">
   <meta property="og:image" content="${BASE_URL}/banner.png">
 
   <!-- Twitter Card -->
@@ -96,8 +96,8 @@ export function renderPage(meta: PageMeta, body: string): string {
   <nav class="nav" aria-label="Main navigation">
     <div class="nav-inner">
       <a href="/" class="nav-brand">
-        <img src="/icon.png" alt="PaceCue logo" class="nav-logo" width="32" height="32">
-        PaceCue
+        <img src="/icon.png" alt="SplitCue logo" class="nav-logo" width="32" height="32">
+        SplitCue
       </a>
       <input type="checkbox" id="nav-toggle" class="nav-toggle-input" aria-label="Toggle navigation">
       <label for="nav-toggle" class="nav-toggle" aria-hidden="true">
@@ -121,8 +121,8 @@ export function renderPage(meta: PageMeta, body: string): string {
       <div class="footer-grid">
         <div class="footer-brand-col">
           <div class="footer-brand">
-            <img src="/icon.png" alt="PaceCue" width="40" height="40" class="footer-logo">
-            <span>PaceCue</span>
+            <img src="/icon.png" alt="SplitCue" width="40" height="40" class="footer-logo">
+            <span>SplitCue</span>
           </div>
           <p class="footer-text">Real-time voice coaching for runners. Interval training, pace tracking, and AI-powered workouts.</p>
         </div>
@@ -154,7 +154,7 @@ export function renderPage(meta: PageMeta, body: string): string {
           </ul>
         </div>
       </div>
-      <p class="footer-copy">&copy; ${new Date().getFullYear()} PaceCue. All rights reserved.</p>
+      <p class="footer-copy">&copy; ${new Date().getFullYear()} SplitCue. All rights reserved.</p>
     </div>
   </footer>
 </body>

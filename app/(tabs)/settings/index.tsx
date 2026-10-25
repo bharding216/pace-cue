@@ -105,7 +105,7 @@ export default function SettingsHubScreen() {
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          PaceCue v{Constants.expoConfig?.version ?? '?'}
+          SplitCue v{Constants.expoConfig?.version ?? '?'}
         </Text>
         <Text style={styles.footerText}>
           Made with ❤️ in Texas 🤠

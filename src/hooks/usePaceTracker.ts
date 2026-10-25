@@ -159,7 +159,7 @@ export function usePaceTracker(
           activityType: Location.ActivityType.Fitness,
           showsBackgroundLocationIndicator: true,
           foregroundService: {
-            notificationTitle: 'PaceCue',
+            notificationTitle: 'SplitCue',
             notificationBody: 'Tracking your running pace',
             notificationColor: '#4ADE80',
           },

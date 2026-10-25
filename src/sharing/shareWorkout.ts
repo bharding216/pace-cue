@@ -99,7 +99,7 @@ export function formatWorkoutText(def: WorkoutDefinition): string {
   const totalSecs = intervals.reduce((s, i) => s + i.durationSeconds, 0);
 
   const lines: string[] = [
-    `${def.name} — PaceCue Workout`,
+    `${def.name} — SplitCue Workout`,
     '',
     `${fmtDur(totalSecs)} total · ${intervals.length} interval${intervals.length !== 1 ? 's' : ''}`,
     '',
@@ -231,7 +231,7 @@ export function decodeWorkoutLink(url: string): WorkoutDefinition | null {
 
 // ── Short Link (Supabase) ────────────────────────────────────────────
 
-const SHARE_BASE_URL = 'https://pacecue.dev/w';
+const SHARE_BASE_URL = 'https://splitcue.app/w';
 const SHORT_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
 /** Generate a random 7-character alphanumeric code. */
@@ -334,8 +334,8 @@ export async function shareWorkoutStructure(
   try {
     await Share.share(
       Platform.OS === 'ios'
-        ? { message: `${text}\n\nTry it in PaceCue:`, url: link }
-        : { message: `${text}\n\nTry it in PaceCue:\n${link}`, title: `${def.name} — PaceCue Workout` },
+        ? { message: `${text}\n\nTry it in SplitCue:`, url: link }
+        : { message: `${text}\n\nTry it in SplitCue:\n${link}`, title: `${def.name} — SplitCue Workout` },
     );
     track('workout_shared', {
       workout_id: def.id,
@@ -372,14 +372,14 @@ export async function shareWorkoutResults(
   }
 
   const textBody = parts.join('\n');
-  const iosMessage = link ? `${textBody}\n\nTry it in PaceCue:` : textBody;
-  const androidMessage = link ? `${textBody}\n\nTry it in PaceCue:\n${link}` : textBody;
+  const iosMessage = link ? `${textBody}\n\nTry it in SplitCue:` : textBody;
+  const androidMessage = link ? `${textBody}\n\nTry it in SplitCue:\n${link}` : textBody;
 
   try {
     await Share.share(
       Platform.OS === 'ios'
         ? { message: iosMessage, ...(link ? { url: link } : {}) }
-        : { message: androidMessage, title: `${completed.workoutName} Results — PaceCue` },
+        : { message: androidMessage, title: `${completed.workoutName} Results — SplitCue` },
     );
     track('workout_shared', {
       workout_id: completed.workoutId,

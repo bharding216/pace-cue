@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/icon.png" width="150" alt="PaceCue">
+  <img src="assets/icon.png" width="150" alt="SplitCue">
 </p>
 
-<h1 align="center">PaceCue</h1>
+<h1 align="center">SplitCue</h1>
 
 <h2>Interval running, your way</h2>
 

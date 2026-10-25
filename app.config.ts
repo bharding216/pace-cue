@@ -14,10 +14,10 @@ const APP_GROUP = IS_DEV
   : 'group.com.toddly.runningintervals';
 
 const APP_NAME = IS_DEV
-  ? 'PaceCue Dev Build'
+  ? 'SplitCue Dev Build'
   : IS_PREVIEW
-    ? 'PaceCue Preview Build'
-    : 'PaceCue';
+    ? 'SplitCue Preview Build'
+    : 'SplitCue';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   name: APP_NAME,
@@ -34,7 +34,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     usesAppleSignIn: true,
     entitlements: {
       'com.apple.security.application-groups': [APP_GROUP],
-      'com.apple.developer.associated-domains': ['applinks:pacecue.dev'],
+      'com.apple.developer.associated-domains': ['applinks:splitcue.app'],
     },
     privacyManifests: {
       NSPrivacyAccessedAPITypes: [
@@ -54,11 +54,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     infoPlist: {
       UIBackgroundModes: ['audio', 'location'],
-      NSMicrophoneUsageDescription: 'PaceCue uses the microphone for voice commands to your AI coach.',
+      NSMicrophoneUsageDescription: 'SplitCue uses the microphone for voice commands to your AI coach.',
       NSLocationWhenInUseUsageDescription:
-        'PaceCue uses your location to calculate your running pace in real time.',
+        'SplitCue uses your location to calculate your running pace in real time.',
       NSLocationAlwaysAndWhenInUseUsageDescription:
-        'PaceCue uses your location in the background to track pace while your screen is locked.',
+        'SplitCue uses your location in the background to track pace while your screen is locked.',
       NSSupportsLiveActivities: true,
       NSSupportsLiveActivitiesFrequentUpdates: true,
       ITSAppUsesNonExemptEncryption: false,
@@ -85,7 +85,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         action: 'VIEW',
         autoVerify: true,
-        data: [{ scheme: 'https', host: 'pacecue.dev', pathPrefix: '/w/' }],
+        data: [{ scheme: 'https', host: 'splitcue.app', pathPrefix: '/w/' }],
         category: ['BROWSABLE', 'DEFAULT'],
       },
     ],
@@ -100,9 +100,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-location',
       {
         locationAlwaysAndWhenInUsePermission:
-          'Allow PaceCue to track your running pace in the background.',
+          'Allow SplitCue to track your running pace in the background.',
         locationWhenInUsePermission:
-          'Allow PaceCue to track your running pace.',
+          'Allow SplitCue to track your running pace.',
         isIosBackgroundLocationEnabled: true,
         isAndroidBackgroundLocationEnabled: true,
         isAndroidForegroundServiceEnabled: true,
@@ -123,7 +123,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       'expo-audio',
       {
-        microphonePermission: 'PaceCue uses the microphone for voice commands to your AI coach.',
+        microphonePermission: 'SplitCue uses the microphone for voice commands to your AI coach.',
         enableBackgroundPlayback: true,
       },
     ],

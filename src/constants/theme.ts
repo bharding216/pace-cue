@@ -1,5 +1,5 @@
 /**
- * Design tokens for PaceCue.
+ * Design tokens for SplitCue.
  * Dark-themed running-focused palette.
  */
 

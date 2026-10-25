@@ -1,5 +1,5 @@
 /**
- * Paywall screen — upgrade to PaceCue Pro.
+ * Paywall screen — upgrade to SplitCue Pro.
  *
  * Shows plan options (monthly / annual), feature comparison,
  * and purchase buttons. Presented as a modal.
@@ -105,7 +105,7 @@ export default function PaywallScreen() {
     if (error) {
       Alert.alert('Restore', error.message);
     } else {
-      Alert.alert('Restored', 'Your PaceCue Pro subscription has been restored.');
+      Alert.alert('Restored', 'Your SplitCue Pro subscription has been restored.');
       router.back();
     }
   };
@@ -116,7 +116,7 @@ export default function PaywallScreen() {
       <View style={styles.container}>
         <View style={styles.centered}>
           <Ionicons name="checkmark-circle" size={48} color={Colors.primary} />
-          <Text style={styles.activeTitle}>You're on PaceCue Pro</Text>
+          <Text style={styles.activeTitle}>You're on SplitCue Pro</Text>
           <Text style={styles.activeSubtitle}>
             Unlimited AI training plans and all premium features.
           </Text>
@@ -150,7 +150,7 @@ export default function PaywallScreen() {
       </TouchableOpacity>
 
       {/* Header */}
-      <Text style={styles.header}>PaceCue Pro</Text>
+      <Text style={styles.header}>SplitCue Pro</Text>
       <Text style={styles.headerSub}>AI training plans that adapt to you</Text>
 
       {/* Plan selector */}

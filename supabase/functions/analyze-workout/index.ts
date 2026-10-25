@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
 
     const body: RequestBody = await req.json();
 
-    const systemPrompt = `You are a running coach AI for the PaceCue app. Analyze the completed workout and provide a structured performance assessment.
+    const systemPrompt = `You are a running coach AI for the SplitCue app. Analyze the completed workout and provide a structured performance assessment.
 
 You MUST respond with valid JSON matching this exact schema:
 {

@@ -58,7 +58,7 @@ export default async function DashboardPage() {
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
       <header className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">PaceCue Admin</h1>
+          <h1 className="text-2xl font-bold">SplitCue Admin</h1>
           <p className="mt-1 text-sm text-gray-400">
             Signed in as {user?.email}
           </p>

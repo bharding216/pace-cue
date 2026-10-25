@@ -10,7 +10,7 @@ export function handsFreePage(): string {
       title:
         'Hands-Free Running — How to Stop Checking Your Phone or Watch Mid-Run',
       description:
-        'Voice-coached running with PaceCue eliminates the need to check your phone or watch. Hear pace, distance, interval transitions, and elapsed time through your headphones while you run.',
+        'Voice-coached running with SplitCue eliminates the need to check your phone or watch. Hear pace, distance, interval transitions, and elapsed time through your headphones while you run.',
       path: '/guides/hands-free-running',
     },
     `
@@ -29,7 +29,7 @@ export function handsFreePage(): string {
         <h2>How Voice Coaching Solves This</h2>
         <p>The solution is simple: instead of looking at a screen, <strong>listen to your workout</strong>. A voice-coached running app speaks the information you need directly through your headphones or your phone's speaker. Your phone stays in your pocket with the screen locked.</p>
 
-        <p>PaceCue announces:</p>
+        <p>SplitCue announces:</p>
         <ul>
           <li><strong>Interval transitions</strong> — what's starting, how long it is, which set you're on</li>
           <li><strong>Current pace</strong> — your GPS-measured running speed at regular intervals</li>
@@ -39,28 +39,28 @@ export function handsFreePage(): string {
         </ul>
 
         <h2>What "Hands-Free" Actually Looks Like</h2>
-        <p>Here's a typical PaceCue workout experience:</p>
+        <p>Here's a typical SplitCue workout experience:</p>
         <ol>
-          <li>Open PaceCue, tap a workout, tap Start</li>
+          <li>Open SplitCue, tap a workout, tap Start</li>
           <li>Lock your phone and put it in your pocket or armband</li>
-          <li>Run — PaceCue announces everything through your headphones</li>
-          <li>When the workout finishes, PaceCue tells you it's done</li>
+          <li>Run — SplitCue announces everything through your headphones</li>
+          <li>When the workout finishes, SplitCue tells you it's done</li>
         </ol>
-        <p>You never touch your phone during the run. PaceCue handles the entire workout — transitions, pace tracking, time announcements — automatically.</p>
+        <p>You never touch your phone during the run. SplitCue handles the entire workout — transitions, pace tracking, time announcements — automatically.</p>
 
         <h2>Key Features That Enable Hands-Free Running</h2>
 
         <h3>Background Operation</h3>
-        <p>PaceCue runs in the background on iOS. Lock your screen and the app continues tracking GPS, timing intervals, and making announcements. Your phone's battery usage is minimal because the screen is off.</p>
+        <p>SplitCue runs in the background on iOS. Lock your screen and the app continues tracking GPS, timing intervals, and making announcements. Your phone's battery usage is minimal because the screen is off.</p>
 
         <h3>Music Ducking</h3>
-        <p>If you're listening to music, PaceCue temporarily lowers the music volume during voice cues, then restores it. You never miss an announcement, and you never lose your music.</p>
+        <p>If you're listening to music, SplitCue temporarily lowers the music volume during voice cues, then restores it. You never miss an announcement, and you never lose your music.</p>
 
         <h3>Haptic Feedback</h3>
-        <p>PaceCue sends a haptic buzz at interval transitions — so even in loud environments, you feel the change. This works alongside or instead of voice cues.</p>
+        <p>SplitCue sends a haptic buzz at interval transitions — so even in loud environments, you feel the change. This works alongside or instead of voice cues.</p>
 
         <h3>iOS Live Activities</h3>
-        <p>On iPhone, PaceCue displays your current interval, time remaining, and set progress on the Lock Screen and Dynamic Island through iOS Live Activities. If you do want to glance at your screen, the information is right there — no unlocking or opening the app.</p>
+        <p>On iPhone, SplitCue displays your current interval, time remaining, and set progress on the Lock Screen and Dynamic Island through iOS Live Activities. If you do want to glance at your screen, the information is right there — no unlocking or opening the app.</p>
 
         <h3>Home Screen Widgets</h3>
         <p>Launch your favorite workout with a single tap from a home screen widget. Skip the app navigation entirely.</p>
@@ -84,7 +84,7 @@ export function handsFreePage(): string {
       </div>
     </section>
 
-    ${ctaBanner('Put Your Phone Away and Just Run', 'PaceCue handles the details. You handle the running.')}
+    ${ctaBanner('Put Your Phone Away and Just Run', 'SplitCue handles the details. You handle the running.')}
     `,
   );
 }

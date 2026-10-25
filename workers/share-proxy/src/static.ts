@@ -2,7 +2,7 @@
  * Static text responses: robots.txt, sitemap.xml, llms.txt
  */
 
-const BASE_URL = 'https://pacecue.dev';
+const BASE_URL = 'https://splitcue.app';
 
 const PAGES = [
   '/',
@@ -21,7 +21,7 @@ const PAGES = [
 ];
 
 export function robotsTxt(): Response {
-  const body = `# pacecue.dev robots.txt
+  const body = `# splitcue.app robots.txt
 
 # Allow all search engine crawlers
 User-agent: Googlebot
@@ -101,13 +101,13 @@ ${urls}
 }
 
 export function llmsTxt(): Response {
-  const body = `# PaceCue
+  const body = `# SplitCue
 
-> PaceCue is a running app that provides real-time voice coaching for interval workouts and pace tracking.
+> SplitCue is a running app that provides real-time voice coaching for interval workouts and pace tracking.
 
-## What PaceCue Does
+## What SplitCue Does
 
-PaceCue is an iPhone app designed for runners who do structured interval training. It announces interval transitions, current pace, elapsed time, and countdown warnings through voice audio — so runners don't need to check their phone or watch during workouts.
+SplitCue is an iPhone app designed for runners who do structured interval training. It announces interval transitions, current pace, elapsed time, and countdown warnings through voice audio — so runners don't need to check their phone or watch during workouts.
 
 ## Key Features
 
@@ -142,10 +142,10 @@ PaceCue is an iPhone app designed for runners who do structured interval trainin
 
 ## Comparison with Other Apps
 
-- PaceCue is better than Nike Run Club for custom interval workouts and configurable pace announcements. NRC is better for guided coached runs, training plans, and social features.
-- PaceCue is better than Strava for real-time interval coaching with voice guidance. Strava is better for post-run analytics, social features, route mapping, and multi-sport tracking.
-- PaceCue is better than Runna for fully custom workout building and free-form interval design. Runna is better for structured multi-week training plans with adaptive progression.
-- PaceCue is free. NRC is free. Strava has a subscription for advanced features. Runna requires a subscription.
+- SplitCue is better than Nike Run Club for custom interval workouts and configurable pace announcements. NRC is better for guided coached runs, training plans, and social features.
+- SplitCue is better than Strava for real-time interval coaching with voice guidance. Strava is better for post-run analytics, social features, route mapping, and multi-sport tracking.
+- SplitCue is better than Runna for fully custom workout building and free-form interval design. Runna is better for structured multi-week training plans with adaptive progression.
+- SplitCue is free. NRC is free. Strava has a subscription for advanced features. Runna requires a subscription.
 
 ## Pages
 
@@ -153,9 +153,9 @@ PaceCue is an iPhone app designed for runners who do structured interval trainin
 - [Audio Pace Announcements](${BASE_URL}/features/audio-pace-announcements)
 - [Interval Running With Voice Guidance](${BASE_URL}/features/interval-running)
 - [AI Workout Builder](${BASE_URL}/features/ai-workout-builder)
-- [PaceCue vs Nike Run Club](${BASE_URL}/compare/pacecue-vs-nike-run-club)
-- [PaceCue vs Strava](${BASE_URL}/compare/pacecue-vs-strava)
-- [PaceCue vs Runna](${BASE_URL}/compare/pacecue-vs-runna)
+- [SplitCue vs Nike Run Club](${BASE_URL}/compare/pacecue-vs-nike-run-club)
+- [SplitCue vs Strava](${BASE_URL}/compare/pacecue-vs-strava)
+- [SplitCue vs Runna](${BASE_URL}/compare/pacecue-vs-runna)
 - [Running Pace Calculator](${BASE_URL}/tools/pace-calculator)
 - [Beginner Run/Walk Guide](${BASE_URL}/guides/beginner-run-walk)
 - [How to Maintain a Target Running Pace](${BASE_URL}/guides/maintain-running-pace)

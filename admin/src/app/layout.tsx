@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'PaceCue Admin',
-  description: 'Internal dashboard for PaceCue metrics',
+  title: 'SplitCue Admin',
+  description: 'Internal dashboard for SplitCue metrics',
 };
 
 export default function RootLayout({

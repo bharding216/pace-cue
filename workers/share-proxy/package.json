@@ -1,5 +1,5 @@
 {
-  "name": "pacecue-share",
+  "name": "splitcue-share",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",

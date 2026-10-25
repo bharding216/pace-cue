@@ -1,5 +1,5 @@
 /**
- * Audio cue manager for PaceCue.
+ * Audio cue manager for SplitCue.
  *
  * Uses expo-audio for beep tones and expo-speech for voice announcements.
  * Configured for background playback so cues work with the phone locked.

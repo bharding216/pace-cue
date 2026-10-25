@@ -1,5 +1,5 @@
 {
-  "name": "pace-cue",
+  "name": "split-cue",
   "version": "1.7.0",
   "main": "expo-router/entry",
   "dependencies": {

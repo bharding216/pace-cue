@@ -8,9 +8,9 @@ export function maintainPacePage(): string {
   return renderPage(
     {
       title:
-        'How to Maintain a Target Running Pace — PaceCue',
+        'How to Maintain a Target Running Pace — SplitCue',
       description:
-        'Learn how to hold a consistent running pace during training and races. PaceCue\'s real-time audio pace announcements help you lock in your target without checking your watch.',
+        'Learn how to hold a consistent running pace during training and races. SplitCue\'s real-time audio pace announcements help you lock in your target without checking your watch.',
       path: '/guides/maintain-running-pace',
     },
     `
@@ -47,11 +47,11 @@ export function maintainPacePage(): string {
         <h3>3. Easy Runs</h3>
         <p>Many runners run their easy days too fast, which impairs recovery. Hearing your pace keeps you accountable to actually running easy.</p>
 
-        <h2>Using PaceCue for Pace Control</h2>
-        <p>PaceCue provides three layers of pace feedback during runs:</p>
+        <h2>Using SplitCue for Pace Control</h2>
+        <p>SplitCue provides three layers of pace feedback during runs:</p>
         <ol>
           <li><strong>Regular pace announcements</strong> — hear your current pace at intervals of 15–120 seconds</li>
-          <li><strong>Target pace alerts</strong> — set a target pace on any interval and PaceCue tells you if you're on pace, too fast, or too slow</li>
+          <li><strong>Target pace alerts</strong> — set a target pace on any interval and SplitCue tells you if you're on pace, too fast, or too slow</li>
           <li><strong>Rolling average smoothing</strong> — pace is calculated over a configurable window (10, 30, or 60 seconds) to filter out GPS noise</li>
         </ol>
 
@@ -61,12 +61,12 @@ export function maintainPacePage(): string {
           <li><strong>Use shorter announcement intervals.</strong> During race-pace work, set pace announcements to every 15 or 30 seconds for tight feedback.</li>
           <li><strong>Use longer windows on hilly terrain.</strong> Set the pace averaging window to 60 seconds on rolling courses to avoid reacting to short uphills.</li>
           <li><strong>Don't chase every fluctuation.</strong> If one announcement shows you slightly off target, wait for the next one before adjusting — GPS has natural variance.</li>
-          <li><strong>Run by effort on very hilly courses.</strong> Pace targets make less sense on steep terrain. Use PaceCue's effort ratings instead and save pace targets for flat routes.</li>
+          <li><strong>Run by effort on very hilly courses.</strong> Pace targets make less sense on steep terrain. Use SplitCue's effort ratings instead and save pace targets for flat routes.</li>
         </ul>
       </div>
     </section>
 
-    ${ctaBanner('Get Real-Time Pace Feedback on Your Next Run', 'PaceCue announces your pace out loud so you can focus on running, not your screen.')}
+    ${ctaBanner('Get Real-Time Pace Feedback on Your Next Run', 'SplitCue announces your pace out loud so you can focus on running, not your screen.')}
     `,
   );
 }

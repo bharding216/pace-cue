@@ -335,7 +335,7 @@ export default function TrainingScreen() {
                 </View>
                 <Text style={styles.noPlanTitle}>Train toward something great.</Text>
                 <Text style={styles.noPlanDesc}>
-                  Whether you're running your first 5K or chasing a new PR, PaceCue can build a training plan around your goals and schedule.
+                  Whether you're running your first 5K or chasing a new PR, SplitCue can build a training plan around your goals and schedule.
                 </Text>
                 <TouchableOpacity
                   style={styles.createPlanBtn}

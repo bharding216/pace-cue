@@ -89,13 +89,13 @@ export function audioVsWatchesPage(): string {
         </ul>
         <p>The tools aren't mutually exclusive. Use whichever gives you the best feedback for each type of run.</p>
 
-        <h2>PaceCue as an Audio Coaching App</h2>
-        <p>PaceCue is designed specifically for the scenarios where audio coaching works best: structured interval workouts with voice pace announcements, transition cues, and countdown warnings. It runs in the background with your screen locked — all information delivered through your headphones.</p>
-        <p>PaceCue is not trying to replace a GPS watch for all-day tracking or heart rate training. It's a specialized tool for voice-coached interval sessions.</p>
+        <h2>SplitCue as an Audio Coaching App</h2>
+        <p>SplitCue is designed specifically for the scenarios where audio coaching works best: structured interval workouts with voice pace announcements, transition cues, and countdown warnings. It runs in the background with your screen locked — all information delivered through your headphones.</p>
+        <p>SplitCue is not trying to replace a GPS watch for all-day tracking or heart rate training. It's a specialized tool for voice-coached interval sessions.</p>
       </div>
     </section>
 
-    ${ctaBanner('Try Audio-Coached Interval Training', 'PaceCue announces pace, intervals, and transitions. Your phone stays in your pocket. Download free.')}
+    ${ctaBanner('Try Audio-Coached Interval Training', 'SplitCue announces pace, intervals, and transitions. Your phone stays in your pocket. Download free.')}
     `,
   );
 }

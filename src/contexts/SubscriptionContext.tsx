@@ -1,5 +1,5 @@
 /**
- * Subscription & AI usage context for PaceCue Pro.
+ * Subscription & AI usage context for SplitCue Pro.
  *
  * Uses RevenueCat for IAP management and Supabase for server-side
  * subscription state + AI usage tracking.
@@ -266,7 +266,7 @@ export function SubscriptionProvider({
         return { error: null };
       }
       return {
-        error: new Error('No active PaceCue Pro subscription found.'),
+        error: new Error('No active SplitCue Pro subscription found.'),
       };
     } catch (err: any) {
       return { error: err };

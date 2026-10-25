@@ -29,6 +29,6 @@ export const ANNOUNCEMENTS: Announcement[] = [
   //   date: '2026-10-06',
   //   expiresAt: '2026-10-20',
   //   title: "What's New: Home Screen Widgets",
-  //   body: 'You can now add a PaceCue widget to your home screen to start workouts faster!',
+  //   body: 'You can now add a SplitCue widget to your home screen to start workouts faster!',
   // },
 ];

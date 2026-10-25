@@ -2,7 +2,7 @@
  * Terrain pace summary — shows uphill / flat / downhill aggregate stats.
  *
  * Renders a compact card for each terrain type with average pace, distance,
- * and elevation change. Matches the PaceCue dark-theme design language.
+ * and elevation change. Matches the SplitCue dark-theme design language.
  */
 
 import React from 'react';

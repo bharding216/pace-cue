@@ -1,4 +1,4 @@
-# PaceCue Pro — External Setup Guide
+# SplitCue Pro — External Setup Guide
 
 Everything the app code needs from the outside world to make auth, subscriptions, cloud sync, and AI work.
 
@@ -222,13 +222,13 @@ $$ language plpgsql security definer;
 
 ### Create Project
 1. Sign up at [revenueCat.com](https://www.revenuecat.com/)
-2. Create a new project for PaceCue
+2. Create a new project for SplitCue
 3. Add an **iOS app** (bundle ID: `com.toddly.runningintervals`)
 4. Add an **Android app** if applicable
 
 ### Configure Products
 1. In **App Store Connect** → your app → **Subscriptions**:
-   - Create a subscription group (e.g. "PaceCue Pro")
+   - Create a subscription group (e.g. "SplitCue Pro")
    - Add a **Monthly** product (e.g. `pacecue_pro_monthly` at $3.99/mo)
    - Add an **Annual** product (e.g. `pacecue_pro_annual` at $29.99/yr)
    - Optionally add a 7-day free trial to both

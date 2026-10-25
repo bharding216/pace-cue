@@ -87,14 +87,14 @@ export function beginnerRunWalkPage(): string {
         <p>When you can comfortably run 5 minutes with 1-minute walk breaks for 30 minutes total, try running for 10 minutes straight. Then 15. Then 20. There's no rush.</p>
         <p>Many experienced runners <em>keep</em> walk breaks for long runs, even at marathon pace. Run/walk is a tool, not a phase you have to grow out of.</p>
 
-        <h2>Using PaceCue for Run/Walk</h2>
-        <p>PaceCue includes a built-in <strong>Run/Walk preset</strong> (8 × 3 min run / 1 min walk), and you can build any run/walk ratio with the workout editor or AI builder.</p>
-        <p>When you run, PaceCue announces every transition through your headphones: <em>"Run — 3 minutes"</em> → <em>"10 seconds remaining"</em> → <em>"Walk — 1 minute."</em> You never need to look at your phone — just listen and follow the cues.</p>
+        <h2>Using SplitCue for Run/Walk</h2>
+        <p>SplitCue includes a built-in <strong>Run/Walk preset</strong> (8 × 3 min run / 1 min walk), and you can build any run/walk ratio with the workout editor or AI builder.</p>
+        <p>When you run, SplitCue announces every transition through your headphones: <em>"Run — 3 minutes"</em> → <em>"10 seconds remaining"</em> → <em>"Walk — 1 minute."</em> You never need to look at your phone — just listen and follow the cues.</p>
         <p>To create a beginner program, you could tell the AI builder: <em>"Run 1 minute, walk 2 minutes, repeat 7 times."</em></p>
       </div>
     </section>
 
-    ${ctaBanner('Start Your Run/Walk Program', 'PaceCue tells you when to run and when to walk — hands-free. Download free.')}
+    ${ctaBanner('Start Your Run/Walk Program', 'SplitCue tells you when to run and when to walk — hands-free. Download free.')}
     `,
   );
 }

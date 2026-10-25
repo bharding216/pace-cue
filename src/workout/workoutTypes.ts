@@ -1,5 +1,5 @@
 /**
- * Core data types for PaceCue workouts.
+ * Core data types for SplitCue workouts.
  *
  * The workout model is designed to be platform-independent so the same
  * engine can eventually drive an iPhone UI, Apple Watch UI, or anything else.

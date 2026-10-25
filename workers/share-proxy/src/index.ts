@@ -1,7 +1,7 @@
 /**
- * Cloudflare Worker — pacecue.dev
+ * Cloudflare Worker — splitcue.app
  *
- * Serves the PaceCue marketing website, share-link proxy, and app deep-link configs.
+ * Serves the SplitCue marketing website, share-link proxy, and app deep-link configs.
  *
  * Routes:
  *   /                                        → homepage
@@ -174,7 +174,7 @@ function notFoundPage(): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Page Not Found — PaceCue</title>
+  <title>Page Not Found — SplitCue</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0f0f0f; color: #e0e0e0; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
     .box { text-align: center; }
@@ -188,7 +188,7 @@ function notFoundPage(): string {
   <div class="box">
     <h1>404</h1>
     <p>This page doesn't exist.</p>
-    <a href="/">Back to PaceCue</a>
+    <a href="/">Back to SplitCue</a>
   </div>
 </body>
 </html>`;

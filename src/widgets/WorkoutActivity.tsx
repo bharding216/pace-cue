@@ -1,5 +1,5 @@
 /**
- * iOS Live Activity for PaceCue.
+ * iOS Live Activity for SplitCue.
  *
  * Shows the current interval, countdown timer, and next interval on the
  * Lock Screen and Dynamic Island while a workout is running.

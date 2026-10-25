@@ -219,7 +219,7 @@ function VoiceInputInner({
     if (hasPermission === false) {
       Alert.alert(
         'Microphone Access',
-        'PaceCue needs microphone access for voice input. Enable it in Settings.',
+        'SplitCue needs microphone access for voice input. Enable it in Settings.',
       );
       return;
     }

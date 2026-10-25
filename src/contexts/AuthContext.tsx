@@ -1,5 +1,5 @@
 /**
- * Authentication context for PaceCue.
+ * Authentication context for SplitCue.
  *
  * Supports Apple Sign-In, Google Sign-In (OAuth), and email OTP.
  * Ported from the Setpoint AI AuthContext pattern.

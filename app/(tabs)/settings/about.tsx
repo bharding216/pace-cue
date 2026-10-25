@@ -31,7 +31,7 @@ export default function AboutSettingsScreen() {
     const storeUrl = Platform.OS === 'android' ? PLAY_STORE_URL : APP_STORE_URL;
     try {
       await Share.share({
-        message: `Check out PaceCue — a free interval timer for runners with audio pacing cues. No subscriptions!\n\n${storeUrl}`,
+        message: `Check out SplitCue — a free interval timer for runners with audio pacing cues. No subscriptions!\n\n${storeUrl}`,
         url: Platform.OS === 'ios' ? storeUrl : undefined,
       });
     } catch (_) {
@@ -52,7 +52,7 @@ export default function AboutSettingsScreen() {
           hapticTap();
           const version = Constants.expoConfig?.version ?? '?';
           const subject = encodeURIComponent(
-            `PaceCue Feedback (v${version})`,
+            `SplitCue Feedback (v${version})`,
           );
           Linking.openURL(
             `mailto:brandon@getsurmount.com?subject=${subject}`,
@@ -99,7 +99,7 @@ export default function AboutSettingsScreen() {
         activeOpacity={0.7}
       >
         <Ionicons name="star-outline" size={20} color={Colors.textPrimary} />
-        <Text style={styles.actionBtnLabel}>Rate PaceCue</Text>
+        <Text style={styles.actionBtnLabel}>Rate SplitCue</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -108,12 +108,12 @@ export default function AboutSettingsScreen() {
         activeOpacity={0.7}
       >
         <Ionicons name="share-outline" size={20} color={Colors.textPrimary} />
-        <Text style={styles.actionBtnLabel}>Share PaceCue</Text>
+        <Text style={styles.actionBtnLabel}>Share SplitCue</Text>
       </TouchableOpacity>
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          PaceCue v{Constants.expoConfig?.version ?? '?'}
+          SplitCue v{Constants.expoConfig?.version ?? '?'}
         </Text>
       </View>
     </ScrollView>

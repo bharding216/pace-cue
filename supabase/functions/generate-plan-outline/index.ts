@@ -80,7 +80,7 @@ function buildSystemPrompt(body: RequestBody, dims: PlanDimensions): string {
     ? `${body.race_distance_meters ?? 'unknown'}m race`
     : body.race_type.replace('_', ' ');
 
-  sections.push(`You are PaceCue's AI running coach creating a ${dims.totalWeeks}-week ${raceLabel} training plan OUTLINE.
+  sections.push(`You are SplitCue's AI running coach creating a ${dims.totalWeeks}-week ${raceLabel} training plan OUTLINE.
 
 Follow standard periodization: Base (~30%), Build (~30%), Peak (~25%), Taper (~15%).
 

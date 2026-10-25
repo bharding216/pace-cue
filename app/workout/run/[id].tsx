@@ -1,5 +1,5 @@
 /**
- * Active Workout screen — the heart of PaceCue.
+ * Active Workout screen — the heart of SplitCue.
  *
  * Full-screen countdown timer with big type, progress bar,
  * and start/pause/resume/skip controls.

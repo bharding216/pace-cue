@@ -151,7 +151,7 @@ export default function HomeScreen() {
             style={styles.heroLogo}
           />
           <View>
-            <Text style={styles.heroTitle}>PaceCue</Text>
+            <Text style={styles.heroTitle}>SplitCue</Text>
             <Text style={styles.heroSub}>Interval running, your way.</Text>
           </View>
         </View>

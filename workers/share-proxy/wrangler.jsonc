@@ -1,5 +1,5 @@
 {
-  "name": "pacecue-share",
+  "name": "splitcue-share",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
   "assets": {
@@ -7,6 +7,6 @@
     "not_found_handling": "none"
   },
   "routes": [
-    { "pattern": "pacecue.dev/*", "zone_name": "pacecue.dev" }
+    { "pattern": "splitcue.app/*", "zone_name": "splitcue.app" }
   ]
 }

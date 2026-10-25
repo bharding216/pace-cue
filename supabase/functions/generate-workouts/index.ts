@@ -58,11 +58,11 @@ function buildSystemPrompt(body: RequestBody): string {
     ? 'custom race'
     : body.race_type.replace('_', ' ');
 
-  sections.push(`You are PaceCue's AI running coach. You create detailed, structured workout definitions for specific training days within an existing plan.
+  sections.push(`You are SplitCue's AI running coach. You create detailed, structured workout definitions for specific training days within an existing plan.
 
 You are generating detailed workouts for a ${raceLabel} training plan (${body.total_weeks} weeks total, ${body.days_per_week} days/week, race on ${body.race_date}).
 
-Each workout must be a complete structured interval workout matching the PaceCue format with warmup, blocks, and cooldown sections.`);
+Each workout must be a complete structured interval workout matching the SplitCue format with warmup, blocks, and cooldown sections.`);
 
   // Runner profile
   const profile = body.profile;
