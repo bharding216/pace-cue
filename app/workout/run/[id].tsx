@@ -34,6 +34,7 @@ import {
 } from '../../../src/workout/workoutTypes';
 import type { PaceCueFrequency } from '../../../src/pace/paceTypes';
 import { loadWorkouts, loadSettings, saveSettings } from '../../../src/workout/workoutStorage';
+import { getTempWorkout, clearTempWorkout } from '../../../src/workout/tempWorkoutCache';
 import { useWorkoutRunner } from '../../../src/hooks/useWorkoutRunner';
 import { Timer } from '../../../src/components/Timer';
 import { IntervalProgress } from '../../../src/components/IntervalProgress';
@@ -67,11 +68,18 @@ export default function ActiveWorkoutScreen() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
-    Promise.all([loadWorkouts(), loadSettings()]).then(([workouts, s]) => {
-      const found = workouts.find((w) => w.id === id);
-      if (found) setWorkout(found);
-      setSettings(s);
-    });
+    const cached = getTempWorkout(id!);
+    if (cached) {
+      clearTempWorkout(id!);
+      setWorkout(cached);
+      loadSettings().then(setSettings);
+    } else {
+      Promise.all([loadWorkouts(), loadSettings()]).then(([workouts, s]) => {
+        const found = workouts.find((w) => w.id === id);
+        if (found) setWorkout(found);
+        setSettings(s);
+      });
+    }
   }, [id]);
 
   const updateSettings = useCallback(async (partial: Partial<AppSettings>) => {

@@ -181,7 +181,8 @@ Rules:
 - Weeks 1–${dims.totalWeeks > 1 ? dims.totalWeeks - 1 : 1}: exactly 7 entries each.${dims.totalWeeks > 1 ? `\n- Week ${dims.totalWeeks}: exactly ${dims.lastWeekDays} entries. Last entry must be ["Race Day", "Race day! Trust your training."].` : ''}
 - ${daysLabel} training days per full week; rest days fill remaining slots.
 - miles = reasonable weekly mileage for runner's level and phase.
-- Keep descriptions to one short sentence.`);
+- Keep descriptions to one short sentence.
+- REUSE THE SAME DAY LABELS across weeks. Real training plans repeat the same session types (e.g. "Intervals" every Tuesday, "Tempo" every Thursday, "Long Run" every Saturday). Use the SAME label for the same slot across weeks — progress by changing the description (e.g. "4×800m" → "5×800m"), not by inventing new labels each week. Limit yourself to 3–5 distinct workout labels for the entire plan.`);
 
   return sections.join("\n\n");
 }

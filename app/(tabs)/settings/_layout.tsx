@@ -17,6 +17,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="audio" options={{ title: 'Audio & Cues' }} />
       <Stack.Screen name="pace" options={{ title: 'Pace Tracking' }} />
       <Stack.Screen name="general" options={{ title: 'General' }} />
+      <Stack.Screen name="profile" options={{ title: 'Running Profile' }} />
       <Stack.Screen name="account" options={{ title: 'Account' }} />
       <Stack.Screen name="about" options={{ title: 'Share & Feedback' }} />
     </Stack>

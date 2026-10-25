@@ -13,7 +13,9 @@ import {
   Alert,
   Modal,
   Pressable,
+  Animated,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   WorkoutDefinition,
   WorkoutInterval,
@@ -52,9 +54,17 @@ interface Props {
   onCancel: () => void;
   /** When true, auto-saves on every change (for editing existing workouts). */
   autoSave?: boolean;
+  /**
+   * When true, the workout came from the training plan (temp cache) and
+   * doesn't exist in the local library yet. Disables auto-save and shows
+   * explicit "Save to Library" / "Save as New" actions instead.
+   */
+  isPlanWorkout?: boolean;
 }
 
-export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, autoSave }: Props) {
+const EDIT_HINT_KEY = '@pacecue/edit_hint_shown';
+
+export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, autoSave, isPlanWorkout }: Props) {
   const [name, setName] = useState(initial.name);
   const [warmup, setWarmup] = useState(initial.warmup);
   const [blocks, setBlocks] = useState(initial.blocks);
@@ -63,12 +73,31 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
   const [category, setCategory] = useState<WorkoutCategory | undefined>(initial.category);
   const [paceUnit, setPaceUnit] = useState<PaceUnit>('minPerMile');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
+  const [showEditHint, setShowEditHint] = useState(false);
+  const [hasEdits, setHasEdits] = useState(false);
+  const hintOpacity = useRef(new Animated.Value(0)).current;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstRender = useRef(true);
+  const initialSnapshot = useRef(initial);
 
-  // Load user's pace unit preference
+  // Effective auto-save: disabled for plan workouts
+  const effectiveAutoSave = autoSave && !isPlanWorkout;
+
+  // Load user's pace unit preference + check if edit hint was shown before
   useEffect(() => {
     loadSettings().then(s => setPaceUnit(s.paceUnit));
+    if (effectiveAutoSave) {
+      AsyncStorage.getItem(EDIT_HINT_KEY).then((val) => {
+        if (val !== 'true') {
+          setShowEditHint(true);
+          Animated.timing(hintOpacity, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }).start();
+        }
+      });
+    }
   }, []);
 
   const current: WorkoutDefinition = {
@@ -81,15 +110,17 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
     category,
   };
 
-  // Auto-save with debounce when editing existing workouts
+  // Auto-save with debounce when editing existing workouts (not plan workouts)
   useEffect(() => {
-    if (!autoSave) return;
+    if (!effectiveAutoSave) return;
 
     // Skip auto-save on initial mount
     if (isFirstRender.current) {
       isFirstRender.current = false;
       return;
     }
+
+    setHasEdits(true);
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -111,7 +142,58 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [name, warmup, blocks, cooldown, targetDistance, category, autoSave]);
+  }, [name, warmup, blocks, cooldown, targetDistance, category, effectiveAutoSave]);
+
+  // Track edits for plan workout mode (no auto-save, but need to know if dirty)
+  useEffect(() => {
+    if (!isPlanWorkout) return;
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setHasEdits(true);
+  }, [name, warmup, blocks, cooldown, targetDistance, category]);
+
+  const dismissEditHint = useCallback(() => {
+    Animated.timing(hintOpacity, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowEditHint(false);
+      AsyncStorage.setItem(EDIT_HINT_KEY, 'true');
+    });
+  }, [hintOpacity]);
+
+  const handleRevert = useCallback(() => {
+    const snap = initialSnapshot.current;
+    Alert.alert(
+      'Revert Changes',
+      'Undo all edits and restore this workout to its original state?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Revert',
+          style: 'destructive',
+          onPress: () => {
+            setName(snap.name);
+            setWarmup(snap.warmup);
+            setBlocks(snap.blocks);
+            setCooldown(snap.cooldown);
+            setTargetDistance(snap.targetDistanceMeters ?? 0);
+            setCategory(snap.category);
+            setHasEdits(false);
+            // Auto-save the reverted state if in auto-save mode
+            if (effectiveAutoSave) {
+              onSave({ ...snap, updatedAt: Date.now() } as any);
+              setSaveStatus('saved');
+              setTimeout(() => setSaveStatus('idle'), 1500);
+            }
+          },
+        },
+      ],
+    );
+  }, [effectiveAutoSave, onSave]);
 
   const handleSave = () => {
     if (!name.trim()) {
@@ -215,8 +297,8 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
 
   return (
     <View style={styles.container}>
-      {/* Sticky auto-save header (edit mode only) */}
-      {autoSave && (
+      {/* Sticky header for auto-save mode (library workouts) */}
+      {effectiveAutoSave && (
         <View style={styles.autoSaveHeader}>
           <View style={styles.autoSaveStatus}>
             {saveStatus === 'saved' ? (
@@ -228,17 +310,57 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
               <Text style={styles.autoSaveTextIdle}>Auto-saves as you edit</Text>
             )}
           </View>
-          {onSaveAsNew && (
-            <TouchableOpacity
-              style={styles.saveAsNewHeaderBtn}
-              onPress={handleSaveAsNew}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="copy-outline" size={14} color={Colors.accent} />
-              <Text style={styles.saveAsNewHeaderText}>Save as New</Text>
-            </TouchableOpacity>
-          )}
+          <View style={styles.headerActions}>
+            {hasEdits && (
+              <TouchableOpacity
+                style={styles.revertHeaderBtn}
+                onPress={handleRevert}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-undo-outline" size={14} color={Colors.textSecondary} />
+                <Text style={styles.revertHeaderText}>Revert</Text>
+              </TouchableOpacity>
+            )}
+            {onSaveAsNew && (
+              <TouchableOpacity
+                style={styles.saveAsNewHeaderBtn}
+                onPress={handleSaveAsNew}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="copy-outline" size={14} color={Colors.accent} />
+                <Text style={styles.saveAsNewHeaderText}>Save as New</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
+      )}
+
+      {/* Sticky header for plan workout mode (not in library yet) */}
+      {isPlanWorkout && (
+        <View style={styles.planWorkoutHeader}>
+          <View style={styles.planWorkoutBadge}>
+            <Ionicons name="calendar-outline" size={14} color={Colors.accent} />
+            <Text style={styles.planWorkoutBadgeText}>Plan Workout</Text>
+          </View>
+          <Text style={styles.planWorkoutHint}>
+            Edit freely — changes won't affect your plan until you save.
+          </Text>
+        </View>
+      )}
+
+      {/* One-time edit hint (auto-save mode only) */}
+      {showEditHint && effectiveAutoSave && (
+        <Animated.View style={[styles.editHintBar, { opacity: hintOpacity }]}>
+          <View style={styles.editHintContent}>
+            <Ionicons name="information-circle-outline" size={16} color={Colors.accent} />
+            <Text style={styles.editHintText}>
+              Edits save over the original. Tap <Text style={{ fontWeight: '700' }}>Save as New</Text> to keep both.
+            </Text>
+          </View>
+          <TouchableOpacity onPress={dismissEditHint} hitSlop={8}>
+            <Ionicons name="close" size={16} color={Colors.textMuted} />
+          </TouchableOpacity>
+        </Animated.View>
       )}
 
       <ScrollView
@@ -328,8 +450,8 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
         paceUnit={paceUnit}
       />
 
-      {/* Total — show distance for distance workouts, time for timed/intervals */}
-      {(category ?? categorizeWorkout(current)) === 'distance' ? (
+      {/* Total — show distance as primary for race workouts, time for others */}
+      {(category ?? categorizeWorkout(current)) === 'race' ? (
         totalWorkoutDistanceMeters(current) != null && (
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Target Distance</Text>
@@ -357,8 +479,8 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
         </>
       )}
 
-      {/* Actions — only shown for new workout creation */}
-      {!autoSave && (
+      {/* Actions — new workout creation */}
+      {!autoSave && !isPlanWorkout && (
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.saveBtn}
@@ -367,6 +489,37 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
           >
             <Text style={styles.saveBtnText}>Save Workout</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.cancelBtn}
+            onPress={onCancel}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Actions — plan workout (explicit save to library) */}
+      {isPlanWorkout && (
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={styles.saveBtn}
+            onPress={handleSave}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="download-outline" size={18} color={Colors.black} />
+            <Text style={styles.saveBtnText}>Save to My Workouts</Text>
+          </TouchableOpacity>
+          {onSaveAsNew && (
+            <TouchableOpacity
+              style={styles.saveAsNewBtn}
+              onPress={handleSaveAsNew}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="copy-outline" size={18} color={Colors.accent} />
+              <Text style={styles.saveAsNewBtnText}>Save as New Workout</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.cancelBtn}
             onPress={onCancel}
@@ -1132,9 +1285,11 @@ const ipStyles = StyleSheet.create({
 // ── Category picker ──────────────────────────────────────────────────
 
 const CATEGORY_OPTIONS: { value: WorkoutCategory; label: string; icon: string }[] = [
-  { value: 'distance', label: 'Distance', icon: 'navigate-outline' },
-  { value: 'timed', label: 'Timed', icon: 'time-outline' },
+  { value: 'easy', label: 'Easy', icon: 'leaf-outline' },
+  { value: 'tempo', label: 'Tempo', icon: 'speedometer-outline' },
   { value: 'intervals', label: 'Intervals', icon: 'repeat-outline' },
+  { value: 'long_run', label: 'Long Run', icon: 'trail-sign-outline' },
+  { value: 'race', label: 'Race', icon: 'trophy-outline' },
 ];
 
 function CategoryPicker({
@@ -1176,16 +1331,17 @@ function CategoryPicker({
 const catStyles = StyleSheet.create({
   row: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: Spacing.sm,
     marginBottom: Spacing.lg,
   },
   chip: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.xs,
     paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.md,
     borderWidth: 1.5,
     borderColor: Colors.surfaceLight,
@@ -1661,6 +1817,73 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.accent,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  revertHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.surface,
+    paddingVertical: Spacing.xs + 2,
+    paddingHorizontal: Spacing.sm + 2,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  revertHeaderText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  planWorkoutHeader: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm + 2,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.accent + '20',
+    backgroundColor: Colors.accent + '08',
+  },
+  planWorkoutBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: 4,
+  },
+  planWorkoutBadgeText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.accent,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  planWorkoutHint: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  editHintBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm + 2,
+    backgroundColor: Colors.accent + '12',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.accent + '20',
+  },
+  editHintContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginRight: Spacing.sm,
+  },
+  editHintText: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    flex: 1,
+  },
   label: {
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
@@ -1804,10 +2027,13 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   saveBtn: {
+    flexDirection: 'row',
     backgroundColor: Colors.primary,
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.lg,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
   },
   saveBtnText: {
     color: Colors.black,
@@ -1815,10 +2041,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   saveAsNewBtn: {
+    flexDirection: 'row',
     backgroundColor: Colors.surfaceLight,
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.lg,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
     borderWidth: 1.5,
     borderColor: Colors.accent,
   },

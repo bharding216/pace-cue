@@ -23,7 +23,7 @@ const CARDS: SettingsCard[] = [
     icon: 'body-outline',
     title: 'Running Profile',
     description: 'Goals, paces, limits & preferences',
-    route: '/(tabs)/training/profile',
+    route: '/(tabs)/settings/profile',
   },
   {
     icon: 'person-outline',

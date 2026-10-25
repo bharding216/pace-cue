@@ -396,6 +396,8 @@ export default function RunningProfileScreen() {
 
   const [easyPaceText, setEasyPaceText] = useState('');
   const [fastPaceText, setFastPaceText] = useState('');
+  const [weeklyMileageText, setWeeklyMileageText] = useState('');
+  const [longestRunText, setLongestRunText] = useState('');
 
   const fetchData = useCallback(async () => {
     if (!user) return;
@@ -416,6 +418,8 @@ export default function RunningProfileScreen() {
     setProfile(profileData);
     setEasyPaceText(profileData?.easy_pace != null ? paceToMMSS(profileData.easy_pace) : '');
     setFastPaceText(profileData?.fast_pace != null ? paceToMMSS(profileData.fast_pace) : '');
+    setWeeklyMileageText(profileData?.weekly_mileage != null ? String(profileData.weekly_mileage) : '');
+    setLongestRunText(profileData?.longest_recent_run_minutes != null ? String(profileData.longest_recent_run_minutes) : '');
     setPreferences(prefData ?? []);
     setLoading(false);
   }, [user]);
@@ -618,16 +622,21 @@ export default function RunningProfileScreen() {
                   <View style={styles.fieldWithUnit}>
                     <TextInput
                       style={[styles.field, { flex: 1 }]}
-                      value={profile?.weekly_mileage != null ? String(profile.weekly_mileage) : ''}
-                      onChangeText={(v) => {
-                        const n = parseFloat(v);
-                        if (!v.trim()) updateProfile({ weekly_mileage: null } as Partial<RunningProfile>);
-                        else if (!isNaN(n) && n > 0) updateProfile({ weekly_mileage: n } as Partial<RunningProfile>);
+                      value={weeklyMileageText}
+                      onChangeText={setWeeklyMileageText}
+                      onBlur={() => {
+                        const v = weeklyMileageText.trim();
+                        if (!v) updateProfile({ weekly_mileage: null } as Partial<RunningProfile>);
+                        else {
+                          const n = parseFloat(v);
+                          if (!isNaN(n) && n > 0) updateProfile({ weekly_mileage: n } as Partial<RunningProfile>);
+                        }
                       }}
                       placeholder="e.g. 20"
                       placeholderTextColor={Colors.textMuted}
                       keyboardType="numeric"
                       maxLength={5}
+                      returnKeyType="done"
                     />
                     <Text style={styles.fieldUnit}>mi/wk</Text>
                   </View>
@@ -637,16 +646,21 @@ export default function RunningProfileScreen() {
                   <View style={styles.fieldWithUnit}>
                     <TextInput
                       style={[styles.field, { flex: 1 }]}
-                      value={profile?.longest_recent_run_minutes != null ? String(profile.longest_recent_run_minutes) : ''}
-                      onChangeText={(v) => {
-                        const n = parseInt(v, 10);
-                        if (!v.trim()) updateProfile({ longest_recent_run_minutes: null } as Partial<RunningProfile>);
-                        else if (!isNaN(n) && n > 0) updateProfile({ longest_recent_run_minutes: n } as Partial<RunningProfile>);
+                      value={longestRunText}
+                      onChangeText={setLongestRunText}
+                      onBlur={() => {
+                        const v = longestRunText.trim();
+                        if (!v) updateProfile({ longest_recent_run_minutes: null } as Partial<RunningProfile>);
+                        else {
+                          const n = parseInt(v, 10);
+                          if (!isNaN(n) && n > 0) updateProfile({ longest_recent_run_minutes: n } as Partial<RunningProfile>);
+                        }
                       }}
                       placeholder="e.g. 60"
                       placeholderTextColor={Colors.textMuted}
                       keyboardType="number-pad"
                       maxLength={3}
+                      returnKeyType="done"
                     />
                     <Text style={styles.fieldUnit}>min</Text>
                   </View>

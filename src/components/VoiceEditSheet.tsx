@@ -13,6 +13,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   Modal,
@@ -388,6 +389,7 @@ export function VoiceEditSheet({
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>('idle');
   const [transcription, setTranscription] = useState('');
+  const [textInput, setTextInput] = useState('');
   const [aiMessage, setAiMessage] = useState('');
   const [modifications, setModifications] = useState<PlanModification[]>([]);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -411,6 +413,7 @@ export function VoiceEditSheet({
     if (visible) {
       setPhase('idle');
       setTranscription('');
+      setTextInput('');
       setAiMessage('');
       setModifications([]);
     }
@@ -435,6 +438,61 @@ export function VoiceEditSheet({
     }
   }, [hasPermission, recorder]);
 
+  const generateFromText = useCallback(async (text: string) => {
+    setTranscription(text);
+    setPhase('generating');
+
+    const today = todayStr();
+    const outline = plan.outline ?? [];
+    const totalWeeks = outline.length ||
+      Math.max(...planWorkouts.map((w) => w.week_number), 1);
+
+    const workoutContext = [
+      `Today is ${today}.`,
+      `The user wants to edit a specific workout:`,
+      `- Date: ${workout.date}`,
+      `- Label: ${workout.day_label || 'Training'}`,
+      workout.description ? `- Description: ${workout.description}` : null,
+      ``,
+      `User's instruction: ${text}`,
+      ``,
+      `Important: If the user asks to move the workout, change the date field in the modification. ` +
+      `You may produce modifications for the original date (to skip/update it) and a new date (to add the workout there).`,
+    ].filter(Boolean).join('\n');
+
+    const workoutWindow = planWorkouts
+      .filter((w) => {
+        const dayDiff = Math.abs(
+          (new Date(w.date).getTime() - new Date(workout.date).getTime()) /
+          (24 * 60 * 60 * 1000)
+        );
+        return dayDiff <= 14;
+      })
+      .map((w) => ({
+        date: w.date,
+        day_label: w.day_label || 'Training',
+        status: w.status,
+        week_number: w.week_number,
+      }));
+
+    const adjustResult = await adjustPlan({
+      prompt: workoutContext,
+      planSummary: {
+        title: plan.title,
+        raceType: plan.race_type,
+        raceDate: plan.race_date,
+        startDate: plan.start_date,
+        daysPerWeek: plan.days_per_week,
+        totalWeeks,
+        workouts: workoutWindow,
+      },
+    });
+
+    setAiMessage(adjustResult.message);
+    setModifications(adjustResult.modifications ?? []);
+    setPhase('review');
+  }, [plan, planWorkouts, workout]);
+
   const stopAndProcess = useCallback(async () => {
     if (phase !== 'recording') return;
 
@@ -457,60 +515,7 @@ export function VoiceEditSheet({
         return;
       }
 
-      setTranscription(text);
-      setPhase('generating');
-
-      const today = todayStr();
-      const outline = plan.outline ?? [];
-      const totalWeeks = outline.length ||
-        Math.max(...planWorkouts.map((w) => w.week_number), 1);
-
-      // Build a focused context prompt telling the AI which specific workout to edit
-      const workoutContext = [
-        `Today is ${today}.`,
-        `The user wants to edit a specific workout:`,
-        `- Date: ${workout.date}`,
-        `- Label: ${workout.day_label || 'Training'}`,
-        workout.description ? `- Description: ${workout.description}` : null,
-        ``,
-        `User's instruction: ${text}`,
-        ``,
-        `Important: If the user asks to move the workout, change the date field in the modification. ` +
-        `You may produce modifications for the original date (to skip/update it) and a new date (to add the workout there).`,
-      ].filter(Boolean).join('\n');
-
-      // Include a window of surrounding workouts for context
-      const workoutWindow = planWorkouts
-        .filter((w) => {
-          const dayDiff = Math.abs(
-            (new Date(w.date).getTime() - new Date(workout.date).getTime()) /
-            (24 * 60 * 60 * 1000)
-          );
-          return dayDiff <= 14;
-        })
-        .map((w) => ({
-          date: w.date,
-          day_label: w.day_label || 'Training',
-          status: w.status,
-          week_number: w.week_number,
-        }));
-
-      const adjustResult = await adjustPlan({
-        prompt: workoutContext,
-        planSummary: {
-          title: plan.title,
-          raceType: plan.race_type,
-          raceDate: plan.race_date,
-          startDate: plan.start_date,
-          daysPerWeek: plan.days_per_week,
-          totalWeeks,
-          workouts: workoutWindow,
-        },
-      });
-
-      setAiMessage(adjustResult.message);
-      setModifications(adjustResult.modifications ?? []);
-      setPhase('review');
+      await generateFromText(text);
     } catch (err: any) {
       console.error('Voice edit failed:', err);
       Alert.alert(
@@ -519,7 +524,24 @@ export function VoiceEditSheet({
       );
       setPhase('idle');
     }
-  }, [phase, recorder, plan, planWorkouts, workout]);
+  }, [phase, recorder, generateFromText]);
+
+  const handleTextSubmit = useCallback(async () => {
+    const text = textInput.trim();
+    if (!text) return;
+    hapticTap();
+    setTextInput('');
+    try {
+      await generateFromText(text);
+    } catch (err: any) {
+      console.error('Text edit failed:', err);
+      Alert.alert(
+        'Edit Failed',
+        err.message || 'Something went wrong. Please try again.',
+      );
+      setPhase('idle');
+    }
+  }, [textInput, generateFromText]);
 
   const handleMicPress = useCallback(() => {
     hapticTap();
@@ -624,6 +646,44 @@ export function VoiceEditSheet({
                   ? '"Move this to Thursday" or "Make it 6 miles easy"'
                   : 'e.g. "Shorten this to 30 minutes" or "Move to Saturday"'}
               </Text>
+
+              {/* Text input fallback */}
+              {phase === 'idle' && (
+                <View style={styles.textInputRow}>
+                  <View style={styles.dividerRow}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>or type</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+                  <View style={styles.inputWrapper}>
+                    <TextInput
+                      style={styles.textInput}
+                      value={textInput}
+                      onChangeText={setTextInput}
+                      placeholder="Type your edit instruction…"
+                      placeholderTextColor={Colors.textMuted}
+                      returnKeyType="send"
+                      onSubmitEditing={handleTextSubmit}
+                      multiline={false}
+                    />
+                    <TouchableOpacity
+                      style={[
+                        styles.sendBtn,
+                        !textInput.trim() && styles.sendBtnDisabled,
+                      ]}
+                      onPress={handleTextSubmit}
+                      disabled={!textInput.trim()}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="send"
+                        size={16}
+                        color={textInput.trim() ? Colors.accent : Colors.textMuted}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
             </View>
           )}
 
@@ -909,6 +969,56 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontStyle: 'italic',
     paddingHorizontal: Spacing.md,
+  },
+
+  // Text input fallback
+  textInputRow: {
+    width: '100%',
+    marginTop: Spacing.md,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Colors.textMuted + '40',
+  },
+  dividerText: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    fontWeight: '600',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    paddingLeft: Spacing.sm,
+    paddingRight: 4,
+  },
+  textInput: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    paddingVertical: Spacing.sm,
+  },
+  sendBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: BorderRadius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendBtnDisabled: {
+    opacity: 0.5,
   },
 
   // Processing

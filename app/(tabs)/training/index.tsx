@@ -30,7 +30,8 @@ import { MoveWorkoutModal } from '../../../src/components/MoveWorkoutModal';
 import { DayDetail } from '../../../src/components/DayDetail';
 import { derivePhases } from '../../../src/components/TrainingPhases';
 import { WorkoutDefinition, generateId } from '../../../src/workout/workoutTypes';
-import { saveWorkout, loadHistory } from '../../../src/workout/workoutStorage';
+import { loadHistory } from '../../../src/workout/workoutStorage';
+import { setTempWorkout } from '../../../src/workout/tempWorkoutCache';
 import { WorkoutPickerModal } from '../../../src/components/WorkoutPickerModal';
 import { VoiceWorkoutSheet } from '../../../src/components/VoiceWorkoutSheet';
 import { VoiceEditSheet } from '../../../src/components/VoiceEditSheet';
@@ -165,13 +166,13 @@ export default function TrainingScreen() {
   const selectedDayEntry = dayEntries[selectedDate];
 
 
-  const handleStartWorkout = useCallback(async (workoutData: WorkoutDefinition) => {
+  const handleStartWorkout = useCallback((workoutData: WorkoutDefinition) => {
     const workout: WorkoutDefinition = {
       ...workoutData,
       id: workoutData.id || generateId(),
       updatedAt: Date.now(),
     };
-    await saveWorkout(workout);
+    setTempWorkout(workout);
     router.push(`/workout/run/${workout.id}`);
   }, [router]);
 
@@ -185,13 +186,13 @@ export default function TrainingScreen() {
     await moveWorkout(moveTarget.id, newDate);
   }, [moveTarget, moveWorkout]);
 
-  const handleEditWorkout = useCallback(async (workoutData: WorkoutDefinition) => {
+  const handleEditWorkout = useCallback((workoutData: WorkoutDefinition) => {
     const workout: WorkoutDefinition = {
       ...workoutData,
       id: workoutData.id || generateId(),
       updatedAt: Date.now(),
     };
-    await saveWorkout(workout);
+    setTempWorkout(workout);
     router.push(`/workout/${workout.id}`);
   }, [router]);
 

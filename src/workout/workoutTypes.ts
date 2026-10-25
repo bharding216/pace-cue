@@ -444,16 +444,64 @@ function formatIntervalDescription(i: WorkoutInterval): string {
 
 // ── Workout categorization ───────────────────────────────────────────
 
-export type WorkoutCategory = 'distance' | 'timed' | 'intervals';
+export type WorkoutCategory = 'easy' | 'tempo' | 'intervals' | 'long_run' | 'race';
+
+/** Map old category values to new ones for backward compatibility. */
+const LEGACY_CATEGORY_MAP: Record<string, WorkoutCategory> = {
+  distance: 'easy',
+  timed: 'easy',
+};
 
 /** Return the category of a workout: user-assigned override, or auto-detected. */
 export function categorizeWorkout(def: WorkoutDefinition): WorkoutCategory {
-  if (def.category) return def.category;
-  if (hasDistanceFeature(def)) return 'distance';
-  const hasRepeats = def.blocks.some(b => b.repeatCount > 1);
-  const hasMultipleIntervalTypes = def.blocks.some(b => b.intervals.length > 1);
-  if (hasRepeats || def.blocks.length > 1 || hasMultipleIntervalTypes) return 'intervals';
-  return 'timed';
+  if (def.category) {
+    return LEGACY_CATEGORY_MAP[def.category] ?? def.category;
+  }
+  return inferCategory(def);
+}
+
+/** Infer a purpose-based category from the workout structure. */
+function inferCategory(def: WorkoutDefinition): WorkoutCategory {
+  const mainBlocks = def.blocks;
+
+  // Race: has a target distance matching a well-known race
+  if (def.targetDistanceMeters) {
+    const d = def.targetDistanceMeters;
+    const isRaceDist =
+      Math.abs(d - 5000) < 100 ||
+      Math.abs(d - 10000) < 100 ||
+      Math.abs(d - 21097) < 200 ||
+      Math.abs(d - 42195) < 300;
+    if (isRaceDist) return 'race';
+  }
+
+  // Intervals: repeating blocks with mixed interval types
+  const hasRepeats = mainBlocks.some(b => b.repeatCount > 1 && b.intervals.length > 1);
+  const hasMultipleBlocks = mainBlocks.length > 1;
+  if (hasRepeats || hasMultipleBlocks) return 'intervals';
+
+  // Tempo: single sustained hard effort (one block, one hard interval, no repeats > 1)
+  if (
+    mainBlocks.length === 1 &&
+    mainBlocks[0].repeatCount === 1 &&
+    mainBlocks[0].intervals.length === 1 &&
+    mainBlocks[0].intervals[0].type === 'hard'
+  ) {
+    return 'tempo';
+  }
+
+  // Long run: single easy effort longer than 45 minutes or > 8 km
+  const mainInterval =
+    mainBlocks.length === 1 && mainBlocks[0].intervals.length === 1
+      ? mainBlocks[0].intervals[0]
+      : null;
+  if (mainInterval && mainInterval.type === 'easy') {
+    const isLongTime = mainInterval.durationSeconds >= 2700;
+    const isLongDist = (mainInterval.distanceMeters ?? 0) >= 8000;
+    if (isLongTime || isLongDist) return 'long_run';
+  }
+
+  return 'easy';
 }
 
 /** Total target distance for the workout (if any). */

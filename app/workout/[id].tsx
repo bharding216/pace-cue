@@ -8,6 +8,7 @@ import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'rea
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { WorkoutDefinition, generateId } from '../../src/workout/workoutTypes';
 import { loadWorkouts, saveWorkout } from '../../src/workout/workoutStorage';
+import { getTempWorkout, clearTempWorkout } from '../../src/workout/tempWorkoutCache';
 import { WorkoutEditorForm } from '../../src/components/WorkoutEditorForm';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 import { track } from '../../src/analytics/track';
@@ -16,12 +17,20 @@ export default function EditWorkoutScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [workout, setWorkout] = useState<WorkoutDefinition | null>(null);
+  const [fromPlan, setFromPlan] = useState(false);
 
   useEffect(() => {
-    loadWorkouts().then((all) => {
-      const found = all.find((w) => w.id === id);
-      if (found) setWorkout(found);
-    });
+    const cached = getTempWorkout(id!);
+    if (cached) {
+      clearTempWorkout(id!);
+      setWorkout(cached);
+      setFromPlan(true);
+    } else {
+      loadWorkouts().then((all) => {
+        const found = all.find((w) => w.id === id);
+        if (found) setWorkout(found);
+      });
+    }
   }, [id]);
 
   if (!workout) {
@@ -49,7 +58,8 @@ export default function EditWorkoutScreen() {
       />
       <WorkoutEditorForm
         initial={workout}
-        autoSave
+        autoSave={!fromPlan}
+        isPlanWorkout={fromPlan}
         onSave={async (updated) => {
           await saveWorkout({ ...updated, updatedAt: Date.now() });
           track('workout_saved', {
@@ -57,6 +67,7 @@ export default function EditWorkoutScreen() {
             workout_name: updated.name,
             is_copy: false,
           });
+          if (fromPlan) router.back();
         }}
         onSaveAsNew={async (updated) => {
           const now = Date.now();

@@ -170,9 +170,11 @@ export async function generateWorkout(
   const workout: WorkoutDefinition = {
     id: generateId(),
     name: data.workout?.name ?? 'AI Workout',
+    category: data.workout?.category,
     warmup: rawWarmup.map(sanitizeBlock),
     blocks: rawBlocks.map(sanitizeBlock),
     cooldown: rawCooldown.map(sanitizeBlock),
+    targetDistanceMeters: data.workout?.targetDistanceMeters ?? undefined,
     createdAt: now,
     updatedAt: now,
   };

@@ -21,7 +21,7 @@ import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
 import { WorkoutStructure } from '../../../src/components/WorkoutStructure';
 import { MoveWorkoutModal } from '../../../src/components/MoveWorkoutModal';
 import { WorkoutDefinition, generateId, totalWorkoutSeconds, flattenWorkout } from '../../../src/workout/workoutTypes';
-import { saveWorkout } from '../../../src/workout/workoutStorage';
+import { setTempWorkout } from '../../../src/workout/tempWorkoutCache';
 import { generateWorkoutDetails } from '../../../src/ai/planService';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 
@@ -82,25 +82,25 @@ export default function WorkoutDetailScreen() {
   const isRest = planWorkout?.day_label === 'Rest Day';
   const isCompleted = planWorkout?.status === 'completed';
 
-  const handleStart = useCallback(async () => {
+  const handleStart = useCallback(() => {
     if (!workoutData) return;
     const workout: WorkoutDefinition = {
       ...workoutData,
       id: workoutData.id || generateId(),
       updatedAt: Date.now(),
     };
-    await saveWorkout(workout);
+    setTempWorkout(workout);
     router.push(`/workout/run/${workout.id}`);
   }, [workoutData, router]);
 
-  const handleEdit = useCallback(async () => {
+  const handleEdit = useCallback(() => {
     if (!workoutData) return;
     const workout: WorkoutDefinition = {
       ...workoutData,
       id: workoutData.id || generateId(),
       updatedAt: Date.now(),
     };
-    await saveWorkout(workout);
+    setTempWorkout(workout);
     router.push(`/workout/${workout.id}`);
   }, [workoutData, router]);
 

@@ -2,7 +2,7 @@
  * WorkoutPickerModal — bottom sheet to pick a workout from the user's library
  * for adding to a specific calendar date.
  *
- * Features: text search, category filter chips (distance / timed / intervals),
+ * Features: text search, category filter chips (easy / tempo / intervals / long run / race),
  * and a "Create New Workout" action.
  */
 
@@ -45,9 +45,11 @@ interface WorkoutPickerModalProps {
 // ── Category helpers ─────────────────────────────────────────
 
 const CATEGORIES: { key: WorkoutCategory; label: string; icon: React.ComponentProps<typeof Ionicons>['name']; color: string }[] = [
-  { key: 'distance', label: 'Distance', icon: 'navigate', color: Colors.accent },
-  { key: 'timed', label: 'Timed', icon: 'timer-outline', color: Colors.primary },
-  { key: 'intervals', label: 'Intervals', icon: 'repeat', color: Colors.warning },
+  { key: 'easy', label: 'Easy', icon: 'leaf-outline', color: Colors.easy },
+  { key: 'tempo', label: 'Tempo', icon: 'speedometer-outline', color: Colors.warning },
+  { key: 'intervals', label: 'Intervals', icon: 'repeat', color: Colors.danger },
+  { key: 'long_run', label: 'Long Run', icon: 'trail-sign-outline', color: Colors.accent },
+  { key: 'race', label: 'Race', icon: 'trophy-outline', color: Colors.primary },
 ];
 
 function categoryColor(cat: string): string {

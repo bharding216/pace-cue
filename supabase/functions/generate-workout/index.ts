@@ -88,9 +88,11 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) matching:
   "message": "string — your coaching message to the runner",
   "workout": {
     "name": "string — short workout name, e.g. 'Tempo Run' or 'Hill Repeats'",
+    "category": "easy" | "tempo" | "intervals" | "long_run" | "race",
     "warmup": [RepeatBlock],
     "blocks": [RepeatBlock],
-    "cooldown": [RepeatBlock]
+    "cooldown": [RepeatBlock],
+    "targetDistanceMeters": number (optional) — total workout auto-finish distance in meters
   }
 }
 
@@ -102,20 +104,30 @@ RepeatBlock = {
 
 Interval = {
   "type": "warmup" | "hard" | "easy" | "cooldown",
-  "durationSeconds": number,
+  "durationSeconds": number — set to 0 for distance-based intervals,
+  "distanceMeters": number (optional) — if set with durationSeconds=0, interval ends by GPS distance,
   "label": "string (optional) — human-readable label e.g. 'Sprint', 'Recovery Jog'",
   "effort": number (optional) — RPE 1-10,
   "targetPace": number (optional) — min/mile e.g. 8.5 = 8:30/mi
 }
 
+Category meanings:
+- "easy": recovery runs, easy-effort runs
+- "tempo": sustained threshold / tempo efforts
+- "intervals": structured speed work with repeating hard/easy blocks
+- "long_run": endurance-building long runs (45+ min)
+- "race": race simulations, time trials, race-distance runs
+
 Rules:
 - effort and targetPace are MUTUALLY EXCLUSIVE on each interval. Use at most one.
 - If the runner's profile includes pace data, prefer targetPace for hard/tempo intervals.
 - Otherwise use effort.
+- An interval can be TIME-BASED (durationSeconds > 0) or DISTANCE-BASED (durationSeconds = 0, distanceMeters > 0). Use distance-based for track repeats (400m, 800m, mile repeats) and race-distance runs.
 - warmup and cooldown arrays can be empty [] if not needed.
 - blocks must have at least one RepeatBlock.
-- durationSeconds must be a positive integer.
-- repeatCount must be a positive integer (1 = no repeat).`);
+- durationSeconds must be a non-negative integer (0 for distance-based intervals).
+- repeatCount must be a positive integer (1 = no repeat).
+- targetDistanceMeters is optional — use for race-distance workouts (e.g. 5000 for 5K, 21097 for half marathon).`);
 
   return sections.join("\n\n");
 }

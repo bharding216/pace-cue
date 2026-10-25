@@ -1,6 +1,6 @@
 /**
  * Home screen — categorized workout list with collapsible sections.
- * Categories: Distance Runs, Timed Runs, Intervals.
+ * Categories: Easy/Recovery, Tempo, Intervals, Long Runs, Race/Time Trial.
  */
 
 import React, { useCallback, useEffect, useState, useRef } from 'react';
@@ -45,25 +45,39 @@ interface CategoryConfig {
 
 const CATEGORIES: CategoryConfig[] = [
   {
-    key: 'distance',
-    title: 'Distance Runs',
-    icon: 'navigate',
-    description: 'GPS-tracked runs by distance',
-    color: Colors.accent,
+    key: 'easy',
+    title: 'Easy / Recovery',
+    icon: 'leaf-outline',
+    description: 'Easy-effort and recovery runs',
+    color: Colors.easy,
   },
   {
-    key: 'timed',
-    title: 'Timed Runs',
-    icon: 'timer-outline',
-    description: 'Steady runs by time',
-    color: Colors.primary,
+    key: 'tempo',
+    title: 'Tempo',
+    icon: 'speedometer-outline',
+    description: 'Sustained hard-effort runs',
+    color: Colors.warning,
   },
   {
     key: 'intervals',
     title: 'Intervals',
     icon: 'repeat',
-    description: 'Structured interval training',
-    color: Colors.warning,
+    description: 'Structured speed & interval sessions',
+    color: Colors.danger,
+  },
+  {
+    key: 'long_run',
+    title: 'Long Runs',
+    icon: 'trail-sign-outline',
+    description: 'Endurance-building long runs',
+    color: Colors.accent,
+  },
+  {
+    key: 'race',
+    title: 'Race / Time Trial',
+    icon: 'trophy-outline',
+    description: 'Race simulations and time trials',
+    color: Colors.primary,
   },
 ];
 
@@ -127,7 +141,7 @@ export default function HomeScreen() {
       acc[cat].push(w);
       return acc;
     },
-    { distance: [], timed: [], intervals: [] }
+    { easy: [], tempo: [], intervals: [], long_run: [], race: [] }
   );
 
   if (loading) {
