@@ -1,6 +1,6 @@
 /**
- * Running Profile settings — goals, experience level, pace info,
- * and preferences that feed into the AI workout builder.
+ * Running Profile settings — tabbed UI matching the plan-creation sheet.
+ * Tabs: Basics · Paces · Schedule · Preferences
  *
  * Requires an authenticated user (data is stored in Supabase).
  */
@@ -27,9 +27,22 @@ import {
   ExperienceLevel,
   RaceTimes,
   RaceTimeEntry,
+  DayPreference,
+  normalizeDayPreferences,
 } from '../../../src/types/database';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 import { hapticTap } from '../../../src/audio/haptics';
+
+// ── Tab definitions ──────────────────────────────────────────
+
+type TabKey = 'basics' | 'paces' | 'schedule' | 'prefs';
+
+const TABS: { key: TabKey; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'basics', label: 'Basics', icon: 'person-outline' },
+  { key: 'paces', label: 'Paces', icon: 'speedometer-outline' },
+  { key: 'schedule', label: 'Schedule', icon: 'calendar-outline' },
+  { key: 'prefs', label: 'Preferences', icon: 'options-outline' },
+];
 
 // ── Presets ──────────────────────────────────────────────────
 
@@ -118,69 +131,6 @@ const CROSS_TRAINING_OPTIONS: { key: string; label: string; icon: keyof typeof I
   { key: 'rowing', label: 'Rowing', icon: 'boat-outline' },
 ];
 
-// ── Pace helpers (decimal ↔ MM:SS) ──────────────────────────
-
-/** Convert decimal minutes (e.g. 8.5) → "8:30" */
-function paceToMMSS(decimal: number): string {
-  const mins = Math.floor(decimal);
-  const secs = Math.round((decimal - mins) * 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-/** Convert "8:30" → 8.5, or return null if invalid */
-function mmSSToPace(text: string): number | null {
-  const trimmed = text.trim();
-  const match = trimmed.match(/^(\d{1,2}):(\d{1,2})$/);
-  if (!match) return null;
-  const mins = parseInt(match[1], 10);
-  const secs = parseInt(match[2], 10);
-  if (secs >= 60) return null;
-  const decimal = mins + secs / 60;
-  return decimal > 0 ? parseFloat(decimal.toFixed(2)) : null;
-}
-
-// ── Race time helpers ────────────────────────────────────────
-
-/** Convert total seconds → display string (M:SS, MM:SS, or H:MM:SS) */
-function secondsToDisplay(totalSec: number): string {
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = Math.round(totalSec % 60);
-  if (h > 0) {
-    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  }
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-/** Parse "M:SS", "MM:SS", or "H:MM:SS" → total seconds, or null if invalid */
-function displayToSeconds(text: string): number | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-
-  // H:MM:SS
-  const hms = trimmed.match(/^(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
-  if (hms) {
-    const h = parseInt(hms[1], 10);
-    const m = parseInt(hms[2], 10);
-    const s = parseInt(hms[3], 10);
-    if (m >= 60 || s >= 60) return null;
-    const total = h * 3600 + m * 60 + s;
-    return total > 0 ? total : null;
-  }
-
-  // M:SS or MM:SS
-  const ms = trimmed.match(/^(\d{1,3}):(\d{1,2})$/);
-  if (ms) {
-    const m = parseInt(ms[1], 10);
-    const s = parseInt(ms[2], 10);
-    if (s >= 60) return null;
-    const total = m * 60 + s;
-    return total > 0 ? total : null;
-  }
-
-  return null;
-}
-
 const RACE_DISTANCES: { key: string; label: string; placeholder: string }[] = [
   { key: 'mile', label: 'Mile', placeholder: 'e.g. 8:00' },
   { key: '5k', label: '5K', placeholder: 'e.g. 25:00' },
@@ -195,7 +145,64 @@ const PACE_TIERS: { key: keyof RaceTimeEntry; label: string }[] = [
   { key: 'fast', label: 'Fast' },
 ];
 
-// ── Race Time Row ───────────────────────────────────────────
+// ── Pace helpers ─────────────────────────────────────────────
+
+function paceToMMSS(decimal: number): string {
+  const mins = Math.floor(decimal);
+  const secs = Math.round((decimal - mins) * 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function mmSSToPace(text: string): number | null {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (!match) return null;
+  const mins = parseInt(match[1], 10);
+  const secs = parseInt(match[2], 10);
+  if (secs >= 60) return null;
+  const decimal = mins + secs / 60;
+  return decimal > 0 ? parseFloat(decimal.toFixed(2)) : null;
+}
+
+// ── Race time helpers ────────────────────────────────────────
+
+function secondsToDisplay(totalSec: number): string {
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = Math.round(totalSec % 60);
+  if (h > 0) {
+    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function displayToSeconds(text: string): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const hms = trimmed.match(/^(\d{1,2}):(\d{1,2}):(\d{1,2})$/);
+  if (hms) {
+    const h = parseInt(hms[1], 10);
+    const m = parseInt(hms[2], 10);
+    const s = parseInt(hms[3], 10);
+    if (m >= 60 || s >= 60) return null;
+    const total = h * 3600 + m * 60 + s;
+    return total > 0 ? total : null;
+  }
+
+  const ms = trimmed.match(/^(\d{1,3}):(\d{1,2})$/);
+  if (ms) {
+    const m = parseInt(ms[1], 10);
+    const s = parseInt(ms[2], 10);
+    if (s >= 60) return null;
+    const total = m * 60 + s;
+    return total > 0 ? total : null;
+  }
+
+  return null;
+}
+
+// ── Race Time Row ────────────────────────────────────────────
 
 function RaceTimeRow({
   distance,
@@ -206,11 +213,17 @@ function RaceTimeRow({
   entry: RaceTimeEntry;
   onChange: (tier: keyof RaceTimeEntry, seconds: number | null) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const [texts, setTexts] = useState<Record<string, string>>({
     slow: entry.slow != null ? secondsToDisplay(entry.slow) : '',
     avg: entry.avg != null ? secondsToDisplay(entry.avg) : '',
     fast: entry.fast != null ? secondsToDisplay(entry.fast) : '',
   });
+
+  const hasData = entry.slow != null || entry.avg != null || entry.fast != null;
+  const summary = hasData
+    ? PACE_TIERS.filter((t) => entry[t.key] != null).map((t) => secondsToDisplay(entry[t.key]!)).join(' · ')
+    : '';
 
   const handleBlur = (tier: keyof RaceTimeEntry) => {
     const text = texts[tier]?.trim();
@@ -229,30 +242,48 @@ function RaceTimeRow({
 
   return (
     <View style={styles.raceTimeRow}>
-      <Text style={styles.raceTimeLabel}>{distance.label}</Text>
-      <View style={styles.raceTimeFields}>
-        {PACE_TIERS.map((tier) => (
-          <View key={tier.key} style={styles.raceTimeFieldWrap}>
-            <Text style={styles.raceTimeTierLabel}>{tier.label}</Text>
-            <TextInput
-              style={styles.raceTimeField}
-              value={texts[tier.key]}
-              onChangeText={(v) => setTexts((prev) => ({ ...prev, [tier.key]: v }))}
-              onBlur={() => handleBlur(tier.key)}
-              onSubmitEditing={() => handleBlur(tier.key)}
-              placeholder={distance.placeholder}
-              placeholderTextColor={Colors.textMuted}
-              keyboardType="numbers-and-punctuation"
-              returnKeyType="done"
-            />
-          </View>
-        ))}
-      </View>
+      <TouchableOpacity
+        style={styles.raceTimeHeader}
+        onPress={() => setExpanded((prev) => !prev)}
+        activeOpacity={0.7}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.raceTimeLabel}>{distance.label}</Text>
+          {!expanded && hasData && (
+            <Text style={styles.raceTimeSummary}>{summary}</Text>
+          )}
+        </View>
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={Colors.textMuted}
+        />
+      </TouchableOpacity>
+      {expanded && (
+        <View style={styles.raceTimeFields}>
+          {PACE_TIERS.map((tier) => (
+            <View key={tier.key} style={styles.raceTimeFieldWrap}>
+              <Text style={styles.raceTimeTierLabel}>{tier.label}</Text>
+              <TextInput
+                style={styles.raceTimeField}
+                value={texts[tier.key]}
+                onChangeText={(v) => setTexts((prev) => ({ ...prev, [tier.key]: v }))}
+                onBlur={() => handleBlur(tier.key)}
+                onSubmitEditing={() => handleBlur(tier.key)}
+                placeholder={distance.placeholder}
+                placeholderTextColor={Colors.textMuted}
+                keyboardType="numbers-and-punctuation"
+                returnKeyType="done"
+              />
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
 
-// ── Preference Section ──────────────────────────────────────
+// ── Preference Section ───────────────────────────────────────
 
 function PreferenceSection({
   title,
@@ -296,31 +327,28 @@ function PreferenceSection({
   };
 
   return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{title}</Text>
+    <View style={styles.tabSection}>
+      <View style={styles.prefHeader}>
+        <Text style={styles.tabSectionTitle}>{title}</Text>
         {availablePresets.length > 0 && (
-          <TouchableOpacity
-            onPress={() => setShowPresets((p) => !p)}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity onPress={() => setShowPresets((p) => !p)} activeOpacity={0.7}>
             <Text style={styles.suggestionsToggle}>
-              {showPresets ? 'Hide suggestions' : 'Suggestions'}
+              {showPresets ? 'Hide' : 'Suggestions'}
             </Text>
           </TouchableOpacity>
         )}
       </View>
 
       {showPresets && availablePresets.length > 0 && (
-        <View style={[styles.chipRow, { marginBottom: Spacing.sm }]}>
+        <View style={styles.chipRow}>
           {availablePresets.map((p) => (
             <TouchableOpacity
               key={p}
-              style={styles.chip}
+              style={styles.presetChip}
               onPress={() => addItem(p)}
               activeOpacity={0.7}
             >
-              <Text style={styles.chipText}>+ {p}</Text>
+              <Text style={styles.presetChipText}>+ {p}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -356,16 +384,16 @@ function PreferenceSection({
   );
 }
 
-// ── Main Screen ─────────────────────────────────────────────
+// ── Main Screen ──────────────────────────────────────────────
 
 export default function RunningProfileScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<TabKey>('basics');
   const [profile, setProfile] = useState<RunningProfile | null>(null);
   const [preferences, setPreferences] = useState<RunningPreference[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Local state for pace text fields (saved on blur, not every keystroke)
   const [easyPaceText, setEasyPaceText] = useState('');
   const [fastPaceText, setFastPaceText] = useState('');
 
@@ -401,7 +429,6 @@ export default function RunningProfileScreen() {
   const updateProfile = async (updates: Partial<RunningProfile>) => {
     if (!user) return;
 
-    // Optimistic update so UI responds instantly
     setProfile((prev) =>
       prev
         ? { ...prev, ...updates }
@@ -438,7 +465,6 @@ export default function RunningProfileScreen() {
     if (error) {
       Alert.alert('Error', error.message);
     }
-    // Sync with DB to get the canonical row (including generated id / timestamps)
     fetchData();
   };
 
@@ -523,341 +549,366 @@ export default function RunningProfileScreen() {
   const limitations = preferences.filter((p) => p.category === 'limitation');
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-      {/* Experience Level */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Experience Level</Text>
-        <View style={styles.levelRow}>
-          {EXPERIENCE_LEVELS.map((level) => (
+    <View style={styles.container}>
+      {/* Tab bar */}
+      <View style={styles.tabBar}>
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
             <TouchableOpacity
-              key={level.value}
-              style={[
-                styles.levelCard,
-                profile?.experience_level === level.value &&
-                  styles.levelCardActive,
-              ]}
-              onPress={() => {
-                hapticTap();
-                updateProfile({ experience_level: level.value });
-              }}
+              key={tab.key}
+              style={styles.tabItem}
+              onPress={() => { hapticTap(); setActiveTab(tab.key); }}
               activeOpacity={0.7}
             >
+              <Ionicons
+                name={tab.icon}
+                size={16}
+                color={isActive ? Colors.primary : Colors.textMuted}
+              />
               <Text
-                style={[
-                  styles.levelLabel,
-                  profile?.experience_level === level.value &&
-                    styles.levelLabelActive,
-                ]}
+                style={[styles.tabLabel, isActive && styles.tabLabelActive]}
+                numberOfLines={1}
               >
-                {level.label}
+                {tab.label}
               </Text>
-              <Text style={styles.levelDesc}>{level.desc}</Text>
+              {isActive && <View style={styles.tabIndicator} />}
             </TouchableOpacity>
-          ))}
-        </View>
+          );
+        })}
       </View>
 
-      {/* Current Fitness */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Current Fitness</Text>
-        <Text style={styles.sectionSub}>
-          Help the AI calibrate your starting point.
-        </Text>
-        <View style={styles.fitnessRow}>
-          <View style={styles.fitnessInput}>
-            <Text style={styles.paceLabel}>Weekly mileage</Text>
-            <View style={styles.fieldWithUnit}>
-              <TextInput
-                style={[styles.paceField, { flex: 1 }]}
-                value={profile?.weekly_mileage != null ? String(profile.weekly_mileage) : ''}
-                onChangeText={(v) => {
-                  const n = parseFloat(v);
-                  if (!v.trim()) updateProfile({ weekly_mileage: null } as Partial<RunningProfile>);
-                  else if (!isNaN(n) && n > 0) updateProfile({ weekly_mileage: n } as Partial<RunningProfile>);
-                }}
-                placeholder="e.g. 20"
-                placeholderTextColor={Colors.textMuted}
-                keyboardType="numeric"
-                maxLength={5}
-              />
-              <Text style={styles.fieldUnit}>mi/wk</Text>
+      {/* Content */}
+      <ScrollView
+        style={styles.scrollArea}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* ── Basics tab ── */}
+        {activeTab === 'basics' && (
+          <View>
+            <View style={styles.tabSection}>
+              <Text style={styles.tabSectionTitle}>Experience Level</Text>
+              <View style={styles.levelRow}>
+                {EXPERIENCE_LEVELS.map((level) => {
+                  const isActive = profile?.experience_level === level.value;
+                  return (
+                    <TouchableOpacity
+                      key={level.value}
+                      style={[styles.levelCard, isActive && styles.levelCardActive]}
+                      onPress={() => { hapticTap(); updateProfile({ experience_level: level.value }); }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.levelLabel, isActive && styles.levelLabelActive]}>
+                        {level.label}
+                      </Text>
+                      <Text style={styles.levelDesc}>{level.desc}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.tabSection}>
+              <Text style={styles.tabSectionTitle}>Current Fitness</Text>
+              <View style={styles.fitnessRow}>
+                <View style={styles.fitnessInput}>
+                  <Text style={styles.fieldLabel}>Weekly mileage</Text>
+                  <View style={styles.fieldWithUnit}>
+                    <TextInput
+                      style={[styles.field, { flex: 1 }]}
+                      value={profile?.weekly_mileage != null ? String(profile.weekly_mileage) : ''}
+                      onChangeText={(v) => {
+                        const n = parseFloat(v);
+                        if (!v.trim()) updateProfile({ weekly_mileage: null } as Partial<RunningProfile>);
+                        else if (!isNaN(n) && n > 0) updateProfile({ weekly_mileage: n } as Partial<RunningProfile>);
+                      }}
+                      placeholder="e.g. 20"
+                      placeholderTextColor={Colors.textMuted}
+                      keyboardType="numeric"
+                      maxLength={5}
+                    />
+                    <Text style={styles.fieldUnit}>mi/wk</Text>
+                  </View>
+                </View>
+                <View style={styles.fitnessInput}>
+                  <Text style={styles.fieldLabel}>Longest recent run</Text>
+                  <View style={styles.fieldWithUnit}>
+                    <TextInput
+                      style={[styles.field, { flex: 1 }]}
+                      value={profile?.longest_recent_run_minutes != null ? String(profile.longest_recent_run_minutes) : ''}
+                      onChangeText={(v) => {
+                        const n = parseInt(v, 10);
+                        if (!v.trim()) updateProfile({ longest_recent_run_minutes: null } as Partial<RunningProfile>);
+                        else if (!isNaN(n) && n > 0) updateProfile({ longest_recent_run_minutes: n } as Partial<RunningProfile>);
+                      }}
+                      placeholder="e.g. 60"
+                      placeholderTextColor={Colors.textMuted}
+                      keyboardType="number-pad"
+                      maxLength={3}
+                    />
+                    <Text style={styles.fieldUnit}>min</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.tabSection}>
+              <Text style={styles.tabSectionTitle}>Typical Run Duration</Text>
+              <View style={styles.chipRow}>
+                {DURATION_PRESETS.map((preset) => {
+                  const isActive =
+                    profile?.typical_run_minutes === preset.min &&
+                    profile?.typical_run_minutes_max === preset.max;
+                  return (
+                    <TouchableOpacity
+                      key={preset.label}
+                      style={[styles.durationChip, isActive && styles.durationChipActive]}
+                      onPress={() => {
+                        hapticTap();
+                        updateProfile({ typical_run_minutes: preset.min, typical_run_minutes_max: preset.max } as Partial<RunningProfile>);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.durationChipText, isActive && styles.durationChipTextActive]}>
+                        {preset.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
           </View>
-          <View style={styles.fitnessInput}>
-            <Text style={styles.paceLabel}>Longest recent run</Text>
-            <View style={styles.fieldWithUnit}>
-              <TextInput
-                style={[styles.paceField, { flex: 1 }]}
-                value={profile?.longest_recent_run_minutes != null ? String(profile.longest_recent_run_minutes) : ''}
-                onChangeText={(v) => {
-                  const n = parseInt(v, 10);
-                  if (!v.trim()) updateProfile({ longest_recent_run_minutes: null } as Partial<RunningProfile>);
-                  else if (!isNaN(n) && n > 0) updateProfile({ longest_recent_run_minutes: n } as Partial<RunningProfile>);
-                }}
-                placeholder="e.g. 60"
-                placeholderTextColor={Colors.textMuted}
-                keyboardType="number-pad"
-                maxLength={3}
-              />
-              <Text style={styles.fieldUnit}>min</Text>
+        )}
+
+        {/* ── Paces tab ── */}
+        {activeTab === 'paces' && (
+          <View>
+            <View style={styles.tabSection}>
+              <Text style={styles.tabSectionTitle}>Your Paces (min/mile)</Text>
+              <Text style={styles.tabSectionSub}>
+                Enter as minutes:seconds — e.g. 9:30
+              </Text>
+              <View style={styles.paceRow}>
+                <View style={styles.paceInput}>
+                  <Text style={styles.fieldLabel}>Easy pace</Text>
+                  <TextInput
+                    style={styles.field}
+                    value={easyPaceText}
+                    onChangeText={setEasyPaceText}
+                    onBlur={() => savePace('easy_pace', easyPaceText)}
+                    onSubmitEditing={() => savePace('easy_pace', easyPaceText)}
+                    placeholder="e.g. 10:00"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="numbers-and-punctuation"
+                    returnKeyType="done"
+                  />
+                </View>
+                <View style={styles.paceInput}>
+                  <Text style={styles.fieldLabel}>Fast pace</Text>
+                  <TextInput
+                    style={styles.field}
+                    value={fastPaceText}
+                    onChangeText={setFastPaceText}
+                    onBlur={() => savePace('fast_pace', fastPaceText)}
+                    onSubmitEditing={() => savePace('fast_pace', fastPaceText)}
+                    placeholder="e.g. 7:30"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="numbers-and-punctuation"
+                    returnKeyType="done"
+                  />
+                </View>
+              </View>
             </View>
-          </View>
-        </View>
-      </View>
 
-      {/* Typical Run Duration */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Typical Run Duration</Text>
-        <Text style={styles.sectionSub}>
-          How long are your usual runs? Pick a preset or enter a custom range.
-        </Text>
-        <View style={styles.chipRow}>
-          {DURATION_PRESETS.map((preset) => {
-            const isActive =
-              profile?.typical_run_minutes === preset.min &&
-              profile?.typical_run_minutes_max === preset.max;
-            return (
-              <TouchableOpacity
-                key={preset.label}
-                style={[styles.durationChip, isActive && styles.durationChipActive]}
-                onPress={() => {
-                  hapticTap();
-                  updateProfile({
-                    typical_run_minutes: preset.min,
-                    typical_run_minutes_max: preset.max,
-                  } as Partial<RunningProfile>);
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.durationChipText, isActive && styles.durationChipTextActive]}>
-                  {preset.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-        <View style={styles.durationRangeRow}>
-          <TextInput
-            style={styles.durationField}
-            value={profile?.typical_run_minutes != null ? String(profile.typical_run_minutes) : ''}
-            onChangeText={(v) => {
-              const n = parseInt(v, 10);
-              if (!v.trim()) updateProfile({ typical_run_minutes: null } as Partial<RunningProfile>);
-              else if (!isNaN(n) && n > 0) updateProfile({ typical_run_minutes: n } as Partial<RunningProfile>);
-            }}
-            placeholder="Min"
-            placeholderTextColor={Colors.textMuted}
-            keyboardType="number-pad"
-            maxLength={3}
-          />
-          <Text style={styles.durationDash}>–</Text>
-          <TextInput
-            style={styles.durationField}
-            value={profile?.typical_run_minutes_max != null ? String(profile.typical_run_minutes_max) : ''}
-            onChangeText={(v) => {
-              const n = parseInt(v, 10);
-              if (!v.trim()) updateProfile({ typical_run_minutes_max: null } as Partial<RunningProfile>);
-              else if (!isNaN(n) && n > 0) updateProfile({ typical_run_minutes_max: n } as Partial<RunningProfile>);
-            }}
-            placeholder="Max"
-            placeholderTextColor={Colors.textMuted}
-            keyboardType="number-pad"
-            maxLength={3}
-          />
-          <Text style={styles.durationUnit}>minutes</Text>
-        </View>
-      </View>
-
-      {/* Pace Range */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Your Paces (min/mile)</Text>
-        <Text style={styles.sectionSub}>
-          Enter as minutes:seconds — e.g. 9:30 means 9 min 30 sec per mile.
-        </Text>
-        <View style={styles.paceRow}>
-          <View style={styles.paceInput}>
-            <Text style={styles.paceLabel}>Easy pace</Text>
-            <TextInput
-              style={styles.paceField}
-              value={easyPaceText}
-              onChangeText={setEasyPaceText}
-              onBlur={() => savePace('easy_pace', easyPaceText)}
-              onSubmitEditing={() => savePace('easy_pace', easyPaceText)}
-              placeholder="e.g. 10:00"
-              placeholderTextColor={Colors.textMuted}
-              keyboardType="numbers-and-punctuation"
-              returnKeyType="done"
-            />
-          </View>
-          <View style={styles.paceInput}>
-            <Text style={styles.paceLabel}>Fast pace</Text>
-            <TextInput
-              style={styles.paceField}
-              value={fastPaceText}
-              onChangeText={setFastPaceText}
-              onBlur={() => savePace('fast_pace', fastPaceText)}
-              onSubmitEditing={() => savePace('fast_pace', fastPaceText)}
-              placeholder="e.g. 7:30"
-              placeholderTextColor={Colors.textMuted}
-              keyboardType="numbers-and-punctuation"
-              returnKeyType="done"
-            />
-          </View>
-        </View>
-      </View>
-
-      {/* Availability */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Availability</Text>
-        <Text style={styles.sectionSub}>
-          Which days work best for training?
-        </Text>
-        <View style={styles.dayChipsRow}>
-          {DAYS_OF_WEEK.map((day) => {
-            const selected = (profile?.preferred_days ?? []).includes(day.key);
-            return (
-              <TouchableOpacity
-                key={day.key}
-                style={[styles.dayChip, selected && styles.dayChipActive]}
-                onPress={() => {
-                  hapticTap();
-                  const current: string[] = profile?.preferred_days ?? [];
-                  const updated = selected
-                    ? current.filter((d) => d !== day.key)
-                    : [...current, day.key];
-                  updateProfile({ preferred_days: updated } as Partial<RunningProfile>);
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.dayChipText, selected && styles.dayChipTextActive]}>
-                  {day.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        <Text style={[styles.paceLabel, { marginTop: Spacing.md }]}>
-          Maximum workout duration
-        </Text>
-        <View style={styles.chipRow}>
-          {MAX_DURATION_PRESETS.map((preset) => {
-            const isActive = profile?.max_workout_minutes === preset.value;
-            return (
-              <TouchableOpacity
-                key={preset.value}
-                style={[styles.durationChip, isActive && styles.durationChipActive]}
-                onPress={() => {
-                  hapticTap();
-                  updateProfile({
-                    max_workout_minutes: isActive ? null : preset.value,
-                  } as Partial<RunningProfile>);
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.durationChipText, isActive && styles.durationChipTextActive]}>
-                  {preset.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
-
-      {/* Race Times */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Race Times</Text>
-        <Text style={styles.sectionSub}>
-          Know your times? Fill in any you have — even just one helps the AI
-          calibrate your plan. Enter as M:SS, MM:SS, or H:MM:SS.
-        </Text>
-        {RACE_DISTANCES.map((dist) => (
-          <RaceTimeRow
-            key={dist.key}
-            distance={dist}
-            entry={profile?.race_times?.[dist.key] ?? { slow: null, avg: null, fast: null }}
-            onChange={(tier, seconds) => updateRaceTime(dist.key, tier, seconds)}
-          />
-        ))}
-      </View>
-
-      {/* Cross Training */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Cross Training</Text>
-        <Text style={styles.sectionSub}>
-          Other activities you do regularly — helps the AI balance your load.
-        </Text>
-        <View style={styles.crossGrid}>
-          {CROSS_TRAINING_OPTIONS.map((opt) => {
-            const selected = (profile?.cross_training ?? []).includes(opt.key);
-            return (
-              <TouchableOpacity
-                key={opt.key}
-                style={[styles.crossChip, selected && styles.crossChipActive]}
-                onPress={() => {
-                  hapticTap();
-                  const current: string[] = profile?.cross_training ?? [];
-                  const updated = selected
-                    ? current.filter((k) => k !== opt.key)
-                    : [...current, opt.key];
-                  updateProfile({ cross_training: updated } as Partial<RunningProfile>);
-                }}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={opt.icon}
-                  size={18}
-                  color={selected ? Colors.primary : Colors.textMuted}
+            <View style={styles.tabSection}>
+              <View style={styles.raceTimeTitleRow}>
+                <Text style={styles.tabSectionTitle}>Race Times</Text>
+                <Text style={styles.optionalBadge}>Optional</Text>
+              </View>
+              <Text style={styles.tabSectionSub}>
+                Know your times? Even one helps the AI calibrate your plan. Tap a distance to enter times.
+              </Text>
+              {RACE_DISTANCES.map((dist) => (
+                <RaceTimeRow
+                  key={dist.key}
+                  distance={dist}
+                  entry={profile?.race_times?.[dist.key] ?? { slow: null, avg: null, fast: null }}
+                  onChange={(tier, seconds) => updateRaceTime(dist.key, tier, seconds)}
                 />
-                <Text style={[styles.crossChipText, selected && styles.crossChipTextActive]}>
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
+              ))}
+            </View>
+          </View>
+        )}
 
-      {/* Limitations */}
-      <PreferenceSection
-        title="Limitations & Considerations"
-        category="limitation"
-        items={limitations}
-        userId={user.id}
-        onChanged={fetchData}
-        presets={LIMITATION_PRESETS}
-      />
+        {/* ── Schedule tab ── */}
+        {activeTab === 'schedule' && (
+          <View>
+            <View style={styles.tabSection}>
+              <Text style={styles.tabSectionTitle}>Training Days</Text>
+              <Text style={styles.tabSectionSub}>
+                Tap once for flexible, twice for locked in. Locked days always get a workout; flexible days can shift if life gets busy.
+              </Text>
+              <View style={styles.dayChipsRow}>
+                {DAYS_OF_WEEK.map((day) => {
+                  const days = normalizeDayPreferences(profile?.preferred_days);
+                  const entry = days.find((d) => d.day === day.key);
+                  const state: 'off' | 'flexible' | 'locked' = !entry ? 'off' : entry.locked ? 'locked' : 'flexible';
+                  return (
+                    <TouchableOpacity
+                      key={day.key}
+                      style={[
+                        styles.dayChip,
+                        state === 'flexible' && styles.dayChipFlexible,
+                        state === 'locked' && styles.dayChipLocked,
+                      ]}
+                      onPress={() => {
+                        hapticTap();
+                        const current = normalizeDayPreferences(profile?.preferred_days);
+                        let updated: DayPreference[];
+                        if (state === 'off') {
+                          updated = [...current, { day: day.key, locked: false }];
+                        } else if (state === 'flexible') {
+                          updated = current.map((d) => d.day === day.key ? { ...d, locked: true } : d);
+                        } else {
+                          updated = current.filter((d) => d.day !== day.key);
+                        }
+                        updateProfile({ preferred_days: updated } as Partial<RunningProfile>);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      {state === 'locked' && (
+                        <Ionicons name="lock-closed" size={10} color={Colors.primary} style={{ marginBottom: 1 }} />
+                      )}
+                      <Text style={[
+                        styles.dayChipText,
+                        state === 'flexible' && styles.dayChipTextFlexible,
+                        state === 'locked' && styles.dayChipTextLocked,
+                      ]}>
+                        {day.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View style={styles.dayLegend}>
+                <View style={styles.dayLegendItem}>
+                  <View style={[styles.dayLegendDot, { borderColor: Colors.primary, backgroundColor: 'transparent' }]} />
+                  <Text style={styles.dayLegendText}>Flexible</Text>
+                </View>
+                <View style={styles.dayLegendItem}>
+                  <View style={[styles.dayLegendDot, { borderColor: Colors.primary, backgroundColor: Colors.primary + '25' }]}>
+                    <Ionicons name="lock-closed" size={6} color={Colors.primary} />
+                  </View>
+                  <Text style={styles.dayLegendText}>Locked in</Text>
+                </View>
+              </View>
+            </View>
 
-      {/* Goals */}
-      <PreferenceSection
-        title="Goals"
-        category="goal"
-        items={goals}
-        userId={user.id}
-        onChanged={fetchData}
-        presets={GOAL_PRESETS}
-      />
+            <View style={styles.tabSection}>
+              <Text style={styles.tabSectionTitle}>Max Workout Duration</Text>
+              <View style={styles.chipRow}>
+                {MAX_DURATION_PRESETS.map((preset) => {
+                  const isActive = profile?.max_workout_minutes === preset.value;
+                  return (
+                    <TouchableOpacity
+                      key={preset.value}
+                      style={[styles.durationChip, isActive && styles.durationChipActive]}
+                      onPress={() => {
+                        hapticTap();
+                        updateProfile({ max_workout_minutes: isActive ? null : preset.value } as Partial<RunningProfile>);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.durationChipText, isActive && styles.durationChipTextActive]}>
+                        {preset.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
 
-      {/* Preferences */}
-      <PreferenceSection
-        title="Training Style"
-        category="preference"
-        items={prefs}
-        userId={user.id}
-        onChanged={fetchData}
-        presets={PREFERENCE_PRESETS}
-      />
-    </ScrollView>
+            <View style={styles.tabSection}>
+              <Text style={styles.tabSectionTitle}>Cross Training</Text>
+              <Text style={styles.tabSectionSub}>
+                Other activities you do regularly
+              </Text>
+              <View style={styles.crossGrid}>
+                {CROSS_TRAINING_OPTIONS.map((opt) => {
+                  const selected = (profile?.cross_training ?? []).includes(opt.key);
+                  return (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[styles.crossChip, selected && styles.crossChipActive]}
+                      onPress={() => {
+                        hapticTap();
+                        const current: string[] = profile?.cross_training ?? [];
+                        const updated = selected
+                          ? current.filter((k) => k !== opt.key)
+                          : [...current, opt.key];
+                        updateProfile({ cross_training: updated } as Partial<RunningProfile>);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name={opt.icon}
+                        size={16}
+                        color={selected ? Colors.primary : Colors.textMuted}
+                      />
+                      <Text style={[styles.crossChipText, selected && styles.crossChipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ── Preferences tab ── */}
+        {activeTab === 'prefs' && (
+          <View>
+            <PreferenceSection
+              title="Goals"
+              category="goal"
+              items={goals}
+              userId={user.id}
+              onChanged={fetchData}
+              presets={GOAL_PRESETS}
+            />
+            <PreferenceSection
+              title="Training Style"
+              category="preference"
+              items={prefs}
+              userId={user.id}
+              onChanged={fetchData}
+              presets={PREFERENCE_PRESETS}
+            />
+            <PreferenceSection
+              title="Limitations"
+              category="limitation"
+              items={limitations}
+              userId={user.id}
+              onChanged={fetchData}
+              presets={LIMITATION_PRESETS}
+            />
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
+// ── Styles ───────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  content: { padding: Spacing.lg, paddingBottom: Spacing.xxl * 2 },
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -865,6 +916,387 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     padding: Spacing.xl,
   },
+
+  // Tab bar
+  tabBar: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceLight,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.sm + 2,
+    gap: 3,
+    position: 'relative',
+  },
+  tabLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  tabLabelActive: {
+    color: Colors.primary,
+    fontWeight: '700',
+  },
+  tabIndicator: {
+    position: 'absolute',
+    bottom: -1,
+    left: Spacing.sm,
+    right: Spacing.sm,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: Colors.primary,
+  },
+
+  // Scroll content
+  scrollArea: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingTop: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.xxl * 2,
+  },
+
+  // Tab sections
+  tabSection: {
+    marginBottom: Spacing.lg,
+  },
+  tabSectionTitle: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  tabSectionSub: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    marginBottom: Spacing.sm,
+  },
+
+  // Experience level
+  levelRow: {
+    gap: Spacing.sm,
+  },
+  levelCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    borderWidth: 2,
+    borderColor: Colors.surfaceLight,
+  },
+  levelCardActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '10',
+  },
+  levelLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  levelLabelActive: {
+    color: Colors.primary,
+  },
+  levelDesc: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+
+  // Fitness / field helpers
+  fitnessRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  fitnessInput: {
+    flex: 1,
+  },
+  fieldLabel: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+  },
+  field: {
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+    fontVariant: ['tabular-nums'],
+  },
+  fieldWithUnit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  fieldUnit: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+
+  // Duration chips
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+  },
+  durationChip: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+  },
+  durationChipActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '15',
+  },
+  durationChipText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  durationChipTextActive: {
+    color: Colors.primary,
+  },
+
+  // Paces
+  paceRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  paceInput: {
+    flex: 1,
+  },
+
+  // Race times
+  raceTimeTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  optionalBadge: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    overflow: 'hidden',
+    marginBottom: Spacing.xs,
+  },
+  raceTimeRow: {
+    marginBottom: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    overflow: 'hidden',
+  },
+  raceTimeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+  },
+  raceTimeLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  raceTimeSummary: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  raceTimeFields: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.md,
+  },
+  raceTimeFieldWrap: {
+    flex: 1,
+  },
+  raceTimeTierLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    marginBottom: Spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  raceTimeField: {
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+  },
+
+  // Schedule — day chips
+  dayChipsRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  dayChip: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.sm + 2,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    borderWidth: 2,
+    borderColor: Colors.surfaceLight,
+  },
+  dayChipFlexible: {
+    borderColor: Colors.primary,
+    backgroundColor: 'transparent',
+  },
+  dayChipLocked: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '20',
+  },
+  dayChipText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  dayChipTextFlexible: {
+    color: Colors.primary,
+  },
+  dayChipTextLocked: {
+    color: Colors.primary,
+  },
+  dayLegend: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    marginTop: Spacing.sm,
+  },
+  dayLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  dayLegendDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayLegendText: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+
+  // Cross training grid
+  crossGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  crossChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+  },
+  crossChipActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '12',
+  },
+  crossChipText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  crossChipTextActive: {
+    color: Colors.primary,
+  },
+
+  // Preferences tab
+  prefHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  suggestionsToggle: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  presetChip: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.xs + 2,
+    paddingHorizontal: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+    marginBottom: Spacing.xs,
+  },
+  presetChipText: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+  },
+  prefRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.sm,
+    padding: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+  prefText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    marginRight: Spacing.sm,
+  },
+  addRow: {
+    flexDirection: 'row',
+    marginTop: Spacing.xs,
+    gap: Spacing.sm,
+  },
+  addInput: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  addButton: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.sm,
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Empty / sign-in state
   emptyContent: {
     flexGrow: 1,
     justifyContent: 'center',
@@ -926,311 +1358,5 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textAlign: 'center',
     marginTop: Spacing.md,
-  },
-  section: {
-    marginBottom: Spacing.xl,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
-  },
-  sectionTitle: {
-    fontSize: FontSize.lg,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.sm,
-  },
-  sectionSub: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    marginBottom: Spacing.sm,
-  },
-  suggestionsToggle: {
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-
-  // Experience level
-  levelRow: {
-    gap: Spacing.sm,
-  },
-  levelCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    borderWidth: 2,
-    borderColor: Colors.surfaceLight,
-  },
-  levelCardActive: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '10',
-  },
-  levelLabel: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-  },
-  levelLabelActive: {
-    color: Colors.primary,
-  },
-  levelDesc: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-
-  // Current fitness
-  fitnessRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-  },
-  fitnessInput: {
-    flex: 1,
-  },
-  fieldWithUnit: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  fieldUnit: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    fontWeight: '600',
-  },
-
-  // Day chips (availability)
-  dayChipsRow: {
-    flexDirection: 'row',
-    gap: Spacing.xs,
-  },
-  dayChip: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.sm + 2,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    borderWidth: 2,
-    borderColor: Colors.surfaceLight,
-  },
-  dayChipActive: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '15',
-  },
-  dayChipText: {
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-  },
-  dayChipTextActive: {
-    color: Colors.primary,
-  },
-
-  // Cross training grid
-  crossGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  crossChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.full,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceLight,
-  },
-  crossChipActive: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '12',
-  },
-  crossChipText: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  crossChipTextActive: {
-    color: Colors.primary,
-  },
-
-  // Duration chips
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.xs,
-  },
-  durationChip: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.full,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceLight,
-  },
-  durationChipActive: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '15',
-  },
-  durationChipText: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  durationChipTextActive: {
-    color: Colors.primary,
-  },
-  durationRangeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: Spacing.sm,
-    gap: Spacing.sm,
-  },
-  durationField: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    fontSize: FontSize.lg,
-    color: Colors.textPrimary,
-    fontVariant: ['tabular-nums'],
-    textAlign: 'center',
-  },
-  durationDash: {
-    fontSize: FontSize.lg,
-    color: Colors.textMuted,
-    fontWeight: '700',
-  },
-  durationUnit: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-
-  // Pace
-  paceRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-  },
-  paceInput: {
-    flex: 1,
-  },
-  paceLabel: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.xs,
-  },
-  paceField: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    fontSize: FontSize.md,
-    color: Colors.textPrimary,
-    fontVariant: ['tabular-nums'],
-  },
-
-  // Race times
-  raceTimeRow: {
-    marginBottom: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-  },
-  raceTimeLabel: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.sm,
-  },
-  raceTimeFields: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  raceTimeFieldWrap: {
-    flex: 1,
-  },
-  raceTimeTierLabel: {
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    color: Colors.textMuted,
-    marginBottom: Spacing.xs,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  raceTimeField: {
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: BorderRadius.sm,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.sm,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-    fontVariant: ['tabular-nums'],
-    textAlign: 'center',
-  },
-
-  // Preference chips
-  chip: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.full,
-    paddingVertical: Spacing.xs + 2,
-    paddingHorizontal: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-  },
-  chipText: {
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-  },
-
-  // Preference list
-  prefRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.sm,
-    padding: Spacing.md,
-    marginBottom: Spacing.xs,
-  },
-  prefText: {
-    flex: 1,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-    marginRight: Spacing.sm,
-  },
-  addRow: {
-    flexDirection: 'row',
-    marginTop: Spacing.xs,
-    gap: Spacing.sm,
-  },
-  addInput: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.sm,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-  },
-  addButton: {
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.sm,
-    width: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

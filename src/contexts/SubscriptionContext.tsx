@@ -26,7 +26,6 @@ import { Platform, Alert, Linking } from 'react-native';
 import Purchases, {
   PurchasesPackage,
   PurchasesOfferings,
-  LOG_LEVEL,
 } from 'react-native-purchases';
 import { useAuth } from './AuthContext';
 import { supabase } from '../analytics/supabaseClient';
@@ -86,15 +85,15 @@ export function SubscriptionProvider({
   const [devOverrideTier, setDevOverrideTier] = useState<SubscriptionTier | null>(null);
 
   // ─── Initialize RevenueCat ────────────────────────────────
+  // Skip entirely in dev — the native SDK auto-fetches offerings
+  // after configure/logIn and errors when no StoreKit products
+  // exist, which can't be silenced via setLogLevel.
 
   useEffect(() => {
-    if (!REVENUE_CAT_KEY || rcInitialized) return;
+    if (__DEV__ || !REVENUE_CAT_KEY || rcInitialized) return;
 
     const initRC = async () => {
       try {
-        if (__DEV__) {
-          Purchases.setLogLevel(LOG_LEVEL.DEBUG);
-        }
         Purchases.configure({ apiKey: REVENUE_CAT_KEY });
         setRcInitialized(true);
       } catch (err) {

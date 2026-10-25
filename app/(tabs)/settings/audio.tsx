@@ -233,11 +233,11 @@ export default function AudioSettingsScreen() {
                   <Ionicons name="download-outline" size={18} color={Colors.textSecondary} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.downloadVoicesLabel}>
-                      Download Premium Voices
+                      Download Premium Voices — Free
                     </Text>
                     <Text style={styles.downloadVoicesSub}>
-                      Opens Settings — go to Accessibility › Read & Speak › Voices ›
-                      English to download enhanced voices
+                      Apple includes high-quality voices at no cost — we recommend Zoe.
+                      Opens Settings › Accessibility › Read & Speak › Voices › English
                     </Text>
                   </View>
                   <Text style={styles.chevron}>›</Text>

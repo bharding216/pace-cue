@@ -8,7 +8,7 @@
  * Stats accessible via a dedicated button on the page.
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -35,7 +35,6 @@ import { WorkoutPickerModal } from '../../../src/components/WorkoutPickerModal';
 import { VoiceWorkoutSheet } from '../../../src/components/VoiceWorkoutSheet';
 import { VoiceEditSheet } from '../../../src/components/VoiceEditSheet';
 import { addWorkoutToCalendar, applyPlanModifications, type PlanModification } from '../../../src/ai/planService';
-import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
 import { useSubscription } from '../../../src/contexts/SubscriptionContext';
 import { supabase } from '../../../src/analytics/supabaseClient';
 import { buildHistorySummary } from '../../../src/ai/historySummary';
@@ -95,13 +94,19 @@ export default function TrainingScreen() {
   const [moveTarget, setMoveTarget] = useState<{ id: string; date: string; label: string } | null>(null);
   const [voiceEditTarget, setVoiceEditTarget] = useState<string | null>(null);
   const [heroCollapsed, setHeroCollapsed] = useState(false);
+  const [coachCollapsed, setCoachCollapsed] = useState(false);
+  const returnToPickerDate = useRef<string | null>(null);
 
 
   const HERO_COLLAPSED_KEY = 'training_hero_collapsed';
+  const COACH_COLLAPSED_KEY = 'training_coach_collapsed';
 
   useEffect(() => {
     AsyncStorage.getItem(HERO_COLLAPSED_KEY).then((val) => {
       if (val === 'true') setHeroCollapsed(true);
+    });
+    AsyncStorage.getItem(COACH_COLLAPSED_KEY).then((val) => {
+      if (val === 'true') setCoachCollapsed(true);
     });
   }, []);
 
@@ -114,9 +119,22 @@ export default function TrainingScreen() {
     });
   }, []);
 
+  const toggleCoachCollapsed = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setCoachCollapsed((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem(COACH_COLLAPSED_KEY, String(next));
+      return next;
+    });
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       refresh();
+      if (returnToPickerDate.current) {
+        setPickerDate(returnToPickerDate.current);
+        returnToPickerDate.current = null;
+      }
     }, [refresh])
   );
 
@@ -240,6 +258,12 @@ export default function TrainingScreen() {
     loadAiContext();
   }, [pickerDate, selectedDate, loadAiContext]);
 
+  const handleVoiceClose = useCallback(() => {
+    const date = voiceDate;
+    setVoiceDate(null);
+    setPickerDate(date);
+  }, [voiceDate]);
+
   const handleVoiceWorkoutAccepted = useCallback(async (workout: WorkoutDefinition) => {
     if (!user || !voiceDate) return;
     setVoiceDate(null);
@@ -249,9 +273,9 @@ export default function TrainingScreen() {
   }, [user, voiceDate, ensurePlan, refresh]);
 
   const handleCreateNewForPlan = useCallback(() => {
-    const date = pickerDate;
+    returnToPickerDate.current = pickerDate;
     setPickerDate(null);
-    router.push(`/workout/new?addToDate=${date}` as any);
+    router.push(`/workout/new?addToDate=${returnToPickerDate.current}` as any);
   }, [pickerDate, router]);
 
   const handleWorkoutPicked = useCallback(async (workout: WorkoutDefinition) => {
@@ -280,39 +304,62 @@ export default function TrainingScreen() {
       >
           {/* ─── State A: No active plan ─── */}
           {!hasPlan && !user && (
-            <View style={styles.coachCard}>
-              <View style={styles.coachIconRow}>
-                <View style={styles.coachIconBg}>
-                  <Ionicons name="sparkles" size={22} color={Colors.accent} />
-                </View>
-                <Text style={styles.coachBadge}>AI-Powered</Text>
-              </View>
-              <Text style={styles.coachTitle}>Meet Your AI Running Coach</Text>
-              <Text style={styles.coachDesc}>
-                Chat with our AI coach to set your goals, dial in your preferences, and get a personalized training plan built just for you.
-              </Text>
-              <View style={styles.coachFeatures}>
-                {[
-                  { icon: 'chatbubbles-outline' as const, text: 'Chat naturally about your goals' },
-                  { icon: 'body-outline' as const, text: 'Personalized to your fitness level' },
-                  { icon: 'calendar-outline' as const, text: 'Full training plans for any race' },
-                  { icon: 'refresh-outline' as const, text: 'Adjust your plan anytime via chat' },
-                ].map((f) => (
-                  <View key={f.text} style={styles.coachFeatureRow}>
-                    <Ionicons name={f.icon} size={16} color={Colors.primary} />
-                    <Text style={styles.coachFeatureText}>{f.text}</Text>
-                  </View>
-                ))}
-              </View>
+            coachCollapsed ? (
               <TouchableOpacity
-                style={styles.coachCta}
-                onPress={() => router.push('/login' as any)}
-                activeOpacity={0.8}
+                style={styles.coachCollapsedBar}
+                onPress={toggleCoachCollapsed}
+                activeOpacity={0.7}
               >
-                <Ionicons name="log-in-outline" size={18} color={Colors.black} />
-                <Text style={styles.coachCtaText}>Sign In to Get Started</Text>
+                <View style={styles.coachCollapsedLeft}>
+                  <Ionicons name="sparkles" size={18} color={Colors.accent} />
+                  <Text style={styles.coachCollapsedText}>Meet Your AI Running Coach</Text>
+                </View>
+                <Ionicons name="chevron-down" size={16} color={Colors.textMuted} />
               </TouchableOpacity>
-            </View>
+            ) : (
+              <View style={styles.coachCard}>
+                <View style={styles.coachIconRow}>
+                  <View style={styles.coachIconBg}>
+                    <Ionicons name="sparkles" size={22} color={Colors.accent} />
+                  </View>
+                  <Text style={styles.coachBadge}>AI-Powered</Text>
+                </View>
+                <Text style={styles.coachTitle}>Meet Your AI Running Coach</Text>
+                <Text style={styles.coachDesc}>
+                  Chat with our AI coach to set your goals, dial in your preferences, and get a personalized training plan built just for you.
+                </Text>
+                <View style={styles.coachFeatures}>
+                  {[
+                    { icon: 'chatbubbles-outline' as const, text: 'Chat naturally about your goals' },
+                    { icon: 'body-outline' as const, text: 'Personalized to your fitness level' },
+                    { icon: 'calendar-outline' as const, text: 'Full training plans for any race' },
+                    { icon: 'refresh-outline' as const, text: 'Adjust your plan anytime via chat' },
+                  ].map((f) => (
+                    <View key={f.text} style={styles.coachFeatureRow}>
+                      <Ionicons name={f.icon} size={16} color={Colors.primary} />
+                      <Text style={styles.coachFeatureText}>{f.text}</Text>
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.coachActions}>
+                  <TouchableOpacity
+                    style={styles.coachCta}
+                    onPress={() => router.push('/login' as any)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="sparkles" size={18} color={Colors.black} />
+                    <Text style={styles.coachCtaText}>Get My Plan</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.coachLaterBtn}
+                    onPress={toggleCoachCollapsed}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.coachLaterText}>Maybe Later</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )
           )}
 
           {!hasPlan && user && (
@@ -474,13 +521,6 @@ export default function TrainingScreen() {
             />
           </View>
 
-          {/* Contextual Pro prompt — weekly progress nudge */}
-          {hasPlan && (
-            <ContextualProPrompt
-              momentId="weekly_progress_nudge"
-              onUpgrade={() => router.push('/paywall' as any)}
-            />
-          )}
 
         </ScrollView>
 
@@ -491,6 +531,7 @@ export default function TrainingScreen() {
         onSelect={handleWorkoutPicked}
         onCreateNew={handleCreateNewForPlan}
         onVoiceBuilder={user && canUseAI ? handleOpenVoiceBuilder : undefined}
+        onDateChange={setPickerDate}
         onClose={() => setPickerDate(null)}
       />
 
@@ -500,7 +541,7 @@ export default function TrainingScreen() {
         date={voiceDate ?? selectedDate}
         aiContext={aiContext}
         onAccept={handleVoiceWorkoutAccepted}
-        onClose={() => setVoiceDate(null)}
+        onClose={handleVoiceClose}
       />
 
       {/* Move workout modal */}
@@ -772,6 +813,7 @@ const styles = StyleSheet.create({
   // ─── Day detail section ───
   dayDetailSection: {
     marginTop: Spacing.md,
+    marginBottom: Spacing.md,
   },
 
   // ─── AI Coach promo card (unauthenticated) ───
@@ -834,7 +876,12 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textPrimary,
   },
+  coachActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
   coachCta: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -847,6 +894,42 @@ const styles = StyleSheet.create({
     color: Colors.black,
     fontSize: FontSize.md,
     fontWeight: '800',
+  },
+  coachLaterBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm + 4,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  coachLaterText: {
+    fontSize: FontSize.md,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  coachCollapsedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.accent + '30',
+  },
+  coachCollapsedLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  coachCollapsedText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
   },
 
   // ─── Empty ───

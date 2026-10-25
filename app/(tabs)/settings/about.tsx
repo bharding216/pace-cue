@@ -41,6 +41,11 @@ export default function AboutSettingsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.sectionSub}>
+        SplitCue is built by a solo developer with a passion for running. Your
+        feedback helps shape the app for runners everywhere.
+      </Text>
+
       <Text style={styles.sectionTitle}>Feedback</Text>
       <Text style={styles.sectionSub}>
         Have a feature request or found a bug? We'd love to hear from you.

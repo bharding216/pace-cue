@@ -559,36 +559,38 @@ export function VoiceEditSheet({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
+      transparent
       onRequestClose={handleClose}
     >
-      <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, Spacing.md) }]}>
-        <View style={styles.handleRow}>
-          <View style={styles.handle} />
-        </View>
-
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <View style={styles.headerTitleRow}>
-              <Ionicons name="sparkles" size={16} color={Colors.accent} />
-              <Text style={styles.headerTitle}>Edit with AI</Text>
-            </View>
-            <Text style={styles.headerWorkout} numberOfLines={1}>
-              {workoutLabel} · {formatDate(workout.date)}
-            </Text>
+      <View style={styles.overlay}>
+        <TouchableOpacity style={styles.backdrop} onPress={handleClose} activeOpacity={1} />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, Spacing.md) }]}>
+          <View style={styles.handleRow}>
+            <View style={styles.handle} />
           </View>
-          <TouchableOpacity onPress={handleClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="close" size={24} color={Colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
 
-        <ScrollView
-          style={styles.scrollArea}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={{ flex: 1 }}>
+              <View style={styles.headerTitleRow}>
+                <Ionicons name="sparkles" size={16} color={Colors.accent} />
+                <Text style={styles.headerTitle}>Edit with AI</Text>
+              </View>
+              <Text style={styles.headerWorkout} numberOfLines={1}>
+                {workoutLabel} · {formatDate(workout.date)}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={handleClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close" size={24} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.scrollArea}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
           {/* ── Idle / Recording ── */}
           {(phase === 'idle' || phase === 'recording') && (
             <View style={styles.voiceSection}>
@@ -786,7 +788,8 @@ export function VoiceEditSheet({
               <Text style={styles.processingLabel}>Applying changes…</Text>
             </View>
           )}
-        </ScrollView>
+          </ScrollView>
+        </View>
       </View>
     </Modal>
   );
@@ -795,9 +798,25 @@ export function VoiceEditSheet({
 // ── Styles ──────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  sheet: {
+  overlay: {
     flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  sheet: {
     backgroundColor: Colors.background,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    minHeight: '40%',
+    maxHeight: '80%',
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceLight,
   },
   handleRow: {
     alignItems: 'center',
@@ -847,19 +866,19 @@ const styles = StyleSheet.create({
   // Voice section
   voiceSection: {
     alignItems: 'center',
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.md,
   },
   micButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: Colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: Colors.accent + '40',
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
   },
   micButtonActive: {
     borderColor: Colors.danger + '60',
@@ -895,8 +914,8 @@ const styles = StyleSheet.create({
   // Processing
   processingSection: {
     alignItems: 'center',
-    paddingTop: Spacing.xxl,
-    paddingBottom: Spacing.lg,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.md,
     gap: Spacing.md,
   },
   processingLabel: {

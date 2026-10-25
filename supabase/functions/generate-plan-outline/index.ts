@@ -33,7 +33,7 @@ interface RunnerProfile {
   weekly_mileage?: number;
   longest_recent_run_minutes?: number;
   max_workout_minutes?: number;
-  preferred_days?: string[];
+  preferred_days?: { day: string; locked: boolean }[];
   cross_training?: string[];
 }
 
@@ -115,7 +115,13 @@ OUTLINE only — no detailed workout structures. Just day labels and short coach
       sections.push(`## Cross Training\n${profile.cross_training.join(", ")}\nAccount for cross-training load when planning recovery.`);
     }
     if (profile.preferred_days?.length) {
-      sections.push(`## Preferred Days\n${profile.preferred_days.join(", ")}\nPlace rest days on non-preferred days when possible.`);
+      const locked = profile.preferred_days.filter((d) => d.locked).map((d) => d.day);
+      const flexible = profile.preferred_days.filter((d) => !d.locked).map((d) => d.day);
+      const lines: string[] = [];
+      if (locked.length) lines.push(`Locked days (MUST schedule a workout): ${locked.join(", ")}`);
+      if (flexible.length) lines.push(`Flexible days (preferred but can be swapped/moved if needed): ${flexible.join(", ")}`);
+      lines.push("Place rest days on non-preferred days. When adjusting the schedule, move workouts off flexible days first — never move workouts off locked days.");
+      sections.push(`## Training Day Availability\n${lines.join("\n")}`);
     }
   }
 

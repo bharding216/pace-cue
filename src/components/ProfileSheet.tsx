@@ -25,7 +25,9 @@ import type {
   RunningPreference,
   RunningPreferenceCategory,
   ExperienceLevel,
+  DayPreference,
 } from '../types/database';
+import { normalizeDayPreferences } from '../types/database';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import { hapticTap } from '../audio/haptics';
 
@@ -322,23 +324,29 @@ export function ProfileSheet({ visible, userId, onClose }: Props) {
             </TouchableOpacity>
           </View>
 
-          {/* Tab pills */}
-          <View style={styles.tabRow}>
+          {/* Tab bar */}
+          <View style={styles.tabBar}>
             {TABS.map((tab) => {
               const isActive = activeTab === tab.key;
               return (
                 <TouchableOpacity
                   key={tab.key}
-                  style={[styles.tabPill, isActive && styles.tabPillActive]}
+                  style={styles.tabItem}
                   onPress={() => { hapticTap(); setActiveTab(tab.key); }}
                   activeOpacity={0.7}
                 >
+                  <Ionicons
+                    name={tab.icon}
+                    size={16}
+                    color={isActive ? Colors.primary : Colors.textMuted}
+                  />
                   <Text
-                    style={[styles.tabPillText, isActive && styles.tabPillTextActive]}
+                    style={[styles.tabLabel, isActive && styles.tabLabelActive]}
                     numberOfLines={1}
                   >
                     {tab.label}
                   </Text>
+                  {isActive && <View style={styles.tabIndicator} />}
                 </TouchableOpacity>
               );
             })}
@@ -500,33 +508,63 @@ export function ProfileSheet({ visible, userId, onClose }: Props) {
               {activeTab === 'schedule' && (
                 <View>
                   <View style={styles.tabSection}>
-                    <Text style={styles.tabSectionTitle}>Preferred Days</Text>
+                    <Text style={styles.tabSectionTitle}>Training Days</Text>
                     <Text style={styles.tabSectionSub}>
-                      Which days work best for training?
+                      Tap once for flexible, twice for locked in.
                     </Text>
                     <View style={styles.dayChipsRow}>
                       {DAYS_OF_WEEK.map((day) => {
-                        const selected = (profile?.preferred_days ?? []).includes(day.key);
+                        const days = normalizeDayPreferences(profile?.preferred_days);
+                        const entry = days.find((d) => d.day === day.key);
+                        const state: 'off' | 'flexible' | 'locked' = !entry ? 'off' : entry.locked ? 'locked' : 'flexible';
                         return (
                           <TouchableOpacity
                             key={day.key}
-                            style={[styles.dayChip, selected && styles.dayChipActive]}
+                            style={[
+                              styles.dayChip,
+                              state === 'flexible' && styles.dayChipFlexible,
+                              state === 'locked' && styles.dayChipLocked,
+                            ]}
                             onPress={() => {
                               hapticTap();
-                              const current: string[] = profile?.preferred_days ?? [];
-                              const updated = selected
-                                ? current.filter((d) => d !== day.key)
-                                : [...current, day.key];
+                              const current = normalizeDayPreferences(profile?.preferred_days);
+                              let updated: DayPreference[];
+                              if (state === 'off') {
+                                updated = [...current, { day: day.key, locked: false }];
+                              } else if (state === 'flexible') {
+                                updated = current.map((d) => d.day === day.key ? { ...d, locked: true } : d);
+                              } else {
+                                updated = current.filter((d) => d.day !== day.key);
+                              }
                               updateProfile({ preferred_days: updated } as Partial<RunningProfile>);
                             }}
                             activeOpacity={0.7}
                           >
-                            <Text style={[styles.dayChipText, selected && styles.dayChipTextActive]}>
+                            {state === 'locked' && (
+                              <Ionicons name="lock-closed" size={10} color={Colors.primary} style={{ marginBottom: 1 }} />
+                            )}
+                            <Text style={[
+                              styles.dayChipText,
+                              state === 'flexible' && styles.dayChipTextFlexible,
+                              state === 'locked' && styles.dayChipTextLocked,
+                            ]}>
                               {day.label}
                             </Text>
                           </TouchableOpacity>
                         );
                       })}
+                    </View>
+                    <View style={styles.dayLegend}>
+                      <View style={styles.dayLegendItem}>
+                        <View style={[styles.dayLegendDot, { borderColor: Colors.primary, backgroundColor: 'transparent' }]} />
+                        <Text style={styles.dayLegendText}>Flexible</Text>
+                      </View>
+                      <View style={styles.dayLegendItem}>
+                        <View style={[styles.dayLegendDot, { borderColor: Colors.primary, backgroundColor: Colors.primary + '25' }]}>
+                          <Ionicons name="lock-closed" size={6} color={Colors.primary} />
+                        </View>
+                        <Text style={styles.dayLegendText}>Locked in</Text>
+                      </View>
                     </View>
                   </View>
 
@@ -673,35 +711,38 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
 
-  // Tab pills
-  tabRow: {
+  // Tab bar
+  tabBar: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.lg,
-    gap: Spacing.xs,
-    paddingBottom: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceLight,
   },
-  tabPill: {
+  tabItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: Spacing.sm + 2,
-    paddingHorizontal: Spacing.xs,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceLight,
+    gap: 3,
+    position: 'relative',
   },
-  tabPillActive: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '12',
-  },
-  tabPillText: {
+  tabLabel: {
     fontSize: FontSize.xs,
-    fontWeight: '700',
+    fontWeight: '600',
     color: Colors.textMuted,
   },
-  tabPillTextActive: {
+  tabLabelActive: {
     color: Colors.primary,
+    fontWeight: '700',
+  },
+  tabIndicator: {
+    position: 'absolute',
+    bottom: -1,
+    left: Spacing.sm,
+    right: Spacing.sm,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: Colors.primary,
   },
 
   // Content area
@@ -713,6 +754,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    paddingTop: Spacing.lg,
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.xxl * 2,
   },
@@ -848,17 +890,46 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.surfaceLight,
   },
-  dayChipActive: {
+  dayChipFlexible: {
     borderColor: Colors.primary,
-    backgroundColor: Colors.primary + '15',
+    backgroundColor: 'transparent',
+  },
+  dayChipLocked: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '20',
   },
   dayChipText: {
     fontSize: FontSize.xs,
     fontWeight: '700',
     color: Colors.textSecondary,
   },
-  dayChipTextActive: {
+  dayChipTextFlexible: {
     color: Colors.primary,
+  },
+  dayChipTextLocked: {
+    color: Colors.primary,
+  },
+  dayLegend: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    marginTop: Spacing.sm,
+  },
+  dayLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  dayLegendDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayLegendText: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
   },
 
   // Cross training grid

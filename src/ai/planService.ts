@@ -28,7 +28,7 @@ export interface PlanGenerationInput {
     weekly_mileage?: number;
     longest_recent_run_minutes?: number;
     max_workout_minutes?: number;
-    preferred_days?: string[];
+    preferred_days?: { day: string; locked: boolean }[];
     cross_training?: string[];
   };
   goals: string[];
@@ -136,6 +136,70 @@ async function extractFunctionError(error: any, fallback: string): Promise<strin
   return fallback;
 }
 
+// ── AI Workout Normalizer ───────────────────────────────────
+
+/**
+ * Normalize AI-generated workout data so warmup/cooldown intervals
+ * are placed in their dedicated arrays instead of inside `blocks`.
+ *
+ * The AI frequently puts warmup and cooldown intervals into the
+ * main `blocks` array. This function detects them by `type` and
+ * `label` and moves them to the correct section.
+ */
+function normalizeWorkoutSections(workout: {
+  name: string;
+  warmup: any[];
+  blocks: any[];
+  cooldown: any[];
+}): { name: string; warmup: any[]; blocks: any[]; cooldown: any[] } {
+  const isWarmup = (int: any) =>
+    int.type === 'warmup' || /warm/i.test(int.label ?? '');
+  const isCooldown = (int: any) =>
+    int.type === 'cooldown' || /cool/i.test(int.label ?? '');
+
+  const warmup = [...(workout.warmup ?? [])];
+  const cooldown = [...(workout.cooldown ?? [])];
+  const cleaned: any[] = [];
+
+  for (const block of workout.blocks ?? []) {
+    const intervals: any[] = block.intervals ?? [];
+    if (intervals.length === 0) {
+      cleaned.push(block);
+      continue;
+    }
+
+    const repeats = block.repeatCount ?? block.repeat ?? 1;
+
+    // For non-repeating blocks, split leading warmup / trailing cooldown
+    // For repeating blocks, also split — warmup/cooldown shouldn't repeat
+    let leadEnd = 0;
+    while (leadEnd < intervals.length && isWarmup(intervals[leadEnd])) leadEnd++;
+    let trailStart = intervals.length;
+    while (trailStart > leadEnd && isCooldown(intervals[trailStart - 1])) trailStart--;
+
+    const leading = intervals.slice(0, leadEnd);
+    const core = intervals.slice(leadEnd, trailStart);
+    const trailing = intervals.slice(trailStart);
+
+    if (leading.length > 0) {
+      warmup.push({ intervals: leading, repeatCount: 1, name: block.name && leading.length === intervals.length ? block.name : undefined });
+    }
+    if (core.length > 0) {
+      cleaned.push({ ...block, intervals: core, repeatCount: repeats });
+    }
+    if (trailing.length > 0) {
+      cooldown.push({ intervals: trailing, repeatCount: 1 });
+    }
+  }
+
+  return {
+    name: workout.name,
+    warmup,
+    blocks: cleaned,
+    cooldown,
+  };
+}
+
 // ── Phase 1: Plan Outline ───────────────────────────────────
 
 export async function generatePlanOutline(input: PlanGenerationInput): Promise<PlanOutlineResult> {
@@ -234,12 +298,15 @@ export async function generateWorkoutDetails(
       const matchingPw = workoutsToDetail.find((pw) => pw.date === detail.date);
       if (!matchingPw || !detail.workout) return Promise.resolve();
 
-      const workoutData = {
-        id: generateId(),
+      const normalized = normalizeWorkoutSections({
         name: detail.workout.name,
         warmup: detail.workout.warmup ?? [],
         blocks: detail.workout.blocks ?? [],
         cooldown: detail.workout.cooldown ?? [],
+      });
+      const workoutData = {
+        id: generateId(),
+        ...normalized,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -312,12 +379,15 @@ export async function generateWorkoutDetailsWithProfile(
       const matchingPw = workoutsToDetail.find((pw) => pw.date === detail.date);
       if (!matchingPw || !detail.workout) return Promise.resolve();
 
-      const workoutData = {
-        id: generateId(),
+      const normalized = normalizeWorkoutSections({
         name: detail.workout.name,
         warmup: detail.workout.warmup ?? [],
         blocks: detail.workout.blocks ?? [],
         cooldown: detail.workout.cooldown ?? [],
+      });
+      const workoutData = {
+        id: generateId(),
+        ...normalized,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -849,10 +919,12 @@ export async function applyPlanModifications(
         const workoutData = mod.workout
           ? {
               id: generateId(),
-              name: mod.workout.name,
-              warmup: mod.workout.warmup ?? [],
-              blocks: mod.workout.blocks ?? [],
-              cooldown: mod.workout.cooldown ?? [],
+              ...normalizeWorkoutSections({
+                name: mod.workout.name,
+                warmup: mod.workout.warmup ?? [],
+                blocks: mod.workout.blocks ?? [],
+                cooldown: mod.workout.cooldown ?? [],
+              }),
               createdAt: Date.now(),
               updatedAt: Date.now(),
             }

@@ -61,6 +61,25 @@ export type RaceTimeEntry = {
 /** Keys are distance identifiers: mile, 5k, 10k, half_marathon, marathon. */
 export type RaceTimes = Record<string, RaceTimeEntry>;
 
+/** A single day in the user's weekly schedule. `locked` = must train; flexible = prefers but can move. */
+export type DayPreference = {
+  day: string;   // 'monday' | 'tuesday' | … | 'sunday'
+  locked: boolean;
+};
+
+/**
+ * Normalize legacy `string[]` format into `DayPreference[]`.
+ * Old data: `['monday','friday']` → `[{day:'monday',locked:false},{day:'friday',locked:false}]`
+ */
+export function normalizeDayPreferences(raw: unknown): DayPreference[] {
+  if (!raw || !Array.isArray(raw)) return [];
+  return raw.map((item: unknown) => {
+    if (typeof item === 'string') return { day: item, locked: false };
+    const obj = item as Record<string, unknown>;
+    return { day: String(obj.day ?? ''), locked: Boolean(obj.locked) };
+  });
+}
+
 export type RunningProfile = {
   id: string;
   user_id: string;
@@ -73,7 +92,7 @@ export type RunningProfile = {
   weekly_mileage: number | null; // typical miles per week
   longest_recent_run_minutes: number | null; // longest run in recent weeks
   max_workout_minutes: number | null; // maximum single workout duration
-  preferred_days: string[] | null; // e.g. ['monday','wednesday','friday','saturday']
+  preferred_days: DayPreference[] | null; // e.g. [{day:'monday',locked:true},{day:'friday',locked:false}]
   cross_training: string[] | null; // e.g. ['strength','cycling','yoga']
   created_at: string;
   updated_at: string;

@@ -20,6 +20,13 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import type { PlanModification } from '../ai/planService';
+import {
+  formatDurationForSpeech,
+  formatDistanceForSpeech,
+  isDistanceInterval,
+  type WorkoutRepeatBlock,
+  type WorkoutInterval,
+} from '../workout/workoutTypes';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -47,6 +54,10 @@ const UNDO_WINDOW_MS = 15_000;
 
 export function ModificationReview({ items, coachMessage, onApply, onKeepOriginal, onUndo }: Props) {
   const [status, setStatus] = useState<'reviewing' | 'applying' | 'applied' | 'undoing'>('reviewing');
+  const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
+  const [selectedCards, setSelectedCards] = useState<Set<number>>(
+    () => new Set(items.map((_, i) => i)),
+  );
   const [showUndo, setShowUndo] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoProgress = useRef(new Animated.Value(1)).current;
@@ -57,10 +68,25 @@ export function ModificationReview({ items, coachMessage, onApply, onKeepOrigina
     };
   }, []);
 
+  const toggleSelected = useCallback((index: number) => {
+    setSelectedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
+
+  const selectedCount = selectedCards.size;
+
   const handleApply = useCallback(async () => {
+    if (selectedCount === 0) return;
     setStatus('applying');
     try {
-      await onApply(items.map((i) => i.modification));
+      const selected = items
+        .filter((_, i) => selectedCards.has(i))
+        .map((i) => i.modification);
+      await onApply(selected);
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setStatus('applied');
       if (onUndo) {
@@ -78,7 +104,7 @@ export function ModificationReview({ items, coachMessage, onApply, onKeepOrigina
     } catch {
       setStatus('reviewing');
     }
-  }, [items, onApply, onUndo, undoProgress]);
+  }, [items, selectedCards, selectedCount, onApply, onUndo, undoProgress]);
 
   const handleUndo = useCallback(async () => {
     if (!onUndo) return;
@@ -101,6 +127,88 @@ export function ModificationReview({ items, coachMessage, onApply, onKeepOrigina
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   };
 
+  const toggleCard = (index: number) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
+  const formatInterval = (int: WorkoutInterval): string => {
+    const label = int.label || int.type;
+    const duration = isDistanceInterval(int as any)
+      ? formatDistanceForSpeech(int.distanceMeters!)
+      : formatDurationForSpeech(int.durationSeconds);
+    const parts = [`${duration} ${label}`];
+    if (int.effort) parts.push(`effort ${int.effort}/10`);
+    if (int.targetPace) {
+      const mins = Math.floor(int.targetPace);
+      const secs = Math.round((int.targetPace - mins) * 60);
+      parts.push(`@ ${mins}:${secs.toString().padStart(2, '0')}/mi`);
+    }
+    return parts.join('  ·  ');
+  };
+
+  type DetailBlock = {
+    name?: string;
+    repeats: number;
+    intervals: string[];
+  };
+
+  const formatBlocks = (blocks: unknown[]): DetailBlock[] => {
+    if (!Array.isArray(blocks) || blocks.length === 0) return [];
+    const result: DetailBlock[] = [];
+
+    for (const raw of blocks as WorkoutRepeatBlock[]) {
+      const intervals = raw.intervals ?? [];
+      if (intervals.length === 0) continue;
+      const repeats = raw.repeatCount ?? (raw as any).repeat ?? 1;
+
+      if (repeats <= 1) {
+        result.push({
+          name: raw.name,
+          repeats: 1,
+          intervals: intervals.map(formatInterval),
+        });
+        continue;
+      }
+
+      // Split leading warmup / trailing cooldown out of repeating blocks
+      const isWarmup = (int: WorkoutInterval) =>
+        int.type === 'warmup' || /warm/i.test(int.label ?? '');
+      const isCooldown = (int: WorkoutInterval) =>
+        int.type === 'cooldown' || /cool/i.test(int.label ?? '');
+
+      let leadEnd = 0;
+      while (leadEnd < intervals.length && isWarmup(intervals[leadEnd])) leadEnd++;
+      let trailStart = intervals.length;
+      while (trailStart > leadEnd && isCooldown(intervals[trailStart - 1])) trailStart--;
+
+      const leading = intervals.slice(0, leadEnd);
+      const core = intervals.slice(leadEnd, trailStart);
+      const trailing = intervals.slice(trailStart);
+
+      if (leading.length > 0) {
+        result.push({ repeats: 1, intervals: leading.map(formatInterval) });
+      }
+      if (core.length > 0) {
+        result.push({
+          name: raw.name,
+          repeats,
+          intervals: core.map(formatInterval),
+        });
+      }
+      if (trailing.length > 0) {
+        result.push({ repeats: 1, intervals: trailing.map(formatInterval) });
+      }
+    }
+
+    return result;
+  };
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -120,55 +228,160 @@ export function ModificationReview({ items, coachMessage, onApply, onKeepOrigina
       )}
 
       {/* Change cards */}
-      {items.map((item, index) => (
-        <View key={`${item.modification.date}-${index}`} style={styles.changeCard}>
-          <Text style={styles.changeDate}>{formatDate(item.modification.date)}</Text>
+      {items.map((item, index) => {
+        const isExpanded = expandedCards.has(index);
+        const isSelected = selectedCards.has(index);
+        const hasDetails =
+          item.modification.action !== 'skip' &&
+          (item.modification.description || item.modification.workout || item.before?.description);
 
-          {item.modification.action === 'skip' ? (
-            <View style={styles.skipRow}>
-              <Ionicons name="close-circle" size={16} color={Colors.danger} />
-              <Text style={styles.skipText}>Skip this workout</Text>
-            </View>
-          ) : (
-            <View style={styles.comparison}>
-              {/* Before */}
-              {item.before && (
-                <View style={styles.beforeSection}>
-                  <Text style={styles.sectionLabel}>Before</Text>
-                  <Text style={styles.beforeLabel}>{item.before.day_label || 'Workout'}</Text>
-                  {item.before.description && (
-                    <Text style={styles.beforeDesc} numberOfLines={2}>
-                      {item.before.description}
+        const renderBlockGroup = (label: string, blocks: unknown[], prefix: string) => {
+          const parsed = formatBlocks(blocks);
+          if (parsed.length === 0) return null;
+          return (
+            <View style={styles.detailGroup}>
+              <Text style={styles.detailGroupLabel}>{label}</Text>
+              {parsed.map((block, bi) => (
+                <View key={`${prefix}-${bi}`} style={block.repeats > 1 ? styles.repeatBlock : undefined}>
+                  {block.name && (
+                    <Text style={styles.detailBlockHeader}>{block.name}</Text>
+                  )}
+                  {block.repeats > 1 && (
+                    <View style={styles.repeatBadge}>
+                      <Ionicons name="repeat" size={10} color={Colors.accent} />
+                      <Text style={styles.repeatBadgeText}>Repeat ×{block.repeats}</Text>
+                    </View>
+                  )}
+                  {block.intervals.map((line, li) => (
+                    <Text key={`${prefix}-${bi}-${li}`} style={styles.detailLine}>
+                      {line}
                     </Text>
+                  ))}
+                </View>
+              ))}
+            </View>
+          );
+        };
+
+        return (
+          <View
+            key={`${item.modification.date}-${index}`}
+            style={[
+              styles.changeCard,
+              status === 'reviewing' && !isSelected && styles.changeCardDeselected,
+              status === 'reviewing' && isSelected && styles.changeCardSelected,
+            ]}
+          >
+            {/* Top row: date + chevron */}
+            <View style={styles.changeDateRow}>
+              <Text style={[styles.changeDate, { flex: 1 }]}>{formatDate(item.modification.date)}</Text>
+              {hasDetails && (
+                <TouchableOpacity
+                  onPress={() => toggleCard(index)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons
+                    name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={14}
+                    color={Colors.textMuted}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TouchableOpacity
+              onPress={() => hasDetails && toggleCard(index)}
+              activeOpacity={hasDetails ? 0.7 : 1}
+            >
+              {item.modification.action === 'skip' ? (
+                <View style={styles.skipRow}>
+                  <Ionicons name="close-circle" size={16} color={Colors.danger} />
+                  <Text style={styles.skipText}>Skip this workout</Text>
+                </View>
+              ) : (
+                <View style={styles.comparison}>
+                  {/* Before */}
+                  {item.before && (
+                    <View style={styles.beforeSection}>
+                      <Text style={styles.sectionLabel}>Before</Text>
+                      <Text style={styles.beforeLabel}>{item.before.day_label || 'Workout'}</Text>
+                      {item.before.description && (
+                        <Text style={styles.beforeDesc} numberOfLines={isExpanded ? undefined : 2}>
+                          {item.before.description}
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
+                  {item.before && <Ionicons name="arrow-down" size={16} color={Colors.textMuted} style={styles.arrow} />}
+
+                  {/* After */}
+                  <View style={styles.afterSection}>
+                    <Text style={styles.sectionLabel}>After</Text>
+                    <Text style={styles.afterLabel}>
+                      {item.modification.day_label || 'Updated Workout'}
+                    </Text>
+                    {item.modification.description && (
+                      <Text style={styles.afterDesc} numberOfLines={isExpanded ? undefined : 2}>
+                        {item.modification.description}
+                      </Text>
+                    )}
+                  </View>
+
+                  {/* Expanded workout details */}
+                  {isExpanded && item.modification.workout && (
+                    <View style={styles.workoutDetails}>
+                      {renderBlockGroup('Warm-up', item.modification.workout.warmup ?? [], `wu-${index}`)}
+                      {renderBlockGroup('Main', item.modification.workout.blocks ?? [], `bl-${index}`)}
+                      {renderBlockGroup('Cool-down', item.modification.workout.cooldown ?? [], `cd-${index}`)}
+                    </View>
                   )}
                 </View>
               )}
 
-              {item.before && <Ionicons name="arrow-down" size={16} color={Colors.textMuted} style={styles.arrow} />}
+              {!isExpanded && hasDetails && (
+                <Text style={styles.tapHint}>Tap for details</Text>
+              )}
+            </TouchableOpacity>
 
-              {/* After */}
-              <View style={styles.afterSection}>
-                <Text style={styles.sectionLabel}>After</Text>
-                <Text style={styles.afterLabel}>
-                  {item.modification.day_label || 'Updated Workout'}
+            {/* Include / Exclude toggle */}
+            {status === 'reviewing' && items.length > 1 && (
+              <TouchableOpacity
+                style={[styles.toggleBar, isSelected ? styles.toggleBarIncluded : styles.toggleBarExcluded]}
+                onPress={() => toggleSelected(index)}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={isSelected ? 'checkmark-circle' : 'close-circle-outline'}
+                  size={16}
+                  color={isSelected ? Colors.primary : Colors.textMuted}
+                />
+                <Text style={[styles.toggleBarText, isSelected ? styles.toggleBarTextIncluded : styles.toggleBarTextExcluded]}>
+                  {isSelected ? 'Included' : 'Excluded — tap to include'}
                 </Text>
-                {item.modification.description && (
-                  <Text style={styles.afterDesc} numberOfLines={2}>
-                    {item.modification.description}
-                  </Text>
-                )}
-              </View>
-            </View>
-          )}
-        </View>
-      ))}
+              </TouchableOpacity>
+            )}
+          </View>
+        );
+      })}
 
       {/* Action buttons */}
       {status === 'reviewing' && (
         <View style={styles.actions}>
-          <TouchableOpacity style={styles.applyBtn} onPress={handleApply} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={[styles.applyBtn, selectedCount === 0 && styles.applyBtnDisabled]}
+            onPress={handleApply}
+            activeOpacity={0.8}
+            disabled={selectedCount === 0}
+          >
             <Ionicons name="checkmark-circle" size={18} color={Colors.black} />
-            <Text style={styles.applyBtnText}>Apply Changes</Text>
+            <Text style={styles.applyBtnText}>
+              {selectedCount === items.length
+                ? 'Apply All Changes'
+                : selectedCount > 0
+                  ? `Apply ${selectedCount} of ${items.length}`
+                  : 'Select Changes to Apply'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.keepBtn} onPress={onKeepOriginal} activeOpacity={0.7}>
             <Text style={styles.keepBtnText}>Keep Original</Text>
@@ -264,11 +477,50 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
     marginBottom: Spacing.sm,
   },
+  changeCardSelected: {
+    borderWidth: 1,
+    borderColor: Colors.primary + '40',
+  },
+  changeCardDeselected: {
+    opacity: 0.5,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  toggleBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: Spacing.sm,
+    paddingVertical: 8,
+    borderRadius: BorderRadius.sm,
+  },
+  toggleBarIncluded: {
+    backgroundColor: Colors.primary + '15',
+  },
+  toggleBarExcluded: {
+    backgroundColor: Colors.surfaceLight,
+  },
+  toggleBarText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+  },
+  toggleBarTextIncluded: {
+    color: Colors.primary,
+  },
+  toggleBarTextExcluded: {
+    color: Colors.textMuted,
+  },
+  changeDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.xs,
+  },
   changeDate: {
     fontSize: FontSize.xs,
     fontWeight: '600',
     color: Colors.textSecondary,
-    marginBottom: Spacing.xs,
   },
   skipRow: {
     flexDirection: 'row',
@@ -319,6 +571,62 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 2,
   },
+  workoutDetails: {
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.surfaceLight,
+    gap: Spacing.sm,
+  },
+  detailGroup: {
+    gap: 2,
+  },
+  detailGroupLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  repeatBlock: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.sm,
+    padding: Spacing.sm,
+    marginTop: 4,
+    borderLeftWidth: 2,
+    borderLeftColor: Colors.accent + '50',
+  },
+  repeatBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  repeatBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.accent,
+  },
+  detailBlockHeader: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    lineHeight: 18,
+    marginBottom: 2,
+  },
+  detailLine: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+    paddingLeft: Spacing.sm,
+  },
+  tapHint: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginTop: 4,
+  },
   actions: {
     gap: Spacing.sm,
     marginTop: Spacing.sm,
@@ -331,6 +639,9 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     paddingVertical: 12,
     gap: Spacing.xs,
+  },
+  applyBtnDisabled: {
+    opacity: 0.4,
   },
   applyBtnText: {
     fontSize: FontSize.md,

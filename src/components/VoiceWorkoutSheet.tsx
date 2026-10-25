@@ -20,7 +20,12 @@ import {
   ScrollView,
   Alert,
   Animated,
+  TextInput,
+  Keyboard,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   useAudioRecorder,
@@ -274,8 +279,10 @@ export function VoiceWorkoutSheet({
   onAccept,
   onClose,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>('idle');
   const [transcription, setTranscription] = useState('');
+  const [textInput, setTextInput] = useState('');
   const [aiMessage, setAiMessage] = useState('');
   const [proposedWorkout, setProposedWorkout] = useState<WorkoutDefinition | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -301,6 +308,7 @@ export function VoiceWorkoutSheet({
     if (visible) {
       setPhase('idle');
       setTranscription('');
+      setTextInput('');
       setAiMessage('');
       setProposedWorkout(null);
     }
@@ -378,6 +386,32 @@ export function VoiceWorkoutSheet({
     }
   }, [phase, startRecording, stopAndProcess]);
 
+  const handleTextSend = useCallback(async () => {
+    const text = textInput.trim();
+    if (!text || phase === 'generating') return;
+    Keyboard.dismiss();
+    setTextInput('');
+    setProposedWorkout(null);
+    setAiMessage('');
+    setTranscription(text);
+    setPhase('generating');
+
+    try {
+      const context: AIContext = aiContext ?? { goals: [], preferences: [] };
+      const response = await generateWorkout(text, context, []);
+      setAiMessage(response.message);
+      setProposedWorkout(response.workout);
+      setPhase('review');
+    } catch (err: any) {
+      console.error('Text workout generation failed:', err);
+      Alert.alert(
+        'Generation Failed',
+        err.message || 'Something went wrong. Please try again.',
+      );
+      setPhase('idle');
+    }
+  }, [textInput, phase, aiContext]);
+
   const handleAccept = useCallback(() => {
     if (!proposedWorkout) return;
     hapticTap();
@@ -447,7 +481,10 @@ export function VoiceWorkoutSheet({
       transparent
       onRequestClose={handleClose}
     >
-      <View style={styles.overlay}>
+      <KeyboardAvoidingView
+        style={styles.overlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <TouchableOpacity style={styles.backdrop} onPress={handleClose} activeOpacity={1} />
         <View style={styles.sheet}>
           <View style={styles.handleRow}>
@@ -472,6 +509,7 @@ export function VoiceWorkoutSheet({
             style={styles.scrollArea}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           >
             {/* ── Idle / Recording states ── */}
             {(phase === 'idle' || phase === 'recording') && (
@@ -591,8 +629,32 @@ export function VoiceWorkoutSheet({
               </View>
             )}
           </ScrollView>
+
+          {/* Text input bar — fallback for when the user can't speak */}
+          {(phase === 'idle' || phase === 'review') && (
+            <View style={[styles.inputBar, { paddingBottom: Math.max(Spacing.sm, insets.bottom) }]}>
+              <TextInput
+                style={styles.textInput}
+                value={textInput}
+                onChangeText={setTextInput}
+                placeholder="Or type your workout…"
+                placeholderTextColor={Colors.textMuted}
+                returnKeyType="send"
+                onSubmitEditing={handleTextSend}
+                blurOnSubmit
+              />
+              <TouchableOpacity
+                style={[styles.sendBtn, !textInput.trim() && styles.sendBtnDisabled]}
+                onPress={handleTextSend}
+                disabled={!textInput.trim()}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="send" size={16} color={Colors.black} />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -616,6 +678,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     borderTopLeftRadius: BorderRadius.xl,
     borderTopRightRadius: BorderRadius.xl,
+    minHeight: '45%',
     maxHeight: '85%',
     borderTopWidth: 1,
     borderTopColor: Colors.surfaceLight,
@@ -857,5 +920,37 @@ const styles = StyleSheet.create({
     fontSize: FontSize.lg,
     fontWeight: '800',
     color: Colors.textPrimary,
+  },
+
+  // Text input bar
+  inputBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceLight,
+    gap: Spacing.sm,
+  },
+  textInput: {
+    flex: 1,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    maxHeight: 80,
+  },
+  sendBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendBtnDisabled: {
+    opacity: 0.4,
   },
 });

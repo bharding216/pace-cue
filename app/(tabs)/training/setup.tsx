@@ -3,7 +3,7 @@
  * Race distance, date, goal time, days/week, profile summary.
  */
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -29,6 +29,7 @@ import { generatePlanOutline, savePlanOutline, generateWorkoutDetailsWithProfile
 import { loadHistory } from '../../../src/workout/workoutStorage';
 import { buildHistorySummary, serializeHistorySummary } from '../../../src/ai/historySummary';
 import type { RaceType, RunningProfile, RunningPreference } from '../../../src/types/database';
+import { normalizeDayPreferences } from '../../../src/types/database';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 import { ProfileSheet } from '../../../src/components/ProfileSheet';
 
@@ -109,6 +110,25 @@ export default function PlanSetupScreen() {
   const [limitations, setLimitations] = useState<string[]>([]);
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileSheetVisible, setProfileSheetVisible] = useState(false);
+
+  // Real-time overlap detection for users with active plans
+  const activePlans = useMemo(
+    () => plans.filter((p) => p.race_type !== 'custom' || !!(p.outline && p.outline.length > 0)),
+    [plans],
+  );
+
+  const overlapInfo = useMemo(() => {
+    if (activePlans.length === 0) return null;
+    const newStart = startDate;
+    const newEnd = raceDate;
+    const overlapping = activePlans.filter((p) => {
+      const pStart = new Date(p.start_date);
+      const pEnd = new Date(p.race_date);
+      return pStart <= newEnd && newStart <= pEnd;
+    });
+    if (overlapping.length === 0) return null;
+    return overlapping.map((p) => p.title || 'Training Plan');
+  }, [activePlans, startDate, raceDate]);
 
   const [genPhase, setGenPhase] = useState<GenPhase>('idle');
   const [genElapsed, setGenElapsed] = useState(0);
@@ -341,7 +361,7 @@ export default function PlanSetupScreen() {
         weekly_mileage: profile?.weekly_mileage ?? undefined,
         longest_recent_run_minutes: profile?.longest_recent_run_minutes ?? undefined,
         max_workout_minutes: profile?.max_workout_minutes ?? undefined,
-        preferred_days: profile?.preferred_days ?? undefined,
+        preferred_days: normalizeDayPreferences(profile?.preferred_days),
         cross_training: profile?.cross_training ?? undefined,
       };
 
@@ -591,6 +611,26 @@ export default function PlanSetupScreen() {
       {/* Step 2: Dates & Goal */}
       {step === 2 && (
         <View>
+          {/* Overlap notice — only shown when user has at least one active plan */}
+          {activePlans.length > 0 && (
+            <View style={styles.overlapNotice}>
+              <Ionicons name="information-circle-outline" size={18} color={Colors.accent} />
+              <Text style={styles.overlapNoticeText}>
+                You have an active plan. New plans can't overlap with existing ones — you'll be asked to archive any conflicts before generating.
+              </Text>
+            </View>
+          )}
+
+          {/* Real-time overlap warning */}
+          {overlapInfo && (
+            <View style={styles.overlapWarning}>
+              <Ionicons name="alert-circle" size={18} color={Colors.warning} />
+              <Text style={styles.overlapWarningText}>
+                These dates overlap with {overlapInfo.length === 1 ? `"${overlapInfo[0]}"` : overlapInfo.map((n) => `"${n}"`).join(' and ')}. You'll need to archive {overlapInfo.length === 1 ? 'it' : 'them'} or adjust your dates to avoid stacked workouts.
+              </Text>
+            </View>
+          )}
+
           {/* Race date */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Race Date</Text>
@@ -766,12 +806,12 @@ export default function PlanSetupScreen() {
               </Text>
             </View>
             <View style={styles.reviewRow}>
-              <Text style={styles.reviewLabel}>Race Date</Text>
-              <Text style={styles.reviewValue}>{formatDateShort(raceDate)}</Text>
-            </View>
-            <View style={styles.reviewRow}>
               <Text style={styles.reviewLabel}>Start Date</Text>
               <Text style={styles.reviewValue}>{formatDateShort(startDate)}</Text>
+            </View>
+            <View style={styles.reviewRow}>
+              <Text style={styles.reviewLabel}>Race Date</Text>
+              <Text style={styles.reviewValue}>{formatDateShort(raceDate)}</Text>
             </View>
             <View style={styles.reviewRow}>
               <Text style={styles.reviewLabel}>Days / Week</Text>
@@ -837,25 +877,13 @@ export default function PlanSetupScreen() {
             <View style={styles.proGateCard}>
               <View style={styles.proGateHeader}>
                 <Ionicons name="sparkles" size={20} color={Colors.accent} />
-                <Text style={styles.proGateTitle}>AI-Powered Training</Text>
+                <Text style={styles.proGateTitle}>Smarter Workouts, Every Week</Text>
               </View>
               <Text style={styles.proGateDesc}>
-                Your plan is built by AI using your profile, pace data, and race goals — then adapts week-by-week based on how your workouts actually go.
+                Every workout is shaped by your past runs and race goals — so your training always fits where you are today.
               </Text>
-              <View style={styles.proGateFeatures}>
-                {[
-                  { icon: 'analytics-outline' as const, text: 'Personalized to your fitness level' },
-                  { icon: 'sync-outline' as const, text: 'Adjusts based on workout performance' },
-                  { icon: 'calendar-outline' as const, text: 'Periodized plan through race day' },
-                ].map((f) => (
-                  <View key={f.text} style={styles.proGateFeatureRow}>
-                    <Ionicons name={f.icon} size={16} color={Colors.accent} />
-                    <Text style={styles.proGateFeatureText}>{f.text}</Text>
-                  </View>
-                ))}
-              </View>
               <Text style={styles.proGateFooter}>
-                You've used your free plan — upgrade to Pro for unlimited AI plans.
+                You've used your free plan. Go Pro for unlimited AI plans.
               </Text>
             </View>
           )}
@@ -872,7 +900,7 @@ export default function PlanSetupScreen() {
             >
               <Ionicons name={canGeneratePlan ? 'sparkles' : 'lock-closed'} size={18} color={Colors.black} />
               <Text style={styles.generateBtnText}>
-                {canGeneratePlan ? 'Generate Plan' : 'Upgrade to Generate'}
+                {canGeneratePlan ? 'Generate Plan' : 'Go Pro & Generate'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1256,6 +1284,38 @@ const styles = StyleSheet.create({
     color: Colors.accent,
     lineHeight: 20,
   },
+  overlapNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.accent + '12',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  overlapNoticeText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.accent,
+    lineHeight: 20,
+  },
+  overlapWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.warning + '14',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.warning + '30',
+  },
+  overlapWarningText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.warning,
+    lineHeight: 20,
+  },
   proGateCard: {
     backgroundColor: Colors.accent + '10',
     borderRadius: BorderRadius.md,
@@ -1280,20 +1340,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 20,
     marginBottom: Spacing.md,
-  },
-  proGateFeatures: {
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  proGateFeatureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  proGateFeatureText: {
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-    fontWeight: '500',
   },
   proGateFooter: {
     fontSize: FontSize.xs,

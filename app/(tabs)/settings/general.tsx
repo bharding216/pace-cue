@@ -1,17 +1,30 @@
 /**
- * General settings — haptic feedback and display preferences.
+ * General settings — haptic feedback, display preferences, and backup/restore.
  */
 
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Switch, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Switch,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
 import { useFocusEffect } from 'expo-router';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppSettings, DEFAULT_SETTINGS } from '../../../src/workout/workoutTypes';
 import { loadSettings, saveSettings } from '../../../src/workout/workoutStorage';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 import { hapticTap } from '../../../src/audio/haptics';
+import { exportData, importData } from '../../../src/workout/backupManager';
 
 export default function GeneralSettingsScreen() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -23,6 +36,36 @@ export default function GeneralSettingsScreen() {
     const next = { ...settings, ...partial };
     setSettings(next);
     await saveSettings(next);
+  };
+
+  const handleExport = async () => {
+    hapticTap();
+    setExporting(true);
+    try {
+      await exportData();
+    } catch (e: any) {
+      Alert.alert('Export Failed', e.message ?? 'Something went wrong.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImport = async () => {
+    hapticTap();
+    setImporting(true);
+    try {
+      const result = await importData();
+      if (result) {
+        Alert.alert(
+          'Import Complete',
+          `Restored ${result.workoutsCount} workout${result.workoutsCount !== 1 ? 's' : ''} and ${result.historyCount} history entr${result.historyCount !== 1 ? 'ies' : 'y'}.`,
+        );
+      }
+    } catch (e: any) {
+      Alert.alert('Import Failed', e.message ?? 'Could not read backup file.');
+    } finally {
+      setImporting(false);
+    }
   };
 
   return (
@@ -53,6 +96,41 @@ export default function GeneralSettingsScreen() {
           thumbColor={Colors.white}
         />
       </View>
+
+      {/* Backup & Restore */}
+      <Text style={styles.sectionTitle}>Backup & Restore</Text>
+      <Text style={styles.sectionSub}>
+        Export your workouts, history, and settings to a file so you can restore
+        them later.
+      </Text>
+
+      <TouchableOpacity
+        style={styles.actionBtn}
+        onPress={handleExport}
+        disabled={exporting}
+        activeOpacity={0.7}
+      >
+        {exporting ? (
+          <ActivityIndicator color={Colors.primary} size="small" />
+        ) : (
+          <Ionicons name="cloud-upload-outline" size={20} color={Colors.textPrimary} />
+        )}
+        <Text style={styles.actionBtnLabel}>Export Backup</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.actionBtn, { marginTop: Spacing.sm }]}
+        onPress={handleImport}
+        disabled={importing}
+        activeOpacity={0.7}
+      >
+        {importing ? (
+          <ActivityIndicator color={Colors.accent} size="small" />
+        ) : (
+          <Ionicons name="cloud-download-outline" size={20} color={Colors.textPrimary} />
+        )}
+        <Text style={styles.actionBtnLabel}>Import Backup</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -66,6 +144,11 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     marginTop: Spacing.lg,
     marginBottom: Spacing.xs,
+  },
+  sectionSub: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    marginBottom: Spacing.sm,
   },
   settingRow: {
     flexDirection: 'row',
@@ -81,5 +164,21 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     flex: 1,
     marginRight: Spacing.md,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.sm,
+    gap: Spacing.sm,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+  },
+  actionBtnLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '600',
+    color: Colors.textPrimary,
   },
 });

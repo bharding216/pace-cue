@@ -23,6 +23,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
 import { TrainingPhases } from '../../../src/components/TrainingPhases';
 import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
+import { VoicePlanAdjustSheet } from '../../../src/components/VoicePlanAdjustSheet';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 
 function formatRaceLabel(raceType: string): string {
@@ -44,7 +45,7 @@ function daysUntil(dateStr: string): number {
 
 export default function PlanOverviewScreen() {
   const router = useRouter();
-  const { plans, archivedPlans, planWorkouts, archivePlan, restorePlan, updatePlan } = useTrainingPlan();
+  const { plans, archivedPlans, planWorkouts, archivePlan, restorePlan, updatePlan, refresh } = useTrainingPlan();
   const [archiving, setArchiving] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [showDaysPicker, setShowDaysPicker] = useState(false);
@@ -52,6 +53,7 @@ export default function PlanOverviewScreen() {
   const [phasesExpanded, setPhasesExpanded] = useState(false);
   const [showTitleEditor, setShowTitleEditor] = useState(false);
   const [editingTitle, setEditingTitle] = useState('');
+  const [showAdjustSheet, setShowAdjustSheet] = useState(false);
 
   const primaryPlan = useMemo(
     () => plans.find((p) => p.race_type !== 'custom' || (p.outline && p.outline.length > 0)) ?? null,
@@ -400,15 +402,27 @@ export default function PlanOverviewScreen() {
         onUpgrade={() => router.push('/paywall' as any)}
       />
 
-      {/* Adjust plan button */}
+      {/* Adjust plan button — voice-first sheet */}
       <TouchableOpacity
         style={styles.adjustBtn}
-        onPress={() => router.push('/(tabs)/training/chat' as any)}
+        onPress={() => setShowAdjustSheet(true)}
         activeOpacity={0.8}
       >
-        <Ionicons name="sparkles" size={18} color={Colors.black} />
+        <Ionicons name="mic" size={18} color={Colors.black} />
         <Text style={styles.adjustBtnText}>Adjust My Plan</Text>
       </TouchableOpacity>
+
+      <VoicePlanAdjustSheet
+        visible={showAdjustSheet}
+        plan={primaryPlan}
+        planWorkouts={planWorkouts}
+        onClose={() => setShowAdjustSheet(false)}
+        onApplied={() => {
+          refresh();
+          setShowAdjustSheet(false);
+          router.back();
+        }}
+      />
 
       {/* Manage Plans section */}
       {(allRacePlans.length > 0 || archivedRacePlans.length > 0) && (

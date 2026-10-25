@@ -16,7 +16,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { DayEntry } from '../contexts/TrainingPlanContext';
 import type { WorkoutDefinition, WorkoutRepeatBlock, IntervalType } from '../workout/workoutTypes';
-import { formatTime, totalWorkoutSeconds } from '../workout/workoutTypes';
+import { formatTime, totalWorkoutSeconds, totalWorkoutDistanceMeters, isDistanceInterval } from '../workout/workoutTypes';
 import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../constants/theme';
 
 // ── Types ────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ function statusBadgeColor(status: string): string {
 interface PreviewRow {
   key: string;
   repeatCount: number;
-  intervals: { type: IntervalType; label: string; durationSeconds: number }[];
+  intervals: { type: IntervalType; label: string; durationSeconds: number; distanceMeters?: number }[];
 }
 
 function defaultIntervalLabel(type: IntervalType): string {
@@ -95,6 +95,7 @@ function buildPreviewRows(workout: WorkoutDefinition): PreviewRow[] {
           type: iv.type,
           label: iv.label || defaultIntervalLabel(iv.type),
           durationSeconds: iv.durationSeconds,
+          distanceMeters: iv.distanceMeters,
         })),
       });
     }
@@ -102,18 +103,46 @@ function buildPreviewRows(workout: WorkoutDefinition): PreviewRow[] {
   return rows;
 }
 
+/** Format a compact distance string for the preview (e.g. "2 mi", "0.50 mi"). */
+function formatDistanceCompact(meters: number): string {
+  const miles = meters / METERS_PER_MILE;
+  // Drop decimals for clean whole numbers
+  if (Math.abs(miles - Math.round(miles)) < 0.005) return `${Math.round(miles)} mi`;
+  return `${miles.toFixed(2)} mi`;
+}
+
+/** Show distance for distance-based intervals, time for time-based. */
+function formatIntervalAmount(iv: { durationSeconds: number; distanceMeters?: number }): string {
+  if (isDistanceInterval(iv)) {
+    return formatDistanceCompact(iv.distanceMeters!);
+  }
+  return formatTime(iv.durationSeconds);
+}
+
+/** Build the total summary line (handles mixed time + distance workouts). */
+function formatWorkoutTotal(workout: WorkoutDefinition): string {
+  const totalSec = totalWorkoutSeconds(workout);
+  const totalDist = totalWorkoutDistanceMeters(workout);
+  if (totalSec > 0 && totalDist) {
+    return `${formatTime(totalSec)} + ${formatDistanceCompact(totalDist)}`;
+  }
+  if (totalDist) {
+    return `${formatDistanceCompact(totalDist)} total`;
+  }
+  return `${formatTime(totalSec)} total`;
+}
+
 function WorkoutPreview({ workoutData }: { workoutData: unknown }) {
   const workout = workoutData as WorkoutDefinition;
   if (!workout || !workout.blocks) return null;
 
-  const totalSec = totalWorkoutSeconds(workout);
   const rows = buildPreviewRows(workout);
 
   return (
     <View style={styles.workoutPreview}>
       <Text style={styles.workoutName}>{workout.name}</Text>
       <Text style={styles.workoutDuration}>
-        {formatTime(totalSec)} total
+        {formatWorkoutTotal(workout)}
       </Text>
       <View style={styles.intervalList}>
         {rows.slice(0, 6).map((row) => (
@@ -121,7 +150,7 @@ function WorkoutPreview({ workoutData }: { workoutData: unknown }) {
             <View style={[styles.intervalDot, { backgroundColor: intervalColor(row.intervals[0]?.type ?? 'easy') }]} />
             <Text style={styles.intervalLabel} numberOfLines={1}>
               {row.repeatCount > 1 ? `${row.repeatCount}\u00D7 ` : ''}
-              {row.intervals.map((iv) => `${iv.label} ${formatTime(iv.durationSeconds)}`).join(', ')}
+              {row.intervals.map((iv) => `${iv.label} ${formatIntervalAmount(iv)}`).join(', ')}
             </Text>
           </View>
         ))}

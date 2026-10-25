@@ -17,7 +17,9 @@ import {
   FlatList,
   ActivityIndicator,
   Keyboard,
+  Platform,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   WorkoutDefinition,
@@ -36,6 +38,7 @@ interface WorkoutPickerModalProps {
   onSelect: (workout: WorkoutDefinition) => void;
   onCreateNew: () => void;
   onVoiceBuilder?: () => void;
+  onDateChange?: (newDate: string) => void;
   onClose: () => void;
 }
 
@@ -72,18 +75,33 @@ export function WorkoutPickerModal({
   onSelect,
   onCreateNew,
   onVoiceBuilder,
+  onDateChange,
   onClose,
 }: WorkoutPickerModalProps) {
   const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<WorkoutCategory | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const dateObj = useMemo(() => new Date(date + 'T12:00:00'), [date]);
+
+  const handleDateChange = (_event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS === 'android') setShowDatePicker(false);
+    if (selected && onDateChange) {
+      const y = selected.getFullYear();
+      const m = String(selected.getMonth() + 1).padStart(2, '0');
+      const d = String(selected.getDate()).padStart(2, '0');
+      onDateChange(`${y}-${m}-${d}`);
+    }
+  };
 
   useEffect(() => {
     if (!visible) return;
     setLoading(true);
     setSearch('');
     setActiveCategory(null);
+    setShowDatePicker(false);
     loadWorkouts().then((data) => {
       setWorkouts(data);
       setLoading(false);
@@ -134,14 +152,43 @@ export function WorkoutPickerModal({
           </View>
 
           <View style={styles.header}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.headerTitle}>Add Workout</Text>
-              <Text style={styles.headerDate}>{formatDateDisplay(date)}</Text>
+              <TouchableOpacity
+                style={styles.datePickerBtn}
+                onPress={() => setShowDatePicker((prev) => !prev)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="calendar-outline" size={14} color={Colors.primary} />
+                <Text style={styles.headerDateTappable}>{formatDateDisplay(date)}</Text>
+                <Ionicons name="chevron-down" size={12} color={Colors.primary} />
+              </TouchableOpacity>
             </View>
             <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="close" size={24} color={Colors.textSecondary} />
             </TouchableOpacity>
           </View>
+
+          {showDatePicker && (
+            <View style={styles.datePickerContainer}>
+              <DateTimePicker
+                value={dateObj}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'inline' : 'calendar'}
+                onChange={handleDateChange}
+                themeVariant="dark"
+              />
+              {Platform.OS === 'ios' && (
+                <TouchableOpacity
+                  style={styles.datePickerDone}
+                  onPress={() => setShowDatePicker(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.datePickerDoneText}>Done</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
 
           {loading ? (
             <View style={styles.loadingContainer}>
@@ -354,6 +401,32 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
     marginTop: 2,
+  },
+  datePickerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  headerDateTappable: {
+    fontSize: FontSize.sm,
+    color: Colors.primary,
+    fontWeight: '600',
+  },
+  datePickerContainer: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+  },
+  datePickerDone: {
+    alignSelf: 'flex-end',
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+  },
+  datePickerDoneText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.primary,
   },
   loadingContainer: {
     padding: Spacing.xxl,

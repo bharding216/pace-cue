@@ -20,6 +20,12 @@ interface SettingsCard {
 
 const CARDS: SettingsCard[] = [
   {
+    icon: 'body-outline',
+    title: 'Running Profile',
+    description: 'Goals, paces, limits & preferences',
+    route: '/(tabs)/training/profile',
+  },
+  {
     icon: 'person-outline',
     title: 'Account',
     description: 'Sign in, subscription, cloud sync',
@@ -40,14 +46,8 @@ const CARDS: SettingsCard[] = [
   {
     icon: 'options-outline',
     title: 'General',
-    description: 'Haptic feedback, screen behavior',
+    description: 'Haptic feedback, screen behavior, backup & restore',
     route: '/(tabs)/settings/general',
-  },
-  {
-    icon: 'cloud-outline',
-    title: 'Backup & Restore',
-    description: 'Export or import your workouts and history',
-    route: '/(tabs)/settings/data',
   },
   {
     icon: 'chatbubble-ellipses-outline',
