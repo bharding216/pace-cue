@@ -11,6 +11,7 @@ import {
   getEventsOverTime,
   getTodaysEventsByUser,
   getAIGenerationsByUser,
+  getWorkoutRetentionCurve,
 } from '@/lib/queries';
 import StatCard from '@/components/StatCard';
 import DAUChart from '@/components/DAUChart';
@@ -18,6 +19,7 @@ import WorkoutsChart from '@/components/WorkoutsChart';
 import SignupsChart from '@/components/SignupsChart';
 import EventsChart from '@/components/EventsChart';
 import OnboardingFunnel from '@/components/OnboardingFunnel';
+import RetentionCurveChart from '@/components/RetentionCurveChart';
 import TodaysActivity from '@/components/TodaysActivity';
 import AIUsageBreakdown from '@/components/AIUsageBreakdown';
 import SignOutButton from '@/components/SignOutButton';
@@ -34,6 +36,7 @@ export default async function DashboardPage() {
     workoutStats,
     funnel,
     aiAdoption,
+    retentionCurve,
     dau,
     workouts,
     signups,
@@ -46,6 +49,7 @@ export default async function DashboardPage() {
     getWorkoutCompletionStats(),
     getOnboardingFunnel(30),
     getAIAdoptionRate(30),
+    getWorkoutRetentionCurve(6),
     getDAUOverTime(30),
     getWorkoutsOverTime(30),
     getSignupsOverTime(30),
@@ -121,18 +125,12 @@ export default async function DashboardPage() {
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
         Growth &amp; Engagement
       </h2>
-      <section className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <section className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           label="Activation Rate"
           value={engagement.activationRate}
           format="percent"
           detail="Signed up last 30d → completed a workout"
-        />
-        <StatCard
-          label="Week 4 Retention"
-          value={engagement.week4Retention}
-          format="percent"
-          detail="Signed up ~4 wks ago → active this week"
         />
         <StatCard
           label="Core Engagement"
@@ -160,6 +158,14 @@ export default async function DashboardPage() {
       </h2>
       <section className="mb-8">
         <OnboardingFunnel data={funnel} />
+      </section>
+
+      {/* ── Workout Retention ─────────────────────────────── */}
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Workout Retention
+      </h2>
+      <section className="mb-8">
+        <RetentionCurveChart data={retentionCurve} />
       </section>
 
       {/* ── Trends ────────────────────────────────────────── */}

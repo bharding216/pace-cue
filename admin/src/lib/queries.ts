@@ -10,7 +10,6 @@ export type OverviewStats = {
 
 export type EngagementStats = {
   activationRate: number;
-  week4Retention: number;
   coreEngagementRate: number;
   freeToPaidRate: number;
 };
@@ -51,6 +50,13 @@ export type UserEventBreakdown = {
   display_name: string;
   event_count: number;
   events: string[];
+};
+
+export type RetentionCurvePoint = {
+  cohort: string;
+  workout_number: number;
+  user_count: number;
+  pct: number;
 };
 
 export type AIUserBreakdown = {
@@ -95,17 +101,15 @@ export async function getOverviewStats(): Promise<OverviewStats> {
 export async function getEngagementStats(): Promise<EngagementStats> {
   const supabase = createServiceClient();
 
-  const [activationRes, retentionRes, engagementRes, conversionRes] =
+  const [activationRes, engagementRes, conversionRes] =
     await Promise.all([
       supabase.rpc('activation_rate'),
-      supabase.rpc('week4_retention'),
       supabase.rpc('core_engagement_rate'),
       supabase.rpc('free_to_paid_rate'),
     ]);
 
   return {
     activationRate: (activationRes.data as number) ?? 0,
-    week4Retention: (retentionRes.data as number) ?? 0,
     coreEngagementRate: (engagementRes.data as number) ?? 0,
     freeToPaidRate: (conversionRes.data as number) ?? 0,
   };
@@ -211,4 +215,15 @@ export async function getAIGenerationsByUser(days = 7): Promise<AIUserBreakdown[
 
   const { data } = await supabase.rpc('ai_generations_by_user', { num_days: days });
   return (data as AIUserBreakdown[]) ?? [];
+}
+
+/**
+ * Workout retention curve: of users who completed 1 workout, what %
+ * completed a 2nd, 3rd, 4th, 5th — cohorted by month of first completion.
+ */
+export async function getWorkoutRetentionCurve(months = 6): Promise<RetentionCurvePoint[]> {
+  const supabase = createServiceClient();
+
+  const { data } = await supabase.rpc('workout_retention_curve', { num_months: months });
+  return (data as RetentionCurvePoint[]) ?? [];
 }

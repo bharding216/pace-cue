@@ -405,6 +405,68 @@ returns table(date text, count int) as $$
   order by d.day;
 $$ language sql security definer;
 
+-- ── Workout Retention Curve ───────────────────────────────────
+-- For users who completed at least 1 workout, what % went on to complete
+-- a 2nd, 3rd, 4th, 5th. Cohorted by the month of their first completion
+-- so we can see if newer cohorts are "stickier".
+drop function if exists workout_retention_curve(int);
+
+create or replace function workout_retention_curve(num_months int default 6)
+returns table(
+  cohort text,
+  workout_number int,
+  user_count int,
+  pct numeric
+) as $$
+  with user_completions as (
+    select
+      anonymous_user_id,
+      count(*)::int as total_completions,
+      to_char(min(created_at), 'YYYY-MM') as first_month
+    from events
+    where event_name = 'workout_completed'
+    group by anonymous_user_id
+  ),
+  workout_nums(n) as (
+    values (1), (2), (3), (4), (5)
+  ),
+  -- All-time aggregate
+  all_time as (
+    select
+      'All'::text as cohort,
+      wn.n as workout_number,
+      count(*) filter (where uc.total_completions >= wn.n)::int as user_count,
+      round(
+        count(*) filter (where uc.total_completions >= wn.n)::numeric
+        / count(*)::numeric * 100, 1
+      ) as pct
+    from user_completions uc
+    cross join workout_nums wn
+    group by wn.n
+  ),
+  -- Per-month cohorts
+  monthly as (
+    select
+      uc.first_month as cohort,
+      wn.n as workout_number,
+      count(*) filter (where uc.total_completions >= wn.n)::int as user_count,
+      round(
+        count(*) filter (where uc.total_completions >= wn.n)::numeric
+        / count(*)::numeric * 100, 1
+      ) as pct
+    from user_completions uc
+    cross join workout_nums wn
+    where uc.first_month >= to_char(
+      now() - (num_months || ' months')::interval, 'YYYY-MM'
+    )
+    group by uc.first_month, wn.n
+  )
+  select * from all_time
+  union all
+  select * from monthly
+  order by cohort, workout_number;
+$$ language sql security definer;
+
 -- ── Sharing Analytics ────────────────────────────────────────
 
 -- Drop sharing functions whose return types may have changed
