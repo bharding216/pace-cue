@@ -1,9 +1,9 @@
 /**
  * Home screen — categorized workout list with collapsible sections.
- * Categories: Easy/Recovery, Tempo, Intervals, Long Runs, Race/Time Trial.
+ * Each category can be sorted, or reordered by hand in custom order.
  */
 
-import React, { useCallback, useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,12 +11,11 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  ScrollView,
-  Animated,
   LayoutAnimation,
   Platform,
   UIManager,
 } from 'react-native';
+import { NestableScrollContainer } from 'react-native-draggable-flatlist';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
@@ -25,8 +24,19 @@ import {
   WorkoutCategory,
 } from '../../src/workout/workoutTypes';
 import { loadWorkouts, deleteWorkout, saveWorkouts } from '../../src/workout/workoutStorage';
+import {
+  CategorySortPrefs,
+  loadCategorySortPrefs,
+  orderWorkouts,
+  reorderCategory,
+  saveCategorySortPref,
+  WorkoutSortMode,
+} from '../../src/workout/workoutOrder';
 import { createPresets, getMissingDistancePresets } from '../../src/workout/presets';
-import { WorkoutCard } from '../../src/components/WorkoutCard';
+import {
+  CATEGORIES,
+  CategoryWorkoutSection,
+} from '../../src/components/CategoryWorkoutSection';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { onSyncStatusChange } from '../../src/sync/cloudSync';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
@@ -35,61 +45,22 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-interface CategoryConfig {
-  key: WorkoutCategory;
-  title: string;
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-  description: string;
-  color: string;
-}
-
-const CATEGORIES: CategoryConfig[] = [
-  {
-    key: 'easy',
-    title: 'Easy / Recovery',
-    icon: 'leaf-outline',
-    description: 'Easy-effort and recovery runs',
-    color: Colors.easy,
-  },
-  {
-    key: 'tempo',
-    title: 'Tempo',
-    icon: 'speedometer-outline',
-    description: 'Sustained hard-effort runs',
-    color: Colors.warning,
-  },
-  {
-    key: 'intervals',
-    title: 'Intervals',
-    icon: 'repeat',
-    description: 'Structured speed & interval sessions',
-    color: Colors.danger,
-  },
-  {
-    key: 'long_run',
-    title: 'Long Runs',
-    icon: 'trail-sign-outline',
-    description: 'Endurance-building long runs',
-    color: Colors.accent,
-  },
-  {
-    key: 'race',
-    title: 'Race / Time Trial',
-    icon: 'trophy-outline',
-    description: 'Race simulations and time trials',
-    color: Colors.primary,
-  },
-];
-
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
+  const [sortPrefs, setSortPrefs] = useState<CategorySortPrefs>({});
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<WorkoutCategory>>(new Set());
+  const workoutsRef = useRef(workouts);
+  workoutsRef.current = workouts;
 
   const reload = useCallback(async () => {
-    let data = await loadWorkouts();
+    const [stored, prefs] = await Promise.all([
+      loadWorkouts(),
+      loadCategorySortPrefs(),
+    ]);
+    let data = stored;
     if (data.length === 0) {
       data = createPresets();
       await saveWorkouts(data);
@@ -100,6 +71,7 @@ export default function HomeScreen() {
         await saveWorkouts(data);
       }
     }
+    setSortPrefs(prefs);
     setWorkouts(data);
     setLoading(false);
   }, []);
@@ -121,6 +93,17 @@ export default function HomeScreen() {
     setWorkouts((prev) => prev.filter((w) => w.id !== id));
   };
 
+  const handleSortChange = useCallback(async (category: WorkoutCategory, mode: WorkoutSortMode) => {
+    setSortPrefs((prev) => ({ ...prev, [category]: mode }));
+    await saveCategorySortPref(category, mode);
+  }, []);
+
+  const handleReorder = useCallback(async (category: WorkoutCategory, ordered: WorkoutDefinition[]) => {
+    const next = reorderCategory(workoutsRef.current, category, ordered);
+    setWorkouts(next);
+    await saveWorkouts(next);
+  }, []);
+
   const toggleCategory = (cat: WorkoutCategory) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpanded((prev) => {
@@ -134,15 +117,23 @@ export default function HomeScreen() {
     });
   };
 
-  // Group workouts by category
-  const grouped = workouts.reduce<Record<WorkoutCategory, WorkoutDefinition[]>>(
-    (acc, w) => {
-      const cat = categorizeWorkout(w);
-      acc[cat].push(w);
-      return acc;
-    },
-    { easy: [], tempo: [], intervals: [], long_run: [], race: [] }
-  );
+  const grouped = useMemo(() => {
+    const acc: Record<WorkoutCategory, WorkoutDefinition[]> = {
+      easy: [],
+      tempo: [],
+      intervals: [],
+      long_run: [],
+      race: [],
+    };
+    for (const workout of workouts) {
+      const category = categorizeWorkout(workout);
+      if (acc[category]) acc[category].push(workout);
+    }
+    (Object.keys(acc) as WorkoutCategory[]).forEach((category) => {
+      acc[category] = orderWorkouts(acc[category], sortPrefs[category] ?? 'custom');
+    });
+    return acc;
+  }, [workouts, sortPrefs]);
 
   if (loading) {
     return (
@@ -154,7 +145,7 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView
+      <NestableScrollContainer
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
       >
@@ -182,67 +173,28 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Category sections */}
-        {CATEGORIES.map((cat) => {
-          const items = grouped[cat.key];
-          const isExpanded = expanded.has(cat.key);
-          return (
-            <View key={cat.key} style={styles.categorySection}>
-              <TouchableOpacity
-                style={styles.categoryHeader}
-                onPress={() => toggleCategory(cat.key)}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.categoryIcon, { backgroundColor: cat.color + '22' }]}>
-                  <Ionicons name={cat.icon} size={20} color={cat.color} />
-                </View>
-                <View style={styles.categoryInfo}>
-                  <Text style={styles.categoryTitle}>{cat.title}</Text>
-                  <Text style={styles.categoryDesc}>{cat.description}</Text>
-                </View>
-                <View style={styles.categoryRight}>
-                  <View style={[styles.countBadge, { backgroundColor: cat.color + '22' }]}>
-                    <Text style={[styles.countText, { color: cat.color }]}>{items.length}</Text>
-                  </View>
-                  <Ionicons
-                    name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                    size={18}
-                    color={Colors.textMuted}
-                  />
-                </View>
-              </TouchableOpacity>
-
-              {isExpanded && (
-                <View style={styles.categoryBody}>
-                  {items.length === 0 ? (
-                    <Text style={styles.emptyCategory}>
-                      No workouts in this category yet
-                    </Text>
-                  ) : (
-                    items.map((item) => (
-                      <WorkoutCard
-                        key={item.id}
-                        workout={item}
-                        onStart={() => router.push(`/workout/run/${item.id}`)}
-                        onEdit={() => router.push(`/workout/${item.id}`)}
-                        onDelete={() => handleDelete(item.id)}
-                        drag={() => {}}
-                        isActive={false}
-                      />
-                    ))
-                  )}
-                </View>
-              )}
-            </View>
-          );
-        })}
+        {CATEGORIES.map((cat) => (
+          <CategoryWorkoutSection
+            key={cat.key}
+            config={cat}
+            workouts={grouped[cat.key]}
+            sortMode={sortPrefs[cat.key] ?? 'custom'}
+            expanded={expanded.has(cat.key)}
+            onToggle={() => toggleCategory(cat.key)}
+            onChangeSort={(mode) => handleSortChange(cat.key, mode)}
+            onReorder={(ordered) => handleReorder(cat.key, ordered)}
+            onStart={(id) => router.push(`/workout/run/${id}`)}
+            onEdit={(id) => router.push(`/workout/${id}`)}
+            onDelete={handleDelete}
+          />
+        ))}
 
         {workouts.length === 0 && (
           <Text style={styles.emptyText}>
             No workouts yet. Create one to get started!
           </Text>
         )}
-      </ScrollView>
+      </NestableScrollContainer>
     </View>
   );
 }
@@ -306,68 +258,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
-  // ── Category sections ──
-  categorySection: {
-    marginBottom: Spacing.md,
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-    overflow: 'hidden',
-  },
-  categoryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.md,
-    gap: Spacing.md,
-  },
-  categoryIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.md,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  categoryInfo: {
-    flex: 1,
-  },
-  categoryTitle: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  categoryDesc: {
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-    marginTop: 1,
-  },
-  categoryRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  countBadge: {
-    minWidth: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.sm,
-  },
-  countText: {
-    fontSize: FontSize.sm,
-    fontWeight: '800',
-  },
-  categoryBody: {
-    paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.md,
-  },
-  emptyCategory: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    paddingVertical: Spacing.md,
-  },
   emptyText: {
     color: Colors.textMuted,
     fontSize: FontSize.md,

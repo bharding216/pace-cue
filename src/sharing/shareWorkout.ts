@@ -1,9 +1,10 @@
 /**
  * Workout sharing utilities.
  *
- * Supports two sharing modes:
+ * Supports three sharing modes:
  *  1. Share workout structure (from Home) — text summary + deep link
  *  2. Share workout results (from History) — text summary with splits + deep link
+ *  3. Challenge a friend (after a workout) — the structure plus the result to beat
  *
  * Share links are HTTPS URLs pointing to a Supabase Edge Function that
  * serves a landing page. The page lets recipients open the workout in the
@@ -26,6 +27,8 @@ import {
 } from '../workout/workoutTypes';
 import { track } from '../analytics/track';
 import { supabase } from '../analytics/supabaseClient';
+import { formatDistance as formatUnitDistance } from '../pace/paceTracker';
+import type { PaceUnit } from '../pace/paceTypes';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -251,7 +254,7 @@ function generateShortCode(): string {
  */
 export async function createShareLink(
   def: WorkoutDefinition,
-  shareType: 'structure' | 'results' = 'structure',
+  shareType: 'structure' | 'results' | 'challenge' = 'structure',
 ): Promise<string> {
   const shareable: ShareableWorkout = {
     n: def.name,
@@ -389,5 +392,88 @@ export async function shareWorkoutResults(
     });
   } catch {
     // User cancelled or share failed
+  }
+}
+
+/** Result the sender is daring a friend to beat. */
+export interface ChallengeResult {
+  totalDurationMs: number;
+  totalDistanceMeters?: number;
+  paceUnit?: PaceUnit;
+}
+
+/** One-line mark, e.g. "24:10 · 3.10 mi · 7:48/mi". */
+export function formatChallengeMark(result: ChallengeResult): string | null {
+  if (result.totalDurationMs <= 0) return null;
+
+  const unit = result.paceUnit ?? 'minPerMile';
+  const parts = [fmtDur(Math.floor(result.totalDurationMs / 1000))];
+
+  const meters = result.totalDistanceMeters;
+  if (meters != null && meters > 0) {
+    parts.push(formatUnitDistance(meters, unit));
+
+    // Skip pace until there's enough distance for a meaningful mark.
+    if (meters >= 100) {
+      const minutes = result.totalDurationMs / 60000;
+      const pace =
+        unit === 'minPerKm' ? minutes / (meters / 1000) : minutes / (meters / METERS_PER_MILE);
+      if (isFinite(pace) && pace > 0 && pace < 30) {
+        parts.push(`${formatPace(pace)}${unit === 'minPerKm' ? '/km' : '/mi'}`);
+      }
+    }
+  }
+
+  return parts.join(' · ');
+}
+
+/**
+ * Share a finished workout as a challenge.
+ * The message includes the sender's result and a link the friend can
+ * import so they can run the same workout.
+ * Returns true when the share sheet reports the challenge was sent.
+ */
+export async function shareWorkoutChallenge(
+  def: WorkoutDefinition,
+  result?: ChallengeResult,
+): Promise<boolean> {
+  const lines: string[] = [
+    'Come run this with me.',
+    '',
+    `I just finished "${def.name}" on SplitCue.`,
+  ];
+
+  const mark = result ? formatChallengeMark(result) : null;
+  if (mark) lines.push(mark);
+
+  lines.push('');
+  lines.push('Here\'s the workout if you want to give it a shot.');
+  lines.push('');
+  lines.push(formatWorkoutText(def));
+
+  const link = await createShareLink(def, 'challenge');
+  const textBody = lines.join('\n');
+
+  try {
+    const shareResult = await Share.share(
+      Platform.OS === 'ios'
+        ? { message: `${textBody}\n\nOpen it in SplitCue:`, url: link }
+        : {
+            message: `${textBody}\n\nOpen it in SplitCue:\n${link}`,
+            title: `${def.name} — SplitCue`,
+          },
+    );
+
+    const shared = shareResult.action === Share.sharedAction;
+    if (shared) {
+      track('workout_shared', {
+        workout_id: def.id,
+        workout_name: def.name,
+        share_type: 'challenge',
+      });
+    }
+    return shared;
+  } catch {
+    return false;
   }
 }

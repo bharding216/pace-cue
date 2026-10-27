@@ -11,6 +11,7 @@ import {
   AppSettings,
   DEFAULT_SETTINGS,
 } from './workoutTypes';
+import { CATEGORY_SORT_STORAGE_KEY } from './workoutOrder';
 
 const STORAGE_KEYS = {
   WORKOUTS: '@pacecue/workouts',
@@ -174,6 +175,7 @@ export async function clearAllUserData(): Promise<void> {
     '@pacecue/last_sync',
     '@pacecue/deleted_workout_ids',
     '@pacecue/deleted_history_ids',
+    CATEGORY_SORT_STORAGE_KEY,
   ]);
 }
 

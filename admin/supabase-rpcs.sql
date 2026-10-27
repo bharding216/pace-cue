@@ -18,6 +18,9 @@ $$ language plpgsql security definer;
 alter table events add column if not exists user_id uuid references auth.users on delete set null;
 create index if not exists idx_events_user_id on events(user_id) where user_id is not null;
 
+-- Device region (ISO 3166-1 alpha-2) recorded with each analytics event.
+alter table events add column if not exists country text;
+
 -- ── Admin Dashboard RPC Functions ────────────────────────────
 -- Run these in the Supabase SQL Editor to support the admin dashboard.
 -- These use security definer so they bypass RLS and return correct counts.
@@ -33,6 +36,7 @@ drop function if exists workouts_per_day(int);
 drop function if exists onboarding_funnel(int);
 drop function if exists workout_completion_stats(int);
 drop function if exists ai_adoption_rate(int);
+drop function if exists users_by_country(int);
 
 -- Total registered users
 create or replace function total_users()
@@ -403,6 +407,27 @@ returns table(date text, count int) as $$
   left join events e on e.created_at::date = d.day
   group by d.day
   order by d.day;
+$$ language sql security definer;
+
+-- Unique devices by country over the last N days.
+-- Uses the latest app_opened country so each device is counted once.
+create or replace function users_by_country(num_days int default 30)
+returns table(country text, user_count int) as $$
+  with latest as (
+    select distinct on (anonymous_user_id)
+      anonymous_user_id,
+      country
+    from events
+    where event_name = 'app_opened'
+      and created_at > now() - (num_days || ' days')::interval
+    order by anonymous_user_id, created_at desc
+  )
+  select
+    coalesce(nullif(country, ''), 'unknown') as country,
+    count(*)::int as user_count
+  from latest
+  group by 1
+  order by user_count desc, country;
 $$ language sql security definer;
 
 -- ── Workout Retention Curve ───────────────────────────────────

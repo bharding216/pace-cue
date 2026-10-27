@@ -12,6 +12,7 @@ import {
   getTodaysEventsByUser,
   getAIGenerationsByUser,
   getWorkoutRetentionCurve,
+  getUsersByCountry,
 } from '@/lib/queries';
 import StatCard from '@/components/StatCard';
 import DAUChart from '@/components/DAUChart';
@@ -21,6 +22,7 @@ import EventsChart from '@/components/EventsChart';
 import OnboardingFunnel from '@/components/OnboardingFunnel';
 import RetentionCurveChart from '@/components/RetentionCurveChart';
 import TodaysActivity from '@/components/TodaysActivity';
+import CountriesSection from '@/components/CountriesSection';
 import AIUsageBreakdown from '@/components/AIUsageBreakdown';
 import SignOutButton from '@/components/SignOutButton';
 import Link from 'next/link';
@@ -44,6 +46,7 @@ export default async function DashboardPage() {
     events,
     todaysUsers,
     aiUsers,
+    countries,
   ] = await Promise.all([
     getOverviewStats(),
     getEngagementStats(),
@@ -57,6 +60,7 @@ export default async function DashboardPage() {
     getEventsOverTime(30),
     getTodaysEventsByUser(),
     getAIGenerationsByUser(7),
+    getUsersByCountry(30),
   ]);
 
   return (
@@ -160,6 +164,9 @@ export default async function DashboardPage() {
           detail={`${aiAdoption.aiUsersCompleted}/${aiAdoption.aiUsers} AI users completed a workout`}
         />
       </section>
+
+      {/* ── Countries ─────────────────────────────────────── */}
+      <CountriesSection data={countries} />
 
       {/* ── Onboarding Funnel ─────────────────────────────── */}
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">

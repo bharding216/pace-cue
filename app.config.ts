@@ -19,6 +19,12 @@ const APP_NAME = IS_DEV
     ? 'SplitCue Preview Build'
     : 'SplitCue';
 
+const GOOGLE_SERVICES_FILE = IS_DEV
+  ? './google-services.development.json'
+  : IS_PREVIEW
+    ? './google-services.preview.json'
+    : './google-services.production.json';
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   name: APP_NAME,
   slug: 'pace-cue',
@@ -71,6 +77,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       monochromeImage: './assets/android-icon-monochrome.png',
     },
     package: BUNDLE_ID,
+    googleServicesFile: GOOGLE_SERVICES_FILE,
     permissions: [
       'android.permission.RECORD_AUDIO',
       'android.permission.MODIFY_AUDIO_SETTINGS',
@@ -151,6 +158,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     '@react-native-community/datetimepicker',
+    'expo-localization',
   ],
   updates: {
     url: 'https://u.expo.dev/15ab975c-acf7-482d-8059-edfe8218ef58',

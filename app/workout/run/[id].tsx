@@ -53,6 +53,7 @@ import { setDuckingEnabled, setVoiceIdentifier } from '../../../src/audio/audioM
 import { TagPicker } from '../../../src/components/TagPicker';
 import { PreRunSettings } from '../../../src/components/PreRunSettings';
 import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
+import { ChallengeFriendCard } from '../../../src/components/ChallengeFriendCard';
 import { RouteMap } from '../../../src/components/RouteMap';
 import { NewRecordsBanner } from '../../../src/components/PersonalBests';
 import { updateHistoryEntry, loadHistory } from '../../../src/workout/workoutStorage';
@@ -369,6 +370,17 @@ function ActiveWorkoutInner({
             />
           </View>
         )}
+
+        <ChallengeFriendCard
+          workout={workout}
+          totalDurationMs={state.totalElapsedMs}
+          totalDistanceMeters={
+            settings.paceTrackingEnabled && runner.paceState.totalDistanceMeters > 0
+              ? runner.paceState.totalDistanceMeters
+              : undefined
+          }
+          paceUnit={settings.paceUnit}
+        />
 
         {/* Tag picker */}
         <View style={styles.tagSection}>

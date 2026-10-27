@@ -59,6 +59,11 @@ export type RetentionCurvePoint = {
   pct: number;
 };
 
+export type CountryCount = {
+  country: string;
+  user_count: number;
+};
+
 export type AIUserBreakdown = {
   user_id: string;
   display_name: string;
@@ -195,6 +200,17 @@ export async function getEventsOverTime(days = 30): Promise<DailyCount[]> {
 
   const { data } = await supabase.rpc('events_per_day', { num_days: days });
   return (data as DailyCount[]) ?? [];
+}
+
+/**
+ * Unique devices by country for the last N days.
+ * Devices that opened the app before country tracking report as "unknown".
+ */
+export async function getUsersByCountry(days = 30): Promise<CountryCount[]> {
+  const supabase = createServiceClient();
+
+  const { data } = await supabase.rpc('users_by_country', { num_days: days });
+  return (data as CountryCount[]) ?? [];
 }
 
 /**

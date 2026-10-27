@@ -15,6 +15,12 @@ import { supabase } from './supabaseClient';
 /** Cached authenticated user ID, updated when auth state changes. */
 let cachedUserId: string | null = null;
 
+/**
+ * Device region (ISO 3166-1 alpha-2), cached for the session.
+ * `undefined` means not read yet. Read from the device Language & Region setting.
+ */
+let cachedCountry: string | null | undefined;
+
 supabase.auth.onAuthStateChange((_event, session) => {
   cachedUserId = session?.user?.id ?? null;
 });
@@ -57,6 +63,40 @@ export async function getAnonymousId(): Promise<string> {
   return newId;
 }
 
+function normalizeCountry(code: string | null | undefined): string | null {
+  if (!code || !/^[A-Za-z]{2}$/.test(code)) return null;
+  return code.toUpperCase();
+}
+
+/**
+ * Country from the device region setting. Falls back to the locale region
+ * so a JS update still records a country on binaries that don't include
+ * expo-localization yet.
+ */
+function deviceCountry(): string | null {
+  if (cachedCountry !== undefined) return cachedCountry;
+
+  let country: string | null = null;
+  try {
+    const { getLocales } = require('expo-localization') as typeof import('expo-localization');
+    country = normalizeCountry(getLocales()[0]?.regionCode);
+  } catch {
+    country = null;
+  }
+
+  if (!country) {
+    try {
+      const locale = Intl.DateTimeFormat().resolvedOptions().locale;
+      country = normalizeCountry(locale.split('-').pop());
+    } catch {
+      country = null;
+    }
+  }
+
+  cachedCountry = country;
+  return country;
+}
+
 /**
  * Fire an analytics event. Non-blocking, never throws.
  */
@@ -66,18 +106,27 @@ export function track(
 ): void {
   const appVersion = Constants.expoConfig?.version ?? 'unknown';
   const environment = (Constants.expoConfig?.extra?.appVariant as string) ?? 'production';
+  const country = deviceCountry();
 
   getAnonymousId()
-    .then((anonymousUserId) =>
-      supabase.from('events').insert({
+    .then(async (anonymousUserId) => {
+      const row = {
         anonymous_user_id: anonymousUserId,
         user_id: cachedUserId,
         event_name: eventName,
         app_version: appVersion,
         environment,
         metadata: metadata ?? {},
-      }),
-    )
+        ...(country ? { country } : {}),
+      };
+
+      const { error } = await supabase.from('events').insert(row);
+      // Keep recording events if the country column isn't migrated yet.
+      if (error && country) {
+        const { country: _country, ...withoutCountry } = row;
+        await supabase.from('events').insert(withoutCountry);
+      }
+    })
     .catch(() => {
       // Analytics should never crash the app.
     });
