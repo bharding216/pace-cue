@@ -30,11 +30,6 @@ import {
   categorizeWorkout,
 } from '../workout/workoutTypes';
 import { loadWorkouts } from '../workout/workoutStorage';
-import {
-  CategorySortPrefs,
-  loadCategorySortPrefs,
-  orderWorkouts,
-} from '../workout/workoutOrder';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 
 interface WorkoutPickerModalProps {
@@ -86,7 +81,6 @@ export function WorkoutPickerModal({
   onClose,
 }: WorkoutPickerModalProps) {
   const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
-  const [sortPrefs, setSortPrefs] = useState<CategorySortPrefs>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<WorkoutCategory | null>(null);
@@ -110,9 +104,8 @@ export function WorkoutPickerModal({
     setSearch('');
     setActiveCategory(null);
     setShowDatePicker(false);
-    Promise.all([loadWorkouts(), loadCategorySortPrefs()]).then(([data, prefs]) => {
+    loadWorkouts().then((data) => {
       setWorkouts(data);
-      setSortPrefs(prefs);
       setLoading(false);
     });
   }, [visible]);
@@ -121,10 +114,7 @@ export function WorkoutPickerModal({
     let list = workouts;
 
     if (activeCategory) {
-      list = orderWorkouts(
-        list.filter((w) => categorizeWorkout(w) === activeCategory),
-        sortPrefs[activeCategory] ?? 'custom',
-      );
+      list = list.filter((w) => categorizeWorkout(w) === activeCategory);
     }
 
     const q = search.trim().toLowerCase();
@@ -133,7 +123,7 @@ export function WorkoutPickerModal({
     }
 
     return list;
-  }, [workouts, activeCategory, search, sortPrefs]);
+  }, [workouts, activeCategory, search]);
 
   // Count per category for the chip badges
   const categoryCounts = useMemo(() => {

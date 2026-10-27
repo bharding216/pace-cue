@@ -30,13 +30,8 @@ interface WorkoutCardProps {
   onStart: () => void;
   onEdit: () => void;
   onDelete: () => void;
-  /** Called on a long-press of the reorder handle. */
-  drag?: () => void;
-  isActive?: boolean;
-  onMoveUp?: () => void;
-  onMoveDown?: () => void;
-  canMoveUp?: boolean;
-  canMoveDown?: boolean;
+  drag: () => void;
+  isActive: boolean;
 }
 
 export function WorkoutCard({
@@ -45,11 +40,7 @@ export function WorkoutCard({
   onEdit,
   onDelete,
   drag,
-  isActive = false,
-  onMoveUp,
-  onMoveDown,
-  canMoveUp = false,
-  canMoveDown = false,
+  isActive,
 }: WorkoutCardProps) {
   const totalSecs = totalWorkoutSeconds(workout);
   const intervals = flattenWorkout(workout);
@@ -67,61 +58,15 @@ export function WorkoutCard({
     );
   };
 
-  const showReorder = !!(drag || onMoveUp || onMoveDown);
-
   return (
-    <View style={[styles.card, showReorder && styles.cardReordering, isActive && styles.cardActive]}>
-      {showReorder && (
-        <View style={styles.reorderCol}>
-          <TouchableOpacity
-            onPress={onMoveUp}
-            disabled={!canMoveUp}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={`Move ${workout.name} up`}
-          >
-            <Ionicons
-              name="chevron-up"
-              size={18}
-              color={canMoveUp ? Colors.textSecondary : Colors.surfaceLight}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onLongPress={drag}
-            delayLongPress={180}
-            disabled={!drag || isActive}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={`Reorder ${workout.name}`}
-            accessibilityHint="Hold and drag to move this workout"
-          >
-            <Ionicons
-              name="reorder-three"
-              size={22}
-              color={isActive ? Colors.primary : Colors.textMuted}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={onMoveDown}
-            disabled={!canMoveDown}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={`Move ${workout.name} down`}
-          >
-            <Ionicons
-              name="chevron-down"
-              size={18}
-              color={canMoveDown ? Colors.textSecondary : Colors.surfaceLight}
-            />
-          </TouchableOpacity>
-        </View>
-      )}
-      <TouchableOpacity
-        style={styles.cardBody}
-        activeOpacity={0.9}
-        onPress={onEdit}
-        disabled={isActive}
-      >
+    <TouchableOpacity
+      activeOpacity={0.9}
+      onPress={onEdit}
+      onLongPress={drag}
+      delayLongPress={200}
+      disabled={isActive}
+      style={[styles.card, isActive && styles.cardActive]}
+    >
       <View style={styles.header}>
         <Text style={styles.name}>{workout.name}</Text>
         {isDistance && distMeters ? (
@@ -197,8 +142,7 @@ export function WorkoutCard({
           </TouchableOpacity>
         </View>
       </View>
-      </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -210,20 +154,6 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
-  },
-  cardReordering: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  cardBody: {
-    flexGrow: 1,
-    flexShrink: 1,
-  },
-  reorderCol: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
   },
   cardActive: {
     backgroundColor: Colors.surface,
