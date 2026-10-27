@@ -61,11 +61,16 @@ export function intervalColor(type: string): string {
     case 'hard':
       return Colors.hard;
     case 'easy':
+    case 'recovery':
       return Colors.easy;
     case 'warmup':
       return Colors.warmup;
     case 'cooldown':
       return Colors.cooldown;
+    case 'run':
+      return Colors.hard;
+    case 'rest':
+      return Colors.textMuted;
     default:
       return Colors.textSecondary;
   }

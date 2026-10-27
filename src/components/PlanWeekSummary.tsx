@@ -42,9 +42,16 @@ export function PlanWeekSummary({ plan, weekWorkouts, weekNumber }: PlanWeekSumm
     phaseIcon = 'leaf-outline';
   }
 
-  const raceLabel = plan.race_type === 'custom'
-    ? 'Race'
-    : plan.race_type.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const isPaceTarget = (plan.goal_type ?? 'race') === 'pace_target';
+  const raceLabel = isPaceTarget
+    ? 'Pace Goal'
+    : plan.race_type === 'custom'
+      ? 'Race'
+      : plan.race_type.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const paceStr = isPaceTarget && plan.goal_pace
+    ? `${Math.floor(plan.goal_pace)}:${String(Math.round((plan.goal_pace - Math.floor(plan.goal_pace)) * 60)).padStart(2, '0')}/mi`
+    : null;
 
   return (
     <View style={styles.container}>
@@ -57,8 +64,9 @@ export function PlanWeekSummary({ plan, weekWorkouts, weekNumber }: PlanWeekSumm
           </View>
         </View>
         <View style={styles.raceInfo}>
-          <Text style={styles.raceLabel}>{raceLabel}</Text>
+          <Text style={styles.raceLabel}>{paceStr ?? raceLabel}</Text>
           <Text style={styles.raceDate}>
+            {isPaceTarget ? 'Target: ' : ''}
             {new Date(plan.race_date + 'T12:00:00').toLocaleDateString(undefined, {
               month: 'short',
               day: 'numeric',

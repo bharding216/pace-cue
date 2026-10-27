@@ -33,6 +33,8 @@ import {
   hasDistanceFeature,
 } from '../../../src/workout/workoutTypes';
 import type { PaceCueFrequency } from '../../../src/pace/paceTypes';
+import { paceCuesEnabled, distanceProgressCuesNeedGps } from '../../../src/audio/cueSchedule';
+import { CueBasisToggle, CueDistanceChips } from '../../../src/components/CueScheduleControls';
 import { loadWorkouts, loadSettings, saveSettings } from '../../../src/workout/workoutStorage';
 import { getTempWorkout, getTempWorkoutMeta, clearTempWorkout } from '../../../src/workout/tempWorkoutCache';
 import { useWorkoutRunner, type SessionMeta } from '../../../src/hooks/useWorkoutRunner';
@@ -371,7 +373,9 @@ function ActiveWorkoutInner({
           </Text>
         </View>
 
-        {settings.paceTrackingEnabled &&
+        {(settings.paceTrackingEnabled ||
+          hasDistanceFeature(workout) ||
+          distanceProgressCuesNeedGps(settings)) &&
           runner.paceState.totalDistanceMeters > 0 && (
             <View style={styles.doneStatBlock}>
               <Text style={styles.doneStatLabel}>Distance</Text>
@@ -401,7 +405,10 @@ function ActiveWorkoutInner({
           workout={workout}
           totalDurationMs={state.totalElapsedMs}
           totalDistanceMeters={
-            settings.paceTrackingEnabled && runner.paceState.totalDistanceMeters > 0
+            (settings.paceTrackingEnabled ||
+              hasDistanceFeature(workout) ||
+              distanceProgressCuesNeedGps(settings)) &&
+            runner.paceState.totalDistanceMeters > 0
               ? runner.paceState.totalDistanceMeters
               : undefined
           }
@@ -521,7 +528,10 @@ function ActiveWorkoutInner({
       )}
 
       {/* Pace display (when tracking) */}
-      {(settings.paceTrackingEnabled || hasDistanceFeature(workout)) && runner.isPaceTracking && (
+      {(settings.paceTrackingEnabled ||
+        hasDistanceFeature(workout) ||
+        distanceProgressCuesNeedGps(settings)) &&
+        runner.isPaceTracking && (
         <PaceDisplay
           paceState={runner.paceState}
           paceUnit={settings.paceUnit}
@@ -775,32 +785,48 @@ function MidRunSettingsSheet({
 
             {/* Interval Progress */}
             <Text style={sheetStyles.sectionTitle}>Interval Progress</Text>
-            <Text style={sheetStyles.sectionSub}>Announce elapsed time during intervals</Text>
-            <View style={sheetStyles.chipRow}>
-              {TIME_ANNOUNCE_OPTIONS.map((opt) => (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[
-                    sheetStyles.chip,
-                    settings.timeRemainingInterval === opt.value && sheetStyles.chipActive,
-                  ]}
-                  onPress={() => {
-                    hapticTap();
-                    onUpdate({ timeRemainingInterval: opt.value });
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text
+            <Text style={sheetStyles.sectionSub}>
+              {settings.progressCueBasis === 'distance'
+                ? 'Announce distance covered during each interval'
+                : 'Announce elapsed time during intervals'}
+            </Text>
+            <CueBasisToggle
+              value={settings.progressCueBasis}
+              onChange={(progressCueBasis) => onUpdate({ progressCueBasis })}
+            />
+            {settings.progressCueBasis === 'time' ? (
+              <View style={sheetStyles.chipRow}>
+                {TIME_ANNOUNCE_OPTIONS.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
                     style={[
-                      sheetStyles.chipLabel,
-                      settings.timeRemainingInterval === opt.value && sheetStyles.chipLabelActive,
+                      sheetStyles.chip,
+                      settings.timeRemainingInterval === opt.value && sheetStyles.chipActive,
                     ]}
+                    onPress={() => {
+                      hapticTap();
+                      onUpdate({ timeRemainingInterval: opt.value });
+                    }}
+                    activeOpacity={0.7}
                   >
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+                    <Text
+                      style={[
+                        sheetStyles.chipLabel,
+                        settings.timeRemainingInterval === opt.value && sheetStyles.chipLabelActive,
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : (
+              <CueDistanceChips
+                value={settings.progressCueDistance}
+                unit={settings.paceUnit}
+                onChange={(progressCueDistance) => onUpdate({ progressCueDistance })}
+              />
+            )}
 
             {/* Pace Tracking */}
             <Text style={sheetStyles.sectionTitle}>Pace</Text>
@@ -864,35 +890,51 @@ function MidRunSettingsSheet({
                 </View>
 
                 {/* Pace cue frequency */}
-                <Text style={sheetStyles.sectionSub}>Pace cue frequency</Text>
-                <View style={sheetStyles.chipRow}>
-                  {PACE_CUE_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt.value}
-                      style={[
-                        sheetStyles.chip,
-                        settings.paceCueFrequency === opt.value && sheetStyles.chipActive,
-                      ]}
-                      onPress={() => {
-                        hapticTap();
-                        onUpdate({ paceCueFrequency: opt.value });
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text
+                <Text style={sheetStyles.sectionSub}>
+                  {settings.paceCueBasis === 'distance'
+                    ? 'Announce pace each time you cover this distance'
+                    : 'Pace cue frequency'}
+                </Text>
+                <CueBasisToggle
+                  value={settings.paceCueBasis}
+                  onChange={(paceCueBasis) => onUpdate({ paceCueBasis })}
+                />
+                {settings.paceCueBasis === 'time' ? (
+                  <View style={sheetStyles.chipRow}>
+                    {PACE_CUE_OPTIONS.map((opt) => (
+                      <TouchableOpacity
+                        key={opt.value}
                         style={[
-                          sheetStyles.chipLabel,
-                          settings.paceCueFrequency === opt.value && sheetStyles.chipLabelActive,
+                          sheetStyles.chip,
+                          settings.paceCueFrequency === opt.value && sheetStyles.chipActive,
                         ]}
+                        onPress={() => {
+                          hapticTap();
+                          onUpdate({ paceCueFrequency: opt.value });
+                        }}
+                        activeOpacity={0.7}
                       >
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                        <Text
+                          style={[
+                            sheetStyles.chipLabel,
+                            settings.paceCueFrequency === opt.value && sheetStyles.chipLabelActive,
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <CueDistanceChips
+                    value={settings.paceCueDistance}
+                    unit={settings.paceUnit}
+                    onChange={(paceCueDistance) => onUpdate({ paceCueDistance })}
+                  />
+                )}
 
                 {/* Only cue on intervals with target pace */}
-                {settings.paceCueFrequency > 0 && (
+                {paceCuesEnabled(settings) && (
                   <View style={sheetStyles.toggleRow}>
                     <Text style={sheetStyles.toggleLabel}>Only with target pace</Text>
                     <Switch

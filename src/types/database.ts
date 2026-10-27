@@ -119,6 +119,7 @@ export type AIGeneration = {
 // ── Training Plans ───────────────────────────────────────────
 
 export type RaceType = '5k' | '10k' | 'half_marathon' | 'marathon' | 'custom';
+export type GoalType = 'race' | 'pace_target';
 export type PlanStatus = 'active' | 'completed' | 'archived';
 export type PlanWorkoutStatus = 'planned' | 'completed' | 'skipped';
 
@@ -140,8 +141,10 @@ export type TrainingPlan = {
   title: string;
   race_type: RaceType;
   race_distance_meters: number | null;
-  race_date: string; // ISO date string YYYY-MM-DD
+  race_date: string; // ISO date string YYYY-MM-DD — also used as target date for pace_target plans
   goal_time_minutes: number | null;
+  goal_type: GoalType; // 'race' (default) or 'pace_target'
+  goal_pace: number | null; // target pace in min/mile decimal (e.g. 8.5 = 8:30/mi)
   start_date: string; // ISO date string YYYY-MM-DD
   days_per_week: number;
   outline: PlanOutlineWeek[] | null;

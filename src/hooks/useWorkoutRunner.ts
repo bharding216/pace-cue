@@ -43,14 +43,17 @@ import {
 import {
   playCue,
   configureAudio,
-  speakIntervalProgress,
-  speakPaceCue,
+  speakCuePhrases,
+  intervalProgressPhrase,
+  distanceProgressPhrase,
+  paceCuePhrase,
   startBackgroundLoop,
   stopBackgroundLoop,
   setVoiceIdentifier,
   setDuckingEnabled,
   type CueContext,
 } from '../audio/audioManager';
+import { cueDistanceMeters, nextCueMark, distanceProgressCuesNeedGps } from '../audio/cueSchedule';
 import { usePaceTracker, type PaceTrackerResult } from './usePaceTracker';
 import type { GpsSample, PaceState } from '../pace/paceTypes';
 import { haversineMeters } from '../pace/paceTracker';
@@ -197,9 +200,30 @@ export function useWorkoutRunner(
   // Track which warnings we've already fired to avoid duplicates
   const firedWarnings = useRef(new Set<number>());
   const firedCountdowns = useRef(new Set<number>());
-  const firedTimeAnnouncements = useRef(new Set<number>());
-  const firedPaceCues = useRef(new Set<number>());
+  /** Last announced step for interval progress (time or distance). */
+  const lastProgressMark = useRef(0);
+  /** Last announced step for pace cues (time or distance). */
+  const lastPaceMark = useRef(0);
+  /** Running time in the current interval, excluding pauses. Used when the interval has no duration. */
+  const intervalElapsedMsRef = useRef(0);
+  const lastRunningTickAtRef = useRef(0);
   const lastIndex = useRef(-1);
+
+  const cueScheduleKey = [
+    settings.progressCueBasis,
+    settings.progressCueDistance,
+    settings.timeRemainingInterval,
+    settings.paceCueBasis,
+    settings.paceCueDistance,
+    settings.paceCueFrequency,
+    settings.paceUnit,
+  ].join(':');
+  const cueScheduleKeyRef = useRef(cueScheduleKey);
+  if (cueScheduleKeyRef.current !== cueScheduleKey) {
+    cueScheduleKeyRef.current = cueScheduleKey;
+    lastProgressMark.current = 0;
+    lastPaceMark.current = 0;
+  }
 
   // Force re-render while running so the timer updates smoothly
   const [, setTick] = useState(0);
@@ -252,6 +276,10 @@ export function useWorkoutRunner(
   const markIntervalStart = useCallback(() => {
     intervalStartedAtRef.current = Date.now();
     intervalStartDistanceRef.current = paceTrackerRef.current.paceState.totalDistanceMeters;
+    intervalElapsedMsRef.current = 0;
+    lastRunningTickAtRef.current = 0;
+    lastProgressMark.current = 0;
+    lastPaceMark.current = 0;
   }, []);
 
   /** Save a completed workout to history and expose its ID for tag editing. */
@@ -317,6 +345,12 @@ export function useWorkoutRunner(
     let s = engineRef.current;
 
     if (s.phase === 'running') {
+      const nowMs = Date.now();
+      if (lastRunningTickAtRef.current > 0) {
+        intervalElapsedMsRef.current += nowMs - lastRunningTickAtRef.current;
+      }
+      lastRunningTickAtRef.current = nowMs;
+
       // Advance through ALL expired intervals in one pass.
       // When the app is backgrounded the JS timer can be delayed by seconds
       // (or longer), so multiple intervals may have elapsed.
@@ -357,8 +391,6 @@ export function useWorkoutRunner(
           if (settingsRef.current.hapticEnabled) hapticIntervalChange();
           firedWarnings.current.clear();
           firedCountdowns.current.clear();
-          firedTimeAnnouncements.current.clear();
-          firedPaceCues.current.clear();
 
           updateLiveActivity(buildLAProps(next, false));
           lastLAUpdate.current = Date.now();
@@ -395,8 +427,6 @@ export function useWorkoutRunner(
               if (settingsRef.current.hapticEnabled) hapticIntervalChange();
               firedWarnings.current.clear();
               firedCountdowns.current.clear();
-              firedTimeAnnouncements.current.clear();
-              firedPaceCues.current.clear();
               updateLiveActivity(buildLAProps(next, false));
               lastLAUpdate.current = Date.now();
               lastLAIndex.current = next.currentIndex;
@@ -428,58 +458,73 @@ export function useWorkoutRunner(
           });
         }
 
-        // Check for interval-progress announcements, warning, and countdown cues
+        // Periodic progress and pace cues. Skip the tick that just ended an interval
+        // or the workout, so a split announcement doesn't talk over the transition.
         const secs = remainingSeconds(s);
         const ci = currentInterval(s);
         const warnSecsArr = settingsRef.current.countdownWarningSeconds;
-        const maxWarn = Math.max(...warnSecsArr);
-        const announceEvery = settingsRef.current.timeRemainingInterval;
+        const maxWarn = warnSecsArr.length > 0 ? Math.max(...warnSecsArr) : 0;
 
-        // Announce elapsed time at regular intervals (voice only, no beep)
-        if (
-          announceEvery > 0 &&
-          ci &&
-          secs > maxWarn
-        ) {
-          const elapsed = ci.durationSeconds - secs;
-          if (
-            elapsed > 0 &&
-            elapsed % announceEvery === 0 &&
-            !firedTimeAnnouncements.current.has(elapsed)
-          ) {
-            firedTimeAnnouncements.current.add(elapsed);
-            speakIntervalProgress(elapsed, settingsRef.current.audioCueMode);
+        if (engineRef.current === s && ci) {
+          const settingsNow = settingsRef.current;
+          const timeBased = !isDistanceInterval(ci) && ci.durationSeconds > 0;
+          const suppressTimeCues = timeBased && secs <= maxWarn;
+          const elapsedSec = timeBased
+            ? Math.max(0, ci.durationSeconds - secs)
+            : Math.floor(intervalElapsedMsRef.current / 1000);
+          const intervalDist =
+            paceTrackerRef.current.paceState.totalDistanceMeters - intervalStartDistanceRef.current;
+          const phrases: string[] = [];
+
+          if (settingsNow.progressCueBasis === 'distance') {
+            const step = cueDistanceMeters(settingsNow.progressCueDistance, settingsNow.paceUnit);
+            const mark = nextCueMark(intervalDist, step, lastProgressMark.current);
+            if (mark != null) {
+              lastProgressMark.current = mark;
+              phrases.push(distanceProgressPhrase(mark * step, settingsNow.paceUnit));
+            }
+          } else if (!suppressTimeCues && settingsNow.timeRemainingInterval > 0) {
+            const step = settingsNow.timeRemainingInterval;
+            const mark = nextCueMark(elapsedSec, step, lastProgressMark.current);
+            if (mark != null) {
+              lastProgressMark.current = mark;
+              phrases.push(intervalProgressPhrase(mark * step));
+            }
           }
-        }
 
-        // Pace cue announcements at configured frequency
-        const paceFreq = settingsRef.current.paceCueFrequency;
-        if (
-          settingsRef.current.paceTrackingEnabled &&
-          paceFreq > 0 &&
-          ci &&
-          secs > maxWarn &&
-          // When paceCueOnlyWithTarget is on, skip intervals without a target pace
-          (!settingsRef.current.paceCueOnlyWithTarget || ci.targetPace != null)
-        ) {
-          const elapsed = ci.durationSeconds - secs;
-          if (
-            elapsed > 0 &&
-            elapsed % paceFreq === 0 &&
-            !firedPaceCues.current.has(elapsed)
-          ) {
-            firedPaceCues.current.add(elapsed);
-            const ps = paceTrackerRef.current.paceState;
-            const currentPace =
-              settingsRef.current.paceUnit === 'minPerMile'
-                ? ps.currentPaceMinPerMile
-                : ps.currentPaceMinPerKm;
-            speakPaceCue(
-              currentPace,
-              ci.targetPace,
-              settingsRef.current.paceUnit,
-              settingsRef.current.audioCueMode,
-            );
+          const wantPace =
+            settingsNow.paceTrackingEnabled &&
+            (!settingsNow.paceCueOnlyWithTarget || ci.targetPace != null);
+          if (wantPace) {
+            if (settingsNow.paceCueBasis === 'distance') {
+              const step = cueDistanceMeters(settingsNow.paceCueDistance, settingsNow.paceUnit);
+              const mark = nextCueMark(intervalDist, step, lastPaceMark.current);
+              if (mark != null) {
+                lastPaceMark.current = mark;
+                const ps = paceTrackerRef.current.paceState;
+                const currentPace =
+                  settingsNow.paceUnit === 'minPerMile'
+                    ? ps.currentPaceMinPerMile
+                    : ps.currentPaceMinPerKm;
+                phrases.push(paceCuePhrase(currentPace, settingsNow.paceUnit));
+              }
+            } else if (!suppressTimeCues && settingsNow.paceCueFrequency > 0) {
+              const step = settingsNow.paceCueFrequency;
+              const mark = nextCueMark(elapsedSec, step, lastPaceMark.current);
+              if (mark != null) {
+                lastPaceMark.current = mark;
+                const ps = paceTrackerRef.current.paceState;
+                const currentPace =
+                  settingsNow.paceUnit === 'minPerMile'
+                    ? ps.currentPaceMinPerMile
+                    : ps.currentPaceMinPerKm;
+                phrases.push(paceCuePhrase(currentPace, settingsNow.paceUnit));
+              }
+            }
+          }
+
+          if (phrases.length > 0) {
+            speakCuePhrases(phrases, settingsNow.audioCueMode);
           }
         }
 
@@ -567,15 +612,16 @@ export function useWorkoutRunner(
     splitsRef.current = [];
     firedWarnings.current.clear();
     firedCountdowns.current.clear();
-    firedTimeAnnouncements.current.clear();
-    firedPaceCues.current.clear();
     lastIndex.current = 0;
     const startCueCtx = buildVerboseCueContext(next, 'intervalStart', settingsRef.current);
     playCue('intervalStart', settingsRef.current.audioCueMode, startCueCtx);
     if (settingsRef.current.hapticEnabled) hapticIntervalChange();
 
-    // Start pace tracking if enabled, or force-start for distance workouts
-    const needsGps = settingsRef.current.paceTrackingEnabled || hasDistanceFeature(workout);
+    // Start pace tracking if enabled, for distance workouts, or when cues are by distance
+    const needsGps =
+      settingsRef.current.paceTrackingEnabled ||
+      hasDistanceFeature(workout) ||
+      distanceProgressCuesNeedGps(settingsRef.current);
     if (needsGps) {
       paceTrackerRef.current.reset();
       paceTrackerRef.current.start();
@@ -599,6 +645,7 @@ export function useWorkoutRunner(
   }, [buildLAProps, markIntervalStart]);
 
   const pause = useCallback(() => {
+    lastRunningTickAtRef.current = 0;
     const next = pauseWorkout(engineRef.current);
     engineRef.current = next;
     setEngine(next);
@@ -627,8 +674,6 @@ export function useWorkoutRunner(
     if (next.phase !== 'finished') {
       firedWarnings.current.clear();
       firedCountdowns.current.clear();
-      firedTimeAnnouncements.current.clear();
-      firedPaceCues.current.clear();
       markIntervalStart();
       const skipCueCtx = buildVerboseCueContext(next, 'intervalStart', settingsRef.current);
       playCue('intervalStart', settingsRef.current.audioCueMode, skipCueCtx);

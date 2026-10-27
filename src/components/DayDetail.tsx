@@ -15,8 +15,8 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { DayEntry } from '../contexts/TrainingPlanContext';
-import type { WorkoutDefinition, WorkoutRepeatBlock, IntervalType, CompletedWorkout } from '../workout/workoutTypes';
-import { formatTime, totalWorkoutSeconds, totalWorkoutDistanceMeters, isDistanceInterval } from '../workout/workoutTypes';
+import type { WorkoutDefinition, WorkoutBlock, Segment, RepeatGroup, CompletedWorkout } from '../workout/workoutTypes';
+import { formatTime, totalWorkoutSeconds, totalWorkoutDistanceMeters, isDistanceInterval, defaultSegmentLabel, segmentToIntervalType } from '../workout/workoutTypes';
 import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../constants/theme';
 
 // ── Types ────────────────────────────────────────────────────
@@ -69,36 +69,49 @@ function statusBadgeColor(status: string): string {
 interface PreviewRow {
   key: string;
   repeatCount: number;
-  intervals: { type: IntervalType; label: string; durationSeconds: number; distanceMeters?: number }[];
-}
-
-function defaultIntervalLabel(type: IntervalType): string {
-  switch (type) {
-    case 'warmup': return 'Warm Up';
-    case 'cooldown': return 'Cool Down';
-    case 'hard': return 'Hard';
-    case 'easy': return 'Easy';
-  }
+  intervals: { type: string; label: string; durationSeconds: number; distanceMeters?: number }[];
 }
 
 function buildPreviewRows(workout: WorkoutDefinition): PreviewRow[] {
   const rows: PreviewRow[] = [];
-  const allSections: WorkoutRepeatBlock[][] = [workout.warmup, workout.blocks, workout.cooldown];
-  for (const section of allSections) {
-    if (!section) continue;
-    for (let bi = 0; bi < section.length; bi++) {
-      const block = section[bi];
+
+  function processBlock(block: WorkoutBlock) {
+    if (block.blockType === 'segment') {
+      const seg = block;
+      const dur = seg.target.type === 'time' ? (seg.target.durationSeconds ?? 0) : 0;
+      const dist = seg.target.type === 'distance' ? seg.target.distanceMeters : undefined;
       rows.push({
         key: `${rows.length}`,
-        repeatCount: block.repeatCount ?? 1,
-        intervals: block.intervals.map((iv) => ({
-          type: iv.type,
-          label: iv.label || defaultIntervalLabel(iv.type),
-          durationSeconds: iv.durationSeconds,
-          distanceMeters: iv.distanceMeters,
-        })),
+        repeatCount: 1,
+        intervals: [{
+          type: segmentToIntervalType(seg.segmentType, seg.intensity),
+          label: seg.label || defaultSegmentLabel(seg.segmentType),
+          durationSeconds: dur,
+          distanceMeters: dist,
+        }],
       });
+    } else {
+      const rg = block;
+      const intervals = rg.blocks
+        .filter((b): b is Segment => b.blockType === 'segment')
+        .map((seg) => ({
+          type: segmentToIntervalType(seg.segmentType, seg.intensity),
+          label: seg.label || defaultSegmentLabel(seg.segmentType),
+          durationSeconds: seg.target.type === 'time' ? (seg.target.durationSeconds ?? 0) : 0,
+          distanceMeters: seg.target.type === 'distance' ? seg.target.distanceMeters : undefined,
+        }));
+      if (intervals.length > 0) {
+        rows.push({
+          key: `${rows.length}`,
+          repeatCount: rg.repetitions,
+          intervals,
+        });
+      }
     }
+  }
+
+  for (const block of workout.blocks) {
+    processBlock(block);
   }
   return rows;
 }

@@ -42,11 +42,14 @@ import { loadHistory } from '../src/workout/workoutStorage';
 import { buildHistorySummary } from '../src/ai/historySummary';
 import {
   WorkoutDefinition,
-  WorkoutRepeatBlock,
-  WorkoutInterval,
+  WorkoutBlock,
+  Segment,
+  RepeatGroup,
   flattenWorkout,
   formatTime,
   totalWorkoutSeconds,
+  defaultSegmentLabel,
+  segmentToIntervalType,
 } from '../src/workout/workoutTypes';
 import { formatPaceDisplay } from '../src/pace/paceTracker';
 import { WorkoutEditorForm } from '../src/components/WorkoutEditorForm';
@@ -62,54 +65,66 @@ import {
 
 // ── Helpers ─────────────────────────────────────────────────
 
-function intervalLabel(interval: WorkoutInterval): string {
-  if (interval.label) return interval.label;
-  switch (interval.type) {
-    case 'warmup': return 'Warm Up';
-    case 'cooldown': return 'Cool Down';
-    case 'hard': return 'Hard';
-    case 'easy': return 'Easy';
+function intensityLabel(intensity: string | undefined): string | null {
+  if (!intensity) return null;
+  return intensity.charAt(0).toUpperCase() + intensity.slice(1);
+}
+
+function intensityPreviewColor(intensity: string | undefined): string {
+  switch (intensity) {
+    case 'recovery':
+    case 'easy': return Colors.accent;
+    case 'moderate': return '#F59E0B';
+    case 'tempo': return '#F97316';
+    case 'hard':
+    case 'sprint': return Colors.danger;
+    default: return Colors.textMuted;
   }
 }
 
-function effortPreviewColor(effort: number): string {
-  if (effort <= 3) return Colors.accent;
-  if (effort <= 6) return '#F59E0B';
-  if (effort <= 8) return '#F97316';
-  return Colors.danger;
+/** Format a segment target for display */
+function formatTarget(seg: Segment): string {
+  if (seg.target.type === 'distance' && seg.target.distanceMeters) {
+    const miles = seg.target.distanceMeters / 1609.344;
+    if (miles >= 0.1) return `${miles.toFixed(2)} mi`;
+    return `${seg.target.distanceMeters}m`;
+  }
+  if (seg.target.type === 'time' && seg.target.durationSeconds) {
+    return formatTime(seg.target.durationSeconds);
+  }
+  return 'Manual';
 }
 
-// ── Section Preview (warmup / intervals / cooldown) ─────────
+// ── Block Preview (flat block tree) ─────────────────────────
 
-function SectionPreview({
-  label,
-  blocks,
-}: {
-  label: string;
-  blocks: WorkoutRepeatBlock[];
-}) {
+function BlockPreview({ blocks }: { blocks: WorkoutBlock[] }) {
   if (blocks.length === 0) return null;
 
-  // Determine which optional columns are needed across all intervals
-  const allIntervals = blocks.flatMap((b) => b.intervals);
-  const hasEffort = allIntervals.some((i) => i.effort != null);
-  const hasPace = allIntervals.some((i) => i.targetPace != null);
+  // Collect all segments to determine column visibility
+  const allSegments: Segment[] = [];
+  const collectSegments = (blks: WorkoutBlock[]) => {
+    for (const b of blks) {
+      if (b.blockType === 'segment') allSegments.push(b);
+      else collectSegments(b.blocks);
+    }
+  };
+  collectSegments(blocks);
+  const hasIntensity = allSegments.some((s) => s.intensity != null);
+  const hasPace = allSegments.some((s) => s.targetPace != null);
 
   return (
     <View style={sectionStyles.container}>
-      <Text style={sectionStyles.label}>{label}</Text>
-
       {/* Column headers */}
       <View style={sectionStyles.colHeaderRow}>
         <View style={sectionStyles.colHeaderSpacer} />
-        <Text style={sectionStyles.colHeaderName}>Interval</Text>
+        <Text style={sectionStyles.colHeaderName}>Segment</Text>
         <View style={sectionStyles.intervalMeta}>
           <Text style={[sectionStyles.colHeader, { minWidth: 40 }]}>
-            Length
+            Target
           </Text>
-          {hasEffort && (
-            <Text style={[sectionStyles.colHeader, { minWidth: 30 }]}>
-              Effort
+          {hasIntensity && (
+            <Text style={[sectionStyles.colHeader, { minWidth: 44 }]}>
+              Intensity
             </Text>
           )}
           {hasPace && (
@@ -121,64 +136,103 @@ function SectionPreview({
       </View>
 
       {blocks.map((block, bi) => (
-        <View key={bi} style={sectionStyles.block}>
-          {(blocks.length > 1 || block.repeatCount > 1 || block.name) && (
-            <View style={sectionStyles.blockHeader}>
-              {block.name ? (
-                <Text style={sectionStyles.blockName}>{block.name}</Text>
-              ) : blocks.length > 1 ? (
-                <Text style={sectionStyles.blockName}>Block {bi + 1}</Text>
-              ) : null}
-              {block.repeatCount > 1 && (
-                <View style={sectionStyles.repeatBadge}>
-                  <Text style={sectionStyles.repeatText}>×{block.repeatCount}</Text>
-                </View>
-              )}
-            </View>
+        <BlockNode
+          key={bi}
+          block={block}
+          index={bi}
+          totalBlocks={blocks.length}
+          hasIntensity={hasIntensity}
+          hasPace={hasPace}
+        />
+      ))}
+    </View>
+  );
+}
+
+function BlockNode({
+  block,
+  index,
+  totalBlocks,
+  hasIntensity,
+  hasPace,
+}: {
+  block: WorkoutBlock;
+  index: number;
+  totalBlocks: number;
+  hasIntensity: boolean;
+  hasPace: boolean;
+}) {
+  if (block.blockType === 'segment') {
+    const seg = block;
+    return (
+      <View style={sectionStyles.intervalRow}>
+        <View
+          style={[
+            sectionStyles.dot,
+            { backgroundColor: intervalColor(segmentToIntervalType(seg.segmentType, seg.intensity)) },
+          ]}
+        />
+        <Text style={sectionStyles.intervalName} numberOfLines={1}>
+          {seg.label || defaultSegmentLabel(seg.segmentType)}
+        </Text>
+        <View style={sectionStyles.intervalMeta}>
+          <Text style={sectionStyles.intervalDuration}>
+            {formatTarget(seg)}
+          </Text>
+          {hasIntensity && (
+            <Text
+              style={[
+                sectionStyles.effort,
+                seg.intensity
+                  ? { color: intensityPreviewColor(seg.intensity) }
+                  : { color: Colors.textMuted },
+              ]}
+            >
+              {intensityLabel(seg.intensity) ?? '—'}
+            </Text>
           )}
-          {block.intervals.map((interval, ii) => (
-            <View key={ii} style={sectionStyles.intervalRow}>
-              <View
-                style={[
-                  sectionStyles.dot,
-                  { backgroundColor: intervalColor(interval.type) },
-                ]}
-              />
-              <Text style={sectionStyles.intervalName} numberOfLines={1}>
-                {intervalLabel(interval)}
-              </Text>
-              <View style={sectionStyles.intervalMeta}>
-                <Text style={sectionStyles.intervalDuration}>
-                  {formatTime(interval.durationSeconds)}
-                </Text>
-                {hasEffort && (
-                  <Text
-                    style={[
-                      sectionStyles.effort,
-                      interval.effort != null
-                        ? { color: effortPreviewColor(interval.effort) }
-                        : { color: Colors.textMuted },
-                    ]}
-                  >
-                    {interval.effort != null ? `${interval.effort}/10` : '—'}
-                  </Text>
-                )}
-                {hasPace && (
-                  <Text
-                    style={[
-                      sectionStyles.pace,
-                      interval.targetPace == null && { color: Colors.textMuted },
-                    ]}
-                  >
-                    {interval.targetPace != null
-                      ? `${formatPaceDisplay(interval.targetPace)}/mi`
-                      : '—'}
-                  </Text>
-                )}
-              </View>
-            </View>
-          ))}
+          {hasPace && (
+            <Text
+              style={[
+                sectionStyles.pace,
+                seg.targetPace == null && { color: Colors.textMuted },
+              ]}
+            >
+              {seg.targetPace != null
+                ? `${formatPaceDisplay(seg.targetPace)}/mi`
+                : '—'}
+            </Text>
+          )}
         </View>
+      </View>
+    );
+  }
+
+  // RepeatGroup
+  const rg = block;
+  return (
+    <View style={sectionStyles.block}>
+      <View style={sectionStyles.blockHeader}>
+        {rg.name ? (
+          <Text style={sectionStyles.blockName}>{rg.name}</Text>
+        ) : (
+          <Text style={sectionStyles.blockName}>Repeat</Text>
+        )}
+        {rg.repetitions > 1 && (
+          <View style={sectionStyles.repeatBadge}>
+            <Text style={sectionStyles.repeatText}>×{rg.repetitions}</Text>
+          </View>
+        )}
+      </View>
+      {rg.blocks.map((inner, ii) => (
+        <BlockNode
+          key={ii}
+          block={inner}
+          index={ii}
+          totalBlocks={rg.blocks.length}
+          hasIntensity={hasIntensity}
+          hasPace={hasPace}
+        />
       ))}
     </View>
   );
@@ -341,9 +395,7 @@ function WorkoutPreview({
       {/* Detailed interval breakdown */}
       {expanded && (
         <View style={previewStyles.details}>
-          <SectionPreview label="WARM UP" blocks={workout.warmup} />
-          <SectionPreview label="INTERVALS" blocks={workout.blocks} />
-          <SectionPreview label="COOL DOWN" blocks={workout.cooldown} />
+          <BlockPreview blocks={workout.blocks} />
         </View>
       )}
 

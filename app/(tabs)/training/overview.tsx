@@ -258,7 +258,7 @@ export default function PlanOverviewScreen() {
             </Text>
             <Ionicons name="pencil" size={14} color={Colors.primary} />
           </View>
-          <Text style={styles.statLabel}>Race day</Text>
+          <Text style={styles.statLabel}>{(primaryPlan.goal_type ?? 'race') === 'pace_target' ? 'Target date' : 'Race day'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -316,7 +316,7 @@ export default function PlanOverviewScreen() {
             onPress={() => setShowDatePicker(false)}
           >
             <View style={styles.dateModalContent}>
-              <Text style={styles.modalTitle}>Race date</Text>
+              <Text style={styles.modalTitle}>{(primaryPlan.goal_type ?? 'race') === 'pace_target' ? 'Target date' : 'Race date'}</Text>
               <View style={styles.datePickerWrapper}>
                 <DateTimePicker
                   value={new Date(primaryPlan.race_date + 'T00:00:00')}
@@ -444,7 +444,7 @@ export default function PlanOverviewScreen() {
                     )}
                   </View>
                   <Text style={styles.planRowMeta}>
-                    {formatRaceLabel(p.race_type)} · {planWorkoutCount} workouts · {planDaysToRace > 0 ? `${planDaysToRace} days left` : 'Race passed'}
+                    {formatRaceLabel(p.race_type)} · {planWorkoutCount} workouts · {planDaysToRace > 0 ? `${planDaysToRace} days left` : (p.goal_type ?? 'race') === 'pace_target' ? 'Complete' : 'Race passed'}
                   </Text>
                 </View>
                 <TouchableOpacity

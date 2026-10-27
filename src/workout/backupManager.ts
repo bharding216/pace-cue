@@ -18,6 +18,7 @@ import {
   loadHistory,
   loadSettings,
   saveSettings,
+  migrateToBlockModel,
 } from './workoutStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -112,12 +113,20 @@ export async function importData(): Promise<ImportResult | null> {
 
   const backup = parsed as PaceCueBackup;
 
-  // Write everything at once
+  // Migrate any old-format workouts and history snapshots on import
+  const migratedWorkouts = backup.workouts.map(migrateToBlockModel);
+  const migratedHistory = (backup.history ?? []).map((entry: any) => {
+    if (entry.configuration) {
+      entry.configuration = migrateToBlockModel(entry.configuration);
+    }
+    return entry;
+  });
+
   await Promise.all([
-    saveWorkouts(backup.workouts),
+    saveWorkouts(migratedWorkouts),
     AsyncStorage.setItem(
       '@pacecue/history',
-      JSON.stringify(backup.history)
+      JSON.stringify(migratedHistory)
     ),
     saveSettings(backup.settings ?? DEFAULT_SETTINGS),
   ]);

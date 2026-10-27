@@ -6,10 +6,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   WorkoutDefinition,
-  WorkoutRepeatBlock,
+  WorkoutBlock,
+  Segment,
+  RepeatGroup,
   CompletedWorkout,
   AppSettings,
   DEFAULT_SETTINGS,
+  generateId,
+  type SegmentType,
+  type Intensity,
+  type SegmentTarget,
 } from './workoutTypes';
 
 const STORAGE_KEYS = {
@@ -21,31 +27,159 @@ const STORAGE_KEYS = {
 // ── Migration ────────────────────────────────────────────────────────
 
 /**
- * Migrate old single-interval warmup/cooldown to the new block-based format.
- * Old format: warmup: { type, durationSeconds, label? } | null
- * New format: warmup: WorkoutRepeatBlock[]
+ * Detect whether a raw workout object uses the old three-section format
+ * (warmup/blocks/cooldown arrays of WorkoutRepeatBlock) and convert it
+ * to the new flat WorkoutBlock[] model.
+ *
+ * Detection: the old format has an array-valued `warmup` property whose
+ * elements have an `intervals` array. The new format has a `blocks`
+ * property whose elements have a `blockType` string.
  */
-function migrateWorkout(raw: any): WorkoutDefinition {
-  if (raw.warmup && !Array.isArray(raw.warmup)) {
-    // Old single-interval format → wrap in a block
-    const interval = raw.warmup;
-    raw.warmup = [
-      { intervals: [interval], repeatCount: 1 },
-    ] as WorkoutRepeatBlock[];
-  } else if (!raw.warmup) {
-    raw.warmup = [];
+export function migrateToBlockModel(raw: any): WorkoutDefinition {
+  // Already new format: blocks with blockType
+  if (
+    Array.isArray(raw.blocks) &&
+    raw.blocks.length > 0 &&
+    raw.blocks[0].blockType
+  ) {
+    return raw as WorkoutDefinition;
   }
 
-  if (raw.cooldown && !Array.isArray(raw.cooldown)) {
-    const interval = raw.cooldown;
-    raw.cooldown = [
-      { intervals: [interval], repeatCount: 1 },
-    ] as WorkoutRepeatBlock[];
-  } else if (!raw.cooldown) {
-    raw.cooldown = [];
+  // Handle very old format: warmup/cooldown as single objects instead of arrays
+  let oldWarmup: any[] = [];
+  let oldBlocks: any[] = [];
+  let oldCooldown: any[] = [];
+
+  if (Array.isArray(raw.warmup)) {
+    oldWarmup = raw.warmup;
+  } else if (raw.warmup && typeof raw.warmup === 'object') {
+    oldWarmup = [{ intervals: [raw.warmup], repeatCount: 1 }];
   }
 
-  return raw as WorkoutDefinition;
+  if (Array.isArray(raw.blocks)) {
+    oldBlocks = raw.blocks;
+  }
+
+  if (Array.isArray(raw.cooldown)) {
+    oldCooldown = raw.cooldown;
+  } else if (raw.cooldown && typeof raw.cooldown === 'object') {
+    oldCooldown = [{ intervals: [raw.cooldown], repeatCount: 1 }];
+  }
+
+  const newBlocks: WorkoutBlock[] = [];
+
+  // Convert each old section
+  for (const block of oldWarmup) {
+    newBlocks.push(...convertOldRepeatBlock(block, 'warmup'));
+  }
+  for (const block of oldBlocks) {
+    newBlocks.push(...convertOldRepeatBlock(block, 'main'));
+  }
+  for (const block of oldCooldown) {
+    newBlocks.push(...convertOldRepeatBlock(block, 'cooldown'));
+  }
+
+  const result: WorkoutDefinition = {
+    id: raw.id ?? generateId(),
+    name: raw.name ?? '',
+    blocks: newBlocks,
+    targetDistanceMeters: raw.targetDistanceMeters,
+    category: raw.category,
+    createdAt: raw.createdAt ?? Date.now(),
+    updatedAt: raw.updatedAt ?? Date.now(),
+  };
+
+  return result;
+}
+
+/** Convert a single old-format RepeatBlock into new WorkoutBlock(s). */
+function convertOldRepeatBlock(
+  block: any,
+  section: 'warmup' | 'main' | 'cooldown',
+): WorkoutBlock[] {
+  const intervals: any[] = block.intervals ?? [];
+  if (intervals.length === 0) return [];
+
+  const newInnerBlocks = intervals.map((int: any) =>
+    convertOldInterval(int, section),
+  );
+
+  const repeatCount = block.repeatCount ?? 1;
+
+  if (repeatCount <= 1 && newInnerBlocks.length === 1) {
+    return newInnerBlocks;
+  }
+
+  if (repeatCount > 1 || newInnerBlocks.length > 1) {
+    const rg: RepeatGroup = {
+      id: generateId(),
+      blockType: 'repeat',
+      repetitions: repeatCount,
+      name: block.name,
+      blocks: newInnerBlocks,
+    };
+    return [rg];
+  }
+
+  return newInnerBlocks;
+}
+
+/** Convert a single old-format Interval into a new Segment. */
+function convertOldInterval(int: any, section: 'warmup' | 'main' | 'cooldown'): Segment {
+  const oldType: string = int.type ?? 'easy';
+
+  let segmentType: SegmentType;
+  let intensity: Intensity | undefined;
+
+  switch (oldType) {
+    case 'warmup':
+      segmentType = 'warmup';
+      intensity = 'easy';
+      break;
+    case 'cooldown':
+      segmentType = 'cooldown';
+      intensity = 'easy';
+      break;
+    case 'hard': {
+      segmentType = 'run';
+      const effort = int.effort as number | undefined;
+      if (effort && effort <= 3) intensity = 'moderate';
+      else if (effort && effort <= 6) intensity = 'tempo';
+      else intensity = 'hard';
+      break;
+    }
+    case 'easy':
+    default:
+      if (section === 'warmup') {
+        segmentType = 'warmup';
+      } else if (section === 'cooldown') {
+        segmentType = 'cooldown';
+      } else {
+        segmentType = 'recovery';
+      }
+      intensity = 'easy';
+      break;
+  }
+
+  const durationSeconds: number = int.durationSeconds ?? 0;
+  const distanceMeters: number | undefined = int.distanceMeters;
+
+  let target: SegmentTarget;
+  if (distanceMeters && distanceMeters > 0 && !durationSeconds) {
+    target = { type: 'distance', distanceMeters };
+  } else {
+    target = { type: 'time', durationSeconds };
+  }
+
+  return {
+    id: generateId(),
+    blockType: 'segment',
+    segmentType,
+    label: int.label,
+    target,
+    intensity,
+    targetPace: int.targetPace,
+  };
 }
 
 // ── Workouts (CRUD) ──────────────────────────────────────────────────
@@ -54,7 +188,7 @@ export async function loadWorkouts(): Promise<WorkoutDefinition[]> {
   const raw = await AsyncStorage.getItem(STORAGE_KEYS.WORKOUTS);
   if (!raw) return [];
   const parsed = JSON.parse(raw) as any[];
-  return parsed.map(migrateWorkout);
+  return parsed.map(migrateToBlockModel);
 }
 
 export async function saveWorkouts(
@@ -83,7 +217,6 @@ export async function deleteWorkout(id: string): Promise<void> {
   const existing = await loadWorkouts();
   await saveWorkouts(existing.filter((w) => w.id !== id));
 
-  // Track for cloud sync (lazy import to avoid circular deps)
   import('../sync/cloudSync').then(({ trackWorkoutDeletion }) => {
     trackWorkoutDeletion(id);
   }).catch(() => {});
@@ -91,12 +224,6 @@ export async function deleteWorkout(id: string): Promise<void> {
 
 // ── History ──────────────────────────────────────────────────────────
 
-/**
- * Simple async mutex that serializes history read-modify-write operations.
- * Prevents cloud sync from overwriting entries saved by saveCompletedWorkout
- * when both run concurrently (e.g. workout finishes while app is backgrounded
- * and sync fires on foreground).
- */
 let _historyLock: Promise<void> = Promise.resolve();
 
 export function withHistoryLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -112,7 +239,13 @@ export function withHistoryLock<T>(fn: () => Promise<T>): Promise<T> {
 export async function loadHistory(): Promise<CompletedWorkout[]> {
   const raw = await AsyncStorage.getItem(STORAGE_KEYS.HISTORY);
   if (!raw) return [];
-  return JSON.parse(raw) as CompletedWorkout[];
+  const parsed = JSON.parse(raw) as CompletedWorkout[];
+  return parsed.map((entry) => {
+    if (entry.configuration) {
+      entry.configuration = migrateToBlockModel(entry.configuration);
+    }
+    return entry;
+  });
 }
 
 export async function saveCompletedWorkout(
@@ -120,8 +253,7 @@ export async function saveCompletedWorkout(
 ): Promise<void> {
   return withHistoryLock(async () => {
     const history = await loadHistory();
-    history.unshift(entry); // newest first
-    // Keep last 200 entries
+    history.unshift(entry);
     if (history.length > 200) history.length = 200;
     await AsyncStorage.setItem(
       STORAGE_KEYS.HISTORY,
@@ -150,7 +282,6 @@ export async function deleteHistoryEntry(id: string): Promise<CompletedWorkout[]
   const updated = history.filter((h) => h.id !== id);
   await AsyncStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(updated));
 
-  // Track for cloud sync
   import('../sync/cloudSync').then(({ trackHistoryDeletion }) => {
     trackHistoryDeletion(id);
   }).catch(() => {});
@@ -162,11 +293,6 @@ export async function clearHistory(): Promise<void> {
   await AsyncStorage.removeItem(STORAGE_KEYS.HISTORY);
 }
 
-/**
- * Wipe all user-specific data from local storage.
- * Called on sign-out or account switch so the next user
- * starts with a clean slate before cloud sync pulls their data.
- */
 export async function clearAllUserData(): Promise<void> {
   await AsyncStorage.multiRemove([
     STORAGE_KEYS.WORKOUTS,
@@ -179,20 +305,31 @@ export async function clearAllUserData(): Promise<void> {
 
 // ── Settings ─────────────────────────────────────────────────────────
 
+const CUE_BASES = new Set(['time', 'distance']);
+const CUE_DISTANCE_PRESETS = new Set(['off', 'quarter', 'half', 'full']);
+
+/** Fill defaults and drop unknown cue-schedule values from older saves. */
+export function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSettings {
+  const parsed: AppSettings = { ...DEFAULT_SETTINGS, ...raw };
+  if (typeof (parsed.countdownWarningSeconds as unknown) === 'number') {
+    parsed.countdownWarningSeconds = [parsed.countdownWarningSeconds as unknown as number];
+  }
+  if (!CUE_BASES.has(parsed.progressCueBasis)) parsed.progressCueBasis = 'time';
+  if (!CUE_BASES.has(parsed.paceCueBasis)) parsed.paceCueBasis = 'time';
+  if (!CUE_DISTANCE_PRESETS.has(parsed.progressCueDistance)) parsed.progressCueDistance = 'full';
+  if (!CUE_DISTANCE_PRESETS.has(parsed.paceCueDistance)) parsed.paceCueDistance = 'half';
+  return parsed;
+}
+
 export async function loadSettings(): Promise<AppSettings> {
   const raw = await AsyncStorage.getItem(STORAGE_KEYS.SETTINGS);
   if (!raw) return DEFAULT_SETTINGS;
-  const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-  // Migrate old single-number countdownWarningSeconds to array
-  if (typeof parsed.countdownWarningSeconds === 'number') {
-    parsed.countdownWarningSeconds = [parsed.countdownWarningSeconds];
-  }
-  return parsed;
+  return normalizeSettings(JSON.parse(raw));
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
   await AsyncStorage.setItem(
     STORAGE_KEYS.SETTINGS,
-    JSON.stringify(settings)
+    JSON.stringify(normalizeSettings(settings))
   );
 }

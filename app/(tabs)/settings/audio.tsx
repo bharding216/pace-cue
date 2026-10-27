@@ -27,6 +27,7 @@ import {
 import { loadSettings, saveSettings } from '../../../src/workout/workoutStorage';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 import { hapticTap } from '../../../src/audio/haptics';
+import { CueBasisToggle, CueDistanceChips } from '../../../src/components/CueScheduleControls';
 import {
   configureAudio,
   getAvailableVoices,
@@ -296,34 +297,48 @@ export default function AudioSettingsScreen() {
       {/* Interval progress announcements */}
       <Text style={styles.sectionTitle}>Interval Progress</Text>
       <Text style={styles.sectionSub}>
-        Announce elapsed time during each interval (requires Voice or Both audio mode)
+        {settings.progressCueBasis === 'distance'
+          ? 'Announce each time you cover this distance in the interval. GPS starts automatically.'
+          : 'Announce elapsed time during each interval (requires Voice or Both audio mode)'}
       </Text>
-      <View style={styles.row}>
-        {TIME_REMAINING_OPTIONS.map((opt) => (
-          <TouchableOpacity
-            key={opt.value}
-            style={[
-              styles.chip,
-              settings.timeRemainingInterval === opt.value && styles.chipActive,
-            ]}
-            onPress={() => {
-              hapticTap();
-              update({ timeRemainingInterval: opt.value });
-            }}
-            activeOpacity={0.7}
-          >
-            <Text
+      <CueBasisToggle
+        value={settings.progressCueBasis}
+        onChange={(progressCueBasis) => update({ progressCueBasis })}
+      />
+      {settings.progressCueBasis === 'time' ? (
+        <View style={styles.row}>
+          {TIME_REMAINING_OPTIONS.map((opt) => (
+            <TouchableOpacity
+              key={opt.value}
               style={[
-                styles.chipLabel,
-                settings.timeRemainingInterval === opt.value &&
-                  styles.chipLabelActive,
+                styles.chip,
+                settings.timeRemainingInterval === opt.value && styles.chipActive,
               ]}
+              onPress={() => {
+                hapticTap();
+                update({ timeRemainingInterval: opt.value });
+              }}
+              activeOpacity={0.7}
             >
-              {opt.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+              <Text
+                style={[
+                  styles.chipLabel,
+                  settings.timeRemainingInterval === opt.value &&
+                    styles.chipLabelActive,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : (
+        <CueDistanceChips
+          value={settings.progressCueDistance}
+          unit={settings.paceUnit}
+          onChange={(progressCueDistance) => update({ progressCueDistance })}
+        />
+      )}
     </ScrollView>
   );
 }

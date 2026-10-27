@@ -100,8 +100,9 @@ export function WorkoutCard({
         {isDistance ? '📍 GPS ' : ''}
         {intervals.length} interval{intervals.length !== 1 ? 's' : ''}
         {workout.blocks.length > 0 &&
-          workout.blocks[0].repeatCount > 1 &&
-          ` · ${workout.blocks[0].repeatCount}× repeat`}
+          workout.blocks[0].blockType === 'repeat' &&
+          workout.blocks[0].repetitions > 1 &&
+          ` · ${workout.blocks[0].repetitions}× repeat`}
         {isDistance && !workout.targetDistanceMeters && ' · distance-based'}
       </Text>
 

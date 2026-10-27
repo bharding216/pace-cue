@@ -84,7 +84,7 @@ function daysUntil(dateStr: string): number {
 // ── Quick chip builder ───────────────────────────────────────
 
 function buildQuickChips(
-  plan: { race_date: string; race_type: string; start_date: string; days_per_week: number },
+  plan: { race_date: string; race_type: string; start_date: string; days_per_week: number; goal_type?: string },
   planWorkouts: { date: string; status: string; day_label: string | null }[],
 ): QuickChip[] {
   const chips: QuickChip[] = [];
@@ -147,10 +147,13 @@ function buildQuickChips(
     prompt: "Can you swap my workout days around? I need more flexibility with my schedule.",
   });
 
+  const isPaceTarget = plan.goal_type === 'pace_target';
   chips.push({
     icon: 'calendar-outline',
-    label: 'Race date changed',
-    prompt: 'My race date got moved. Can you adjust my plan timeline?',
+    label: isPaceTarget ? 'Target date changed' : 'Race date changed',
+    prompt: isPaceTarget
+      ? 'My target date got moved. Can you adjust my plan timeline?'
+      : 'My race date got moved. Can you adjust my plan timeline?',
   });
 
   chips.push({
@@ -339,6 +342,8 @@ export default function PlanChatScreen() {
           title: plan.title,
           raceType: plan.race_type,
           raceDate: plan.race_date,
+          goalType: plan.goal_type ?? 'race',
+          goalPace: plan.goal_pace ?? null,
           startDate: plan.start_date,
           daysPerWeek: plan.days_per_week,
           totalWeeks,

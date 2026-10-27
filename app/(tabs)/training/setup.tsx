@@ -28,7 +28,7 @@ import { supabase } from '../../../src/analytics/supabaseClient';
 import { generatePlanOutline, savePlanOutline, generateWorkoutDetailsWithProfile } from '../../../src/ai/planService';
 import { loadHistory } from '../../../src/workout/workoutStorage';
 import { buildHistorySummary, serializeHistorySummary } from '../../../src/ai/historySummary';
-import type { RaceType, RunningProfile, RunningPreference } from '../../../src/types/database';
+import type { RaceType, GoalType, RunningProfile, RunningPreference } from '../../../src/types/database';
 import { normalizeDayPreferences } from '../../../src/types/database';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 import { ProfileSheet } from '../../../src/components/ProfileSheet';
@@ -88,9 +88,13 @@ export default function PlanSetupScreen() {
   const [step, setStep] = useState(1);
   const totalSteps = 4;
 
+  const [goalType, setGoalType] = useState<GoalType>('race');
   const [raceType, setRaceType] = useState<RaceType>('half_marathon');
   const [customDistance, setCustomDistance] = useState('');
   const [customDistanceUnit, setCustomDistanceUnit] = useState<'mi' | 'km'>('mi');
+  const [goalPaceMin, setGoalPaceMin] = useState('');
+  const [goalPaceSec, setGoalPaceSec] = useState('');
+  const [paceDistanceContext, setPaceDistanceContext] = useState<RaceType | 'any'>('any');
   const [raceDate, setRaceDate] = useState(() => {
     const d = new Date();
     d.setMonth(d.getMonth() + 4);
@@ -148,9 +152,13 @@ export default function PlanSetupScreen() {
         const raw = await AsyncStorage.getItem(DRAFT_KEY);
         if (!raw) { draftLoaded.current = true; return; }
         const draft = JSON.parse(raw);
+        if (draft.goalType) setGoalType(draft.goalType);
         if (draft.raceType) setRaceType(draft.raceType);
         if (draft.customDistance != null) setCustomDistance(draft.customDistance);
         if (draft.customDistanceUnit) setCustomDistanceUnit(draft.customDistanceUnit);
+        if (draft.goalPaceMin != null) setGoalPaceMin(draft.goalPaceMin);
+        if (draft.goalPaceSec != null) setGoalPaceSec(draft.goalPaceSec);
+        if (draft.paceDistanceContext) setPaceDistanceContext(draft.paceDistanceContext);
         if (draft.raceDate) setRaceDate(new Date(draft.raceDate));
         if (draft.goalTimeHours != null) setGoalTimeHours(draft.goalTimeHours);
         if (draft.goalTimeMinutes != null) setGoalTimeMinutes(draft.goalTimeMinutes);
@@ -213,9 +221,13 @@ export default function PlanSetupScreen() {
     if (!draftLoaded.current) return;
     const timer = setTimeout(() => {
       AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({
+        goalType,
         raceType,
         customDistance,
         customDistanceUnit,
+        goalPaceMin,
+        goalPaceSec,
+        paceDistanceContext,
         raceDate: raceDate.toISOString(),
         goalTimeHours,
         goalTimeMinutes,
@@ -224,7 +236,7 @@ export default function PlanSetupScreen() {
       })).catch(() => {});
     }, 300);
     return () => clearTimeout(timer);
-  }, [raceType, customDistance, customDistanceUnit, raceDate, goalTimeHours, goalTimeMinutes, selectedDays, startDate]);
+  }, [goalType, raceType, customDistance, customDistanceUnit, goalPaceMin, goalPaceSec, paceDistanceContext, raceDate, goalTimeHours, goalTimeMinutes, selectedDays, startDate]);
 
   // Load running profile
   const fetchProfile = useCallback(async () => {
@@ -278,7 +290,7 @@ export default function PlanSetupScreen() {
       return;
     }
 
-    if (raceType === 'custom') {
+    if (goalType === 'race' && raceType === 'custom') {
       const dist = parseFloat(customDistance);
       if (!dist || dist <= 0) {
         Alert.alert('Missing Distance', 'Please enter a custom race distance.');
@@ -286,10 +298,28 @@ export default function PlanSetupScreen() {
       }
     }
 
+    if (goalType === 'pace_target') {
+      const pMin = parseInt(goalPaceMin || '0', 10);
+      if (pMin <= 0) {
+        Alert.alert('Missing Pace', 'Please enter a target pace.');
+        return;
+      }
+    }
+
     const goalTimeTotal =
       (parseInt(goalTimeHours || '0', 10) * 60) + parseInt(goalTimeMinutes || '0', 10);
 
-    const customDistanceMeters = raceType === 'custom'
+    // Compute goal pace as decimal min/mile (e.g. 8:30 → 8.5)
+    const goalPaceDecimal = goalType === 'pace_target'
+      ? parseInt(goalPaceMin || '0', 10) + parseInt(goalPaceSec || '0', 10) / 60
+      : undefined;
+
+    // For pace goals, use the distance context (or 'custom' for "any distance")
+    const effectiveRaceType: RaceType = goalType === 'pace_target'
+      ? (paceDistanceContext === 'any' ? 'custom' : paceDistanceContext)
+      : raceType;
+
+    const customDistanceMeters = effectiveRaceType === 'custom' && goalType === 'race'
       ? Math.round(parseFloat(customDistance || '0') * (customDistanceUnit === 'km' ? 1000 : 1609.344))
       : undefined;
 
@@ -297,7 +327,7 @@ export default function PlanSetupScreen() {
     const startDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
 
     if (new Date(raceDateStr) <= new Date(startDateStr)) {
-      Alert.alert('Invalid Dates', 'Race date must be after the start date.');
+      Alert.alert('Invalid Dates', `${goalType === 'pace_target' ? 'Target' : 'Race'} date must be after the start date.`);
       return;
     }
 
@@ -379,10 +409,12 @@ export default function PlanSetupScreen() {
         goals,
         preferences,
         limitations,
-        raceType,
+        raceType: effectiveRaceType,
         customDistanceMeters,
         raceDate: raceDateStr,
-        goalTimeMinutes: goalTimeTotal > 0 ? goalTimeTotal : null,
+        goalTimeMinutes: goalType === 'race' && goalTimeTotal > 0 ? goalTimeTotal : null,
+        goalType,
+        goalPace: goalPaceDecimal ?? null,
         startDate: startDateStr,
         daysPerWeek: Math.max(...selectedDays),
         daysPerWeekMin: selectedDays.size > 1 ? Math.min(...selectedDays) : undefined,
@@ -425,7 +457,7 @@ export default function PlanSetupScreen() {
         Alert.alert('Error', err.message || 'Failed to generate plan. Please try again.');
       }
     }
-  }, [user, canGeneratePlan, plans, archivePlan, raceType, customDistance, customDistanceUnit, raceDate, goalTimeHours, goalTimeMinutes, selectedDays, startDate, profile, goals, preferences, limitations, refresh, router]);
+  }, [user, canGeneratePlan, plans, archivePlan, goalType, raceType, customDistance, customDistanceUnit, goalPaceMin, goalPaceSec, paceDistanceContext, raceDate, goalTimeHours, goalTimeMinutes, selectedDays, startDate, profile, goals, preferences, limitations, refresh, router]);
 
   if (!user) {
     return (
@@ -545,56 +577,141 @@ export default function PlanSetupScreen() {
       {/* Step 1: What are you training for? */}
       {step === 1 && (
         <View>
-          <Text style={styles.sectionTitle}>What are you training for?</Text>
-          <View style={styles.chipRow}>
-            {RACE_OPTIONS.map((opt) => (
-              <TouchableOpacity
-                key={opt.value}
-                style={[styles.raceChip, raceType === opt.value && styles.raceChipActive]}
-                onPress={() => setRaceType(opt.value)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.raceChipLabel, raceType === opt.value && styles.raceChipLabelActive]}>
-                  {opt.label}
-                </Text>
-                {opt.distance ? (
-                  <Text style={styles.raceChipDistance}>{opt.distance}</Text>
-                ) : null}
-              </TouchableOpacity>
-            ))}
+          <Text style={styles.sectionTitle}>What's your goal?</Text>
+
+          {/* Goal type toggle */}
+          <View style={styles.goalTypeRow}>
+            <TouchableOpacity
+              style={[styles.goalTypeCard, goalType === 'race' && styles.goalTypeCardActive]}
+              onPress={() => setGoalType('race')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="flag" size={22} color={goalType === 'race' ? Colors.black : Colors.textSecondary} />
+              <Text style={[styles.goalTypeLabel, goalType === 'race' && styles.goalTypeLabelActive]}>Race</Text>
+              <Text style={[styles.goalTypeDesc, goalType === 'race' && styles.goalTypeDescActive]}>Train for an event</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.goalTypeCard, goalType === 'pace_target' && styles.goalTypeCardActive]}
+              onPress={() => setGoalType('pace_target')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="speedometer" size={22} color={goalType === 'pace_target' ? Colors.black : Colors.textSecondary} />
+              <Text style={[styles.goalTypeLabel, goalType === 'pace_target' && styles.goalTypeLabelActive]}>Pace Goal</Text>
+              <Text style={[styles.goalTypeDesc, goalType === 'pace_target' && styles.goalTypeDescActive]}>Hit a target pace</Text>
+            </TouchableOpacity>
           </View>
 
-          {raceType === 'custom' && (
-            <View style={styles.customDistanceSection}>
-              <Text style={styles.customDistanceLabel}>Race Distance</Text>
-              <View style={styles.customDistanceRow}>
-                <TextInput
-                  style={styles.customDistanceField}
-                  value={customDistance}
-                  onChangeText={setCustomDistance}
-                  placeholder="e.g. 15"
-                  placeholderTextColor={Colors.textMuted}
-                  keyboardType="decimal-pad"
-                  maxLength={6}
-                />
-                <View style={styles.unitToggle}>
+          {/* Race distance (shown for race goal type) */}
+          {goalType === 'race' && (
+            <>
+              <Text style={[styles.sectionTitle, { marginTop: Spacing.lg }]}>Pick your race</Text>
+              <View style={styles.chipRow}>
+                {RACE_OPTIONS.map((opt) => (
                   <TouchableOpacity
-                    style={[styles.unitBtn, customDistanceUnit === 'mi' && styles.unitBtnActive]}
-                    onPress={() => setCustomDistanceUnit('mi')}
+                    key={opt.value}
+                    style={[styles.raceChip, raceType === opt.value && styles.raceChipActive]}
+                    onPress={() => setRaceType(opt.value)}
                     activeOpacity={0.7}
                   >
-                    <Text style={[styles.unitBtnText, customDistanceUnit === 'mi' && styles.unitBtnTextActive]}>mi</Text>
+                    <Text style={[styles.raceChipLabel, raceType === opt.value && styles.raceChipLabelActive]}>
+                      {opt.label}
+                    </Text>
+                    {opt.distance ? (
+                      <Text style={styles.raceChipDistance}>{opt.distance}</Text>
+                    ) : null}
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.unitBtn, customDistanceUnit === 'km' && styles.unitBtnActive]}
-                    onPress={() => setCustomDistanceUnit('km')}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.unitBtnText, customDistanceUnit === 'km' && styles.unitBtnTextActive]}>km</Text>
-                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {raceType === 'custom' && (
+                <View style={styles.customDistanceSection}>
+                  <Text style={styles.customDistanceLabel}>Race Distance</Text>
+                  <View style={styles.customDistanceRow}>
+                    <TextInput
+                      style={styles.customDistanceField}
+                      value={customDistance}
+                      onChangeText={setCustomDistance}
+                      placeholder="e.g. 15"
+                      placeholderTextColor={Colors.textMuted}
+                      keyboardType="decimal-pad"
+                      maxLength={6}
+                    />
+                    <View style={styles.unitToggle}>
+                      <TouchableOpacity
+                        style={[styles.unitBtn, customDistanceUnit === 'mi' && styles.unitBtnActive]}
+                        onPress={() => setCustomDistanceUnit('mi')}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.unitBtnText, customDistanceUnit === 'mi' && styles.unitBtnTextActive]}>mi</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.unitBtn, customDistanceUnit === 'km' && styles.unitBtnActive]}
+                        onPress={() => setCustomDistanceUnit('km')}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.unitBtnText, customDistanceUnit === 'km' && styles.unitBtnTextActive]}>km</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              )}
+            </>
+          )}
+
+          {/* Pace goal inputs (shown for pace_target goal type) */}
+          {goalType === 'pace_target' && (
+            <>
+              <Text style={[styles.sectionTitle, { marginTop: Spacing.lg }]}>Target pace</Text>
+              <View style={styles.goalTimeRow}>
+                <View style={styles.goalTimeInput}>
+                  <TextInput
+                    style={styles.goalTimeField}
+                    value={goalPaceMin}
+                    onChangeText={setGoalPaceMin}
+                    placeholder="8"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                  <Text style={styles.goalTimeLabel}>min</Text>
+                </View>
+                <Text style={{ color: Colors.textSecondary, fontSize: FontSize.lg, marginHorizontal: 2 }}>:</Text>
+                <View style={styles.goalTimeInput}>
+                  <TextInput
+                    style={styles.goalTimeField}
+                    value={goalPaceSec}
+                    onChangeText={setGoalPaceSec}
+                    placeholder="00"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                  <Text style={styles.goalTimeLabel}>/mi</Text>
                 </View>
               </View>
-            </View>
+
+              <Text style={[styles.sectionTitle, { marginTop: Spacing.lg }]}>For what distance?</Text>
+              <View style={styles.chipRow}>
+                {[
+                  { value: 'any' as const, label: 'Any' },
+                  { value: '5k' as const, label: '5K' },
+                  { value: '10k' as const, label: '10K' },
+                  { value: 'half_marathon' as const, label: 'Half' },
+                  { value: 'marathon' as const, label: 'Marathon' },
+                ].map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.raceChip, paceDistanceContext === opt.value && styles.raceChipActive]}
+                    onPress={() => setPaceDistanceContext(opt.value)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.raceChipLabel, paceDistanceContext === opt.value && styles.raceChipLabelActive]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
           )}
 
           <TouchableOpacity
@@ -631,9 +748,9 @@ export default function PlanSetupScreen() {
             </View>
           )}
 
-          {/* Race date */}
+          {/* Target / Race date */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Race Date</Text>
+            <Text style={styles.sectionTitle}>{goalType === 'pace_target' ? 'Target Date' : 'Race Date'}</Text>
               {Platform.OS === 'ios' ? (
                 <View style={styles.datePickerRow}>
                   <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
@@ -701,36 +818,38 @@ export default function PlanSetupScreen() {
             )}
           </View>
 
-          {/* Goal time */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Race Goal Time (optional)</Text>
-            <View style={styles.goalTimeRow}>
-              <View style={styles.goalTimeInput}>
-                <TextInput
-                  style={styles.goalTimeField}
-                  value={goalTimeHours}
-                  onChangeText={setGoalTimeHours}
-                  placeholder="0"
-                  placeholderTextColor={Colors.textMuted}
-                  keyboardType="number-pad"
-                  maxLength={2}
-                />
-                <Text style={styles.goalTimeLabel}>hours</Text>
-              </View>
-              <View style={styles.goalTimeInput}>
-                <TextInput
-                  style={styles.goalTimeField}
-                  value={goalTimeMinutes}
-                  onChangeText={setGoalTimeMinutes}
-                  placeholder="0"
-                  placeholderTextColor={Colors.textMuted}
-                  keyboardType="number-pad"
-                  maxLength={2}
-                />
-                <Text style={styles.goalTimeLabel}>min</Text>
+          {/* Goal time — only for race plans (pace goal is set in step 1) */}
+          {goalType === 'race' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Race Goal Time (optional)</Text>
+              <View style={styles.goalTimeRow}>
+                <View style={styles.goalTimeInput}>
+                  <TextInput
+                    style={styles.goalTimeField}
+                    value={goalTimeHours}
+                    onChangeText={setGoalTimeHours}
+                    placeholder="0"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                  <Text style={styles.goalTimeLabel}>hours</Text>
+                </View>
+                <View style={styles.goalTimeInput}>
+                  <TextInput
+                    style={styles.goalTimeField}
+                    value={goalTimeMinutes}
+                    onChangeText={setGoalTimeMinutes}
+                    placeholder="0"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                  <Text style={styles.goalTimeLabel}>min</Text>
+                </View>
               </View>
             </View>
-          </View>
+          )}
 
           <View style={styles.stepNavRow}>
             <TouchableOpacity style={styles.backBtn} onPress={() => setStep(1)} activeOpacity={0.7}>
@@ -797,20 +916,43 @@ export default function PlanSetupScreen() {
 
           {/* Review summary */}
           <View style={styles.reviewCard}>
-            <View style={styles.reviewRow}>
-              <Text style={styles.reviewLabel}>Race</Text>
-              <Text style={styles.reviewValue}>
-                {raceType === 'custom' && customDistance
-                  ? `${customDistance} ${customDistanceUnit}`
-                  : RACE_OPTIONS.find((o) => o.value === raceType)?.label}
-              </Text>
-            </View>
+            {goalType === 'pace_target' ? (
+              <>
+                <View style={styles.reviewRow}>
+                  <Text style={styles.reviewLabel}>Goal</Text>
+                  <Text style={styles.reviewValue}>Pace Target</Text>
+                </View>
+                <View style={styles.reviewRow}>
+                  <Text style={styles.reviewLabel}>Target Pace</Text>
+                  <Text style={styles.reviewValue}>
+                    {goalPaceMin || '0'}:{(goalPaceSec || '0').padStart(2, '0')}/mi
+                  </Text>
+                </View>
+                {paceDistanceContext !== 'any' && (
+                  <View style={styles.reviewRow}>
+                    <Text style={styles.reviewLabel}>Distance</Text>
+                    <Text style={styles.reviewValue}>
+                      {RACE_OPTIONS.find((o) => o.value === paceDistanceContext)?.label ?? paceDistanceContext}
+                    </Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={styles.reviewRow}>
+                <Text style={styles.reviewLabel}>Race</Text>
+                <Text style={styles.reviewValue}>
+                  {raceType === 'custom' && customDistance
+                    ? `${customDistance} ${customDistanceUnit}`
+                    : RACE_OPTIONS.find((o) => o.value === raceType)?.label}
+                </Text>
+              </View>
+            )}
             <View style={styles.reviewRow}>
               <Text style={styles.reviewLabel}>Start Date</Text>
               <Text style={styles.reviewValue}>{formatDateShort(startDate)}</Text>
             </View>
             <View style={styles.reviewRow}>
-              <Text style={styles.reviewLabel}>Race Date</Text>
+              <Text style={styles.reviewLabel}>{goalType === 'pace_target' ? 'Target Date' : 'Race Date'}</Text>
               <Text style={styles.reviewValue}>{formatDateShort(raceDate)}</Text>
             </View>
             <View style={styles.reviewRow}>
@@ -819,7 +961,7 @@ export default function PlanSetupScreen() {
                 {[...selectedDays].sort((a, b) => a - b).join(', ')}
               </Text>
             </View>
-            {(goalTimeHours || goalTimeMinutes) && (
+            {goalType === 'race' && (goalTimeHours || goalTimeMinutes) && (
               <View style={styles.reviewRow}>
                 <Text style={styles.reviewLabel}>Goal Time</Text>
                 <Text style={styles.reviewValue}>
@@ -1000,6 +1142,41 @@ const styles = StyleSheet.create({
   },
 
   // Race chips
+  goalTypeRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  goalTypeCard: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    borderWidth: 2,
+    borderColor: Colors.surfaceLight,
+    alignItems: 'center',
+    gap: 4,
+  },
+  goalTypeCardActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '10',
+  },
+  goalTypeLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  goalTypeLabelActive: {
+    color: Colors.primary,
+  },
+  goalTypeDesc: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  goalTypeDescActive: {
+    color: Colors.primary,
+  },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

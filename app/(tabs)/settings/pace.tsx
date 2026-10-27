@@ -30,6 +30,8 @@ import {
   BorderRadius,
 } from '../../../src/constants/theme';
 import { hapticTap } from '../../../src/audio/haptics';
+import { paceCuesEnabled } from '../../../src/audio/cueSchedule';
+import { CueBasisToggle, CueDistanceChips } from '../../../src/components/CueScheduleControls';
 
 const CUE_FREQUENCY_OPTIONS: { value: PaceCueFrequency; label: string }[] = [
   { value: 0, label: 'Off' },
@@ -121,37 +123,51 @@ export default function PaceSettingsScreen() {
           {/* Cue Frequency */}
           <Text style={styles.sectionTitle}>Pace Cue Frequency</Text>
           <Text style={styles.sectionSub}>
-            How often to announce your current pace during each interval
+            {settings.paceCueBasis === 'distance'
+              ? 'Announce your pace each time you cover this distance'
+              : 'How often to announce your current pace during each interval'}
           </Text>
-          <View style={styles.row}>
-            {CUE_FREQUENCY_OPTIONS.map((opt) => (
-              <TouchableOpacity
-                key={opt.value}
-                style={[
-                  styles.chip,
-                  settings.paceCueFrequency === opt.value && styles.chipActive,
-                ]}
-                onPress={() => {
-                  hapticTap();
-                  update({ paceCueFrequency: opt.value });
-                }}
-                activeOpacity={0.7}
-              >
-                <Text
+          <CueBasisToggle
+            value={settings.paceCueBasis}
+            onChange={(paceCueBasis) => update({ paceCueBasis })}
+          />
+          {settings.paceCueBasis === 'time' ? (
+            <View style={styles.row}>
+              {CUE_FREQUENCY_OPTIONS.map((opt) => (
+                <TouchableOpacity
+                  key={opt.value}
                   style={[
-                    styles.chipLabel,
-                    settings.paceCueFrequency === opt.value &&
-                      styles.chipLabelActive,
+                    styles.chip,
+                    settings.paceCueFrequency === opt.value && styles.chipActive,
                   ]}
+                  onPress={() => {
+                    hapticTap();
+                    update({ paceCueFrequency: opt.value });
+                  }}
+                  activeOpacity={0.7}
                 >
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+                  <Text
+                    style={[
+                      styles.chipLabel,
+                      settings.paceCueFrequency === opt.value &&
+                        styles.chipLabelActive,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <CueDistanceChips
+              value={settings.paceCueDistance}
+              unit={settings.paceUnit}
+              onChange={(paceCueDistance) => update({ paceCueDistance })}
+            />
+          )}
 
           {/* Only cue on intervals with target pace */}
-          {settings.paceCueFrequency > 0 && (
+          {paceCuesEnabled(settings) && (
             <View style={[styles.settingRow, { marginTop: Spacing.md }]}>
               <View style={{ flex: 1, marginRight: Spacing.md }}>
                 <Text style={styles.settingLabel}>Only With Target Pace</Text>

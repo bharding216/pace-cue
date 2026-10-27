@@ -487,19 +487,14 @@ function formatRelativeDate(epoch: number): string {
 
 /** Build a structural fingerprint for deduplication — ignores name, id, timestamps. */
 function structureKey(w: WorkoutDefinition): string {
-  const strip = (blocks: typeof w.blocks) =>
-    blocks.map((b) => ({
-      intervals: b.intervals.map((i) => ({
-        type: i.type,
-        dur: i.durationSeconds,
-        dist: i.distanceMeters ?? 0,
-      })),
-      reps: b.repeatCount,
-    }));
+  const stripBlock = (b: import('../../src/workout/workoutTypes').WorkoutBlock): any => {
+    if (b.blockType === 'segment') {
+      return { t: b.segmentType, tgt: b.target, i: b.intensity };
+    }
+    return { r: b.repetitions, b: b.blocks.map(stripBlock) };
+  };
   return JSON.stringify({
-    warmup: strip(w.warmup),
-    blocks: strip(w.blocks),
-    cooldown: strip(w.cooldown),
+    blocks: w.blocks.map(stripBlock),
     target: w.targetDistanceMeters ?? 0,
     category: w.category ?? '',
   });
@@ -782,7 +777,7 @@ export default function HomeScreen() {
 
         {workouts.length === 0 && (
           <Text style={styles.emptyText}>
-            No saved workouts yet. Tap Quick Start above to begin, or save a workout to build your library.
+            No saved templates yet. Tap Quick Start above to begin, or save a template to build your library.
           </Text>
         )}
       </ScrollView>
@@ -851,7 +846,8 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   quickStartTile: {
-    width: (Dimensions.get('window').width - Spacing.md * 2 - Spacing.sm * 2) / 3,
+    flexBasis: '31%',
+    flexGrow: 1,
     alignItems: 'center',
     backgroundColor: Colors.card,
     borderRadius: BorderRadius.lg,

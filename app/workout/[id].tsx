@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
   },
   doneButtonText: {
-    color: Colors.primary,
+    color: Colors.black,
     fontSize: FontSize.md,
     fontWeight: '700',
   },

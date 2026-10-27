@@ -46,6 +46,8 @@ interface RequestBody {
   race_distance_meters?: number | null;
   race_date: string;
   goal_time_minutes?: number | null;
+  goal_type?: 'race' | 'pace_target';
+  goal_pace?: number | null;
   start_date: string;
   days_per_week: number;
   days_per_week_min?: number | null;
@@ -76,15 +78,41 @@ function planDimensions(startDate: string, endDate: string): PlanDimensions {
 function buildSystemPrompt(body: RequestBody, dims: PlanDimensions): string {
   const sections: string[] = [];
 
+  const isPaceTarget = body.goal_type === 'pace_target';
+
   const raceLabel = body.race_type === 'custom'
-    ? `${body.race_distance_meters ?? 'unknown'}m race`
+    ? isPaceTarget ? 'pace development' : `${body.race_distance_meters ?? 'unknown'}m race`
     : body.race_type.replace('_', ' ');
 
-  sections.push(`You are SplitCue's AI running coach creating a ${dims.totalWeeks}-week ${raceLabel} training plan OUTLINE.
+  if (isPaceTarget) {
+    const paceStr = body.goal_pace
+      ? `${Math.floor(body.goal_pace)}:${String(Math.round((body.goal_pace - Math.floor(body.goal_pace)) * 60)).padStart(2, '0')}/mi`
+      : 'a comfortable target pace';
+    const distanceContext = body.race_type !== 'custom'
+      ? ` for ${body.race_type.replace('_', ' ')} distance`
+      : '';
+
+    sections.push(`You are SplitCue's AI running coach creating a ${dims.totalWeeks}-week pace development plan OUTLINE.
+
+The runner wants to comfortably hold ${paceStr}${distanceContext} by ${body.race_date}.
+
+This is NOT a race plan. There is no race at the end. Focus on:
+- Progressive pace development through tempo, threshold, and interval work
+- Building aerobic base that supports the target pace
+- Periodic benchmark/time-trial runs to track progress
+- NO taper phase — maintain fitness through the end
+- Last day should be a "Benchmark Run" or "Time Trial", NOT "Race Day"
+
+Follow progressive periodization: Base (~35%), Build (~35%), Sharpen (~30%).
+
+OUTLINE only — no detailed workout structures. Just day labels and short coaching notes.`);
+  } else {
+    sections.push(`You are SplitCue's AI running coach creating a ${dims.totalWeeks}-week ${raceLabel} training plan OUTLINE.
 
 Follow standard periodization: Base (~30%), Build (~30%), Peak (~25%), Taper (~15%).
 
 OUTLINE only — no detailed workout structures. Just day labels and short coaching notes.`);
+  }
 
   // Runner profile
   const profile = body.profile;
@@ -125,19 +153,29 @@ OUTLINE only — no detailed workout structures. Just day labels and short coach
     }
   }
 
-  // Race details
-  const raceParts: string[] = [];
-  raceParts.push(`Race: ${raceLabel} on ${body.race_date}`);
-  if (body.goal_time_minutes) {
-    const hrs = Math.floor(body.goal_time_minutes / 60);
-    const mins = Math.round(body.goal_time_minutes % 60);
-    raceParts.push(`Goal: ${hrs > 0 ? `${hrs}h ` : ''}${mins}m`);
+  // Race / goal details
+  const goalParts: string[] = [];
+  if (isPaceTarget) {
+    const paceStr = body.goal_pace
+      ? `${Math.floor(body.goal_pace)}:${String(Math.round((body.goal_pace - Math.floor(body.goal_pace)) * 60)).padStart(2, '0')}/mi`
+      : 'comfortable pace';
+    goalParts.push(`Target pace: ${paceStr} by ${body.race_date}`);
+    if (body.race_type !== 'custom') {
+      goalParts.push(`Distance context: ${body.race_type.replace('_', ' ')}`);
+    }
+  } else {
+    goalParts.push(`Race: ${raceLabel} on ${body.race_date}`);
+    if (body.goal_time_minutes) {
+      const hrs = Math.floor(body.goal_time_minutes / 60);
+      const mins = Math.round(body.goal_time_minutes % 60);
+      goalParts.push(`Goal: ${hrs > 0 ? `${hrs}h ` : ''}${mins}m`);
+    }
   }
   const daysLabel = body.days_per_week_min && body.days_per_week_min < body.days_per_week
     ? `${body.days_per_week_min}–${body.days_per_week}`
     : `${body.days_per_week}`;
-  raceParts.push(`${daysLabel} training days/week, start ${body.start_date}`);
-  sections.push(`## Race\n${raceParts.join(" | ")}`);
+  goalParts.push(`${daysLabel} training days/week, start ${body.start_date}`);
+  sections.push(`## ${isPaceTarget ? 'Goal' : 'Race'}\n${goalParts.join(" | ")}`);
 
   if (body.goals?.length) {
     sections.push(`## Goals\n${body.goals.join(", ")}`);
@@ -177,8 +215,10 @@ JSON only, no markdown fences:
 
 Rules:
 - Training day = ["label", "short description"]. Rest day = [null].
-- Labels: Easy Run, Long Run, Tempo, Intervals, Recovery, Fartlek, Race Day, etc.
-- Weeks 1–${dims.totalWeeks > 1 ? dims.totalWeeks - 1 : 1}: exactly 7 entries each.${dims.totalWeeks > 1 ? `\n- Week ${dims.totalWeeks}: exactly ${dims.lastWeekDays} entries. Last entry must be ["Race Day", "Race day! Trust your training."].` : ''}
+- Labels: Easy Run, Long Run, Tempo, Intervals, Recovery, Fartlek${isPaceTarget ? ', Benchmark Run, Time Trial' : ', Race Day'}, etc.
+- Weeks 1–${dims.totalWeeks > 1 ? dims.totalWeeks - 1 : 1}: exactly 7 entries each.${dims.totalWeeks > 1 ? (isPaceTarget
+  ? `\n- Week ${dims.totalWeeks}: exactly ${dims.lastWeekDays} entries. Last training entry should be ["Benchmark Run", "Time trial — test your target pace!"].`
+  : `\n- Week ${dims.totalWeeks}: exactly ${dims.lastWeekDays} entries. Last entry must be ["Race Day", "Race day! Trust your training."].`) : ''}
 - ${daysLabel} training days per full week; rest days fill remaining slots.
 - miles = reasonable weekly mileage for runner's level and phase.
 - Keep descriptions to one short sentence.
@@ -279,11 +319,20 @@ Deno.serve(async (req) => {
     const weeks = expandCompactOutline(compact.weeks, body.start_date);
 
     // Build title
-    const raceLabel = body.race_type === 'custom'
-      ? 'Custom Race'
-      : body.race_type.replace('_', ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-    const raceMonth = new Date(body.race_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    const title = `${raceLabel} Training - ${raceMonth}`;
+    const isPaceGoal = body.goal_type === 'pace_target';
+    const targetMonth = new Date(body.race_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    let title: string;
+    if (isPaceGoal) {
+      const paceStr = body.goal_pace
+        ? `${Math.floor(body.goal_pace)}:${String(Math.round((body.goal_pace - Math.floor(body.goal_pace)) * 60)).padStart(2, '0')}/mi`
+        : 'Pace';
+      title = `${paceStr} Goal - ${targetMonth}`;
+    } else {
+      const raceLabel = body.race_type === 'custom'
+        ? 'Custom Race'
+        : body.race_type.replace('_', ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+      title = `${raceLabel} Training - ${targetMonth}`;
+    }
 
     return new Response(
       JSON.stringify({ title, weeks }),

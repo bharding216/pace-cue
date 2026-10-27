@@ -37,11 +37,14 @@ import { adjustPlan, type PlanAdjustmentInput, type PlanModification } from '../
 import type { TrainingPlan, PlanWorkout } from '../types/database';
 import {
   type WorkoutDefinition,
-  type WorkoutRepeatBlock,
-  type WorkoutInterval,
+  type WorkoutBlock,
+  type Segment,
+  type RepeatGroup,
   flattenWorkout,
   totalWorkoutSeconds,
   formatTime,
+  defaultSegmentLabel,
+  segmentToIntervalType,
 } from '../workout/workoutTypes';
 import { hapticTap } from '../audio/haptics';
 
@@ -162,39 +165,30 @@ const barStyles = StyleSheet.create({
 
 // ── Workout Detail Preview ───────────────────────────────────
 
-function intervalLabel(i: WorkoutInterval): string {
-  if (i.label) return i.label;
-  switch (i.type) {
-    case 'warmup': return 'Warm Up';
-    case 'cooldown': return 'Cool Down';
-    case 'hard': return 'Hard';
-    case 'easy': return 'Easy';
-  }
-}
-
 function formatPace(paceMinPerMile: number): string {
   const mins = Math.floor(paceMinPerMile);
   const secs = Math.round((paceMinPerMile - mins) * 60);
   return `${mins}:${String(secs).padStart(2, '0')}/mi`;
 }
 
-function IntervalDetail({ interval }: { interval: WorkoutInterval }) {
+function SegmentDetail({ seg }: { seg: Segment }) {
   const extras: string[] = [];
-  if (interval.targetPace) extras.push(formatPace(interval.targetPace));
-  if (interval.effort) extras.push(`RPE ${interval.effort}`);
-  if (interval.distanceMeters && interval.distanceMeters > 0) {
-    const meters = interval.distanceMeters;
+  if (seg.targetPace) extras.push(formatPace(seg.targetPace));
+  if (seg.intensity) extras.push(seg.intensity);
+  if (seg.target.type === 'distance' && seg.target.distanceMeters) {
+    const meters = seg.target.distanceMeters;
     extras.push(meters >= 1609 ? `${(meters / 1609.344).toFixed(2)} mi` : `${Math.round(meters)}m`);
   }
+  const dur = seg.target.type === 'time' ? (seg.target.durationSeconds ?? 0) : 0;
 
   return (
     <View style={detailStyles.intervalRow}>
-      <View style={[detailStyles.dot, { backgroundColor: intervalColor(interval.type) }]} />
+      <View style={[detailStyles.dot, { backgroundColor: intervalColor(segmentToIntervalType(seg.segmentType, seg.intensity)) }]} />
       <Text style={detailStyles.intervalName} numberOfLines={1}>
-        {intervalLabel(interval)}
+        {seg.label || defaultSegmentLabel(seg.segmentType)}
       </Text>
-      {interval.durationSeconds > 0 && (
-        <Text style={detailStyles.intervalTime}>{formatTime(interval.durationSeconds)}</Text>
+      {dur > 0 && (
+        <Text style={detailStyles.intervalTime}>{formatTime(dur)}</Text>
       )}
       {extras.length > 0 && (
         <Text style={detailStyles.intervalMeta}>{extras.join(' · ')}</Text>
@@ -203,46 +197,38 @@ function IntervalDetail({ interval }: { interval: WorkoutInterval }) {
   );
 }
 
-function BlockPreview({ block }: { block: WorkoutRepeatBlock }) {
+function WorkoutBlockPreview({ block }: { block: WorkoutBlock }) {
+  if (block.blockType === 'segment') {
+    return <SegmentDetail seg={block} />;
+  }
+  // RepeatGroup
+  const rg = block;
   return (
     <View style={detailStyles.block}>
-      {(block.repeatCount > 1 || block.name) && (
+      {(rg.repetitions > 1 || rg.name) && (
         <View style={detailStyles.blockHeader}>
-          {block.name && <Text style={detailStyles.blockName}>{block.name}</Text>}
-          {block.repeatCount > 1 && (
+          {rg.name && <Text style={detailStyles.blockName}>{rg.name}</Text>}
+          {rg.repetitions > 1 && (
             <View style={detailStyles.repeatBadge}>
-              <Text style={detailStyles.repeatText}>×{block.repeatCount}</Text>
+              <Text style={detailStyles.repeatText}>×{rg.repetitions}</Text>
             </View>
           )}
         </View>
       )}
-      {block.intervals.map((interval, ii) => (
-        <IntervalDetail key={ii} interval={interval} />
+      {rg.blocks.map((inner, ii) => (
+        <WorkoutBlockPreview key={ii} block={inner} />
       ))}
     </View>
   );
 }
 
-function SectionBlocks({ label, blocks }: { label: string; blocks: WorkoutRepeatBlock[] }) {
-  if (!blocks || blocks.length === 0) return null;
-  return (
-    <View style={detailStyles.section}>
-      <Text style={detailStyles.sectionLabel}>{label}</Text>
-      {blocks.map((block, bi) => (
-        <BlockPreview key={bi} block={block} />
-      ))}
-    </View>
-  );
-}
-
-/** Compact workout card showing interval structure, pace, effort, etc. */
 function WorkoutDetailCard({
   title,
   workoutData,
   variant,
 }: {
   title: string;
-  workoutData: { name: string; warmup: unknown[]; blocks: unknown[]; cooldown: unknown[] };
+  workoutData: any;
   variant: 'before' | 'after';
 }) {
   const wd = workoutData as WorkoutDefinition;
@@ -259,9 +245,9 @@ function WorkoutDetailCard({
       <Text style={detailStyles.cardSummary}>
         {formatTime(totalSec)} total · {flat.length} interval{flat.length !== 1 ? 's' : ''}
       </Text>
-      <SectionBlocks label="WARM UP" blocks={wd.warmup as WorkoutRepeatBlock[]} />
-      <SectionBlocks label="INTERVALS" blocks={wd.blocks as WorkoutRepeatBlock[]} />
-      <SectionBlocks label="COOL DOWN" blocks={wd.cooldown as WorkoutRepeatBlock[]} />
+      {wd.blocks.map((block, bi) => (
+        <WorkoutBlockPreview key={bi} block={block} />
+      ))}
     </View>
   );
 }
@@ -481,6 +467,8 @@ export function VoiceEditSheet({
         title: plan.title,
         raceType: plan.race_type,
         raceDate: plan.race_date,
+        goalType: plan.goal_type ?? 'race',
+        goalPace: plan.goal_pace ?? null,
         startDate: plan.start_date,
         daysPerWeek: plan.days_per_week,
         totalWeeks,

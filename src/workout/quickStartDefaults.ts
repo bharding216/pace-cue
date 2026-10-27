@@ -10,9 +10,49 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { WorkoutDefinition, generateId, type QuickStartType } from './workoutTypes';
+import {
+  WorkoutDefinition,
+  generateId,
+  type QuickStartType,
+  type Segment,
+  type RepeatGroup,
+  type SegmentTarget,
+  type SegmentType,
+  type Intensity,
+  type WorkoutBlock,
+} from './workoutTypes';
+import { migrateToBlockModel } from './workoutStorage';
 
 const DEFAULTS_KEY = '@pacecue/quick_start_defaults';
+
+// ── Block-building helpers ───────────────────────────────────────────
+
+function seg(
+  segmentType: SegmentType,
+  target: SegmentTarget,
+  opts?: { label?: string; intensity?: Intensity },
+): Segment {
+  return {
+    id: generateId(),
+    blockType: 'segment',
+    segmentType,
+    target,
+    label: opts?.label,
+    intensity: opts?.intensity,
+  };
+}
+
+function time(seconds: number): SegmentTarget {
+  return { type: 'time', durationSeconds: seconds };
+}
+
+function dist(meters: number): SegmentTarget {
+  return { type: 'distance', distanceMeters: meters };
+}
+
+function repeat(repetitions: number, blocks: WorkoutBlock[]): RepeatGroup {
+  return { id: generateId(), blockType: 'repeat', repetitions, blocks };
+}
 
 /** Build a factory-fresh WorkoutDefinition for a Quick Start type. */
 function factoryDefault(type: QuickStartType): WorkoutDefinition {
@@ -25,15 +65,10 @@ function factoryDefault(type: QuickStartType): WorkoutDefinition {
         ...base,
         name: 'Distance Run',
         category: 'easy',
-        warmup: [],
         blocks: [
-          {
-            intervals: [{ type: 'easy', durationSeconds: 0, distanceMeters: 4828, label: 'Easy Run' }],
-            repeatCount: 1,
-          },
+          seg('run', dist(4828), { label: 'Easy Run', intensity: 'easy' }),
         ],
-        cooldown: [],
-        targetDistanceMeters: 4828, // 3 miles
+        targetDistanceMeters: 4828,
       };
 
     case 'timed':
@@ -41,14 +76,9 @@ function factoryDefault(type: QuickStartType): WorkoutDefinition {
         ...base,
         name: 'Timed Run',
         category: 'easy',
-        warmup: [],
         blocks: [
-          {
-            intervals: [{ type: 'easy', durationSeconds: 1800, label: 'Run' }],
-            repeatCount: 1,
-          },
+          seg('run', time(1800), { label: 'Run', intensity: 'easy' }),
         ],
-        cooldown: [],
       };
 
     case 'intervals':
@@ -56,20 +86,13 @@ function factoryDefault(type: QuickStartType): WorkoutDefinition {
         ...base,
         name: 'Intervals',
         category: 'intervals',
-        warmup: [
-          { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
-        ],
         blocks: [
-          {
-            intervals: [
-              { type: 'hard', durationSeconds: 180, label: 'Hard' },
-              { type: 'easy', durationSeconds: 120, label: 'Easy' },
-            ],
-            repeatCount: 6,
-          },
-        ],
-        cooldown: [
-          { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+          seg('warmup', time(300)),
+          repeat(6, [
+            seg('run', time(180), { label: 'Hard', intensity: 'hard' }),
+            seg('recovery', time(120), { label: 'Easy' }),
+          ]),
+          seg('cooldown', time(300)),
         ],
       };
 
@@ -78,17 +101,10 @@ function factoryDefault(type: QuickStartType): WorkoutDefinition {
         ...base,
         name: 'Tempo Run',
         category: 'tempo',
-        warmup: [
-          { intervals: [{ type: 'warmup', durationSeconds: 480 }], repeatCount: 1 },
-        ],
         blocks: [
-          {
-            intervals: [{ type: 'hard', durationSeconds: 1200, label: 'Tempo' }],
-            repeatCount: 1,
-          },
-        ],
-        cooldown: [
-          { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+          seg('warmup', time(480)),
+          seg('run', time(1200), { label: 'Tempo', intensity: 'tempo' }),
+          seg('cooldown', time(300)),
         ],
       };
 
@@ -97,14 +113,9 @@ function factoryDefault(type: QuickStartType): WorkoutDefinition {
         ...base,
         name: 'Easy Run',
         category: 'easy',
-        warmup: [],
         blocks: [
-          {
-            intervals: [{ type: 'easy', durationSeconds: 1800, label: 'Easy Run' }],
-            repeatCount: 1,
-          },
+          seg('run', time(1800), { label: 'Easy Run', intensity: 'easy' }),
         ],
-        cooldown: [],
       };
 
     case 'custom':
@@ -112,20 +123,13 @@ function factoryDefault(type: QuickStartType): WorkoutDefinition {
       return {
         ...base,
         name: '',
-        warmup: [
-          { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
-        ],
         blocks: [
-          {
-            intervals: [
-              { type: 'hard', durationSeconds: 180 },
-              { type: 'easy', durationSeconds: 120 },
-            ],
-            repeatCount: 4,
-          },
-        ],
-        cooldown: [
-          { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+          seg('warmup', time(300)),
+          repeat(4, [
+            seg('run', time(180), { intensity: 'hard' }),
+            seg('recovery', time(120)),
+          ]),
+          seg('cooldown', time(300)),
         ],
       };
   }
@@ -137,22 +141,23 @@ function factoryDefault(type: QuickStartType): WorkoutDefinition {
  * otherwise the factory default.
  */
 export function quickStartFactory(type: QuickStartType): WorkoutDefinition {
-  // Synchronous factory; last-used defaults loaded asynchronously below
   return factoryDefault(type);
 }
 
 /**
  * Load the last-used default for a Quick Start type.
  * Returns undefined if no previous configuration has been saved.
+ * Migrates old-format saved defaults to the new block model.
  */
 export async function loadQuickStartDefault(type: QuickStartType): Promise<WorkoutDefinition | undefined> {
   const raw = await AsyncStorage.getItem(DEFAULTS_KEY);
   if (!raw) return undefined;
   try {
-    const map: Record<string, WorkoutDefinition> = JSON.parse(raw);
+    const map: Record<string, any> = JSON.parse(raw);
     const saved = map[type];
     if (!saved) return undefined;
-    return { ...saved, id: generateId(), createdAt: Date.now(), updatedAt: Date.now() };
+    const migrated = migrateToBlockModel(saved);
+    return { ...migrated, id: generateId(), createdAt: Date.now(), updatedAt: Date.now() };
   } catch {
     return undefined;
   }

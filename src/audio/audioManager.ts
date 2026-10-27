@@ -11,7 +11,7 @@ import {
   type AudioPlayer,
 } from 'expo-audio';
 import * as Speech from 'expo-speech';
-import { AudioCueMode, formatDurationForSpeech, formatDistanceForSpeech, isDistanceInterval } from '../workout/workoutTypes';
+import { AudioCueMode, formatDurationForSpeech, formatDistanceForSpeech, formatCueDistanceForSpeech } from '../workout/workoutTypes';
 import type { PaceUnit } from '../pace/paceTypes';
 import { formatPaceForSpeech } from '../pace/paceTracker';
 
@@ -396,34 +396,45 @@ function announceInterval(
 
 // ── Interval progress announcements ──────────────────────────────────
 
+/** "1 minute passed", "1 minute 30 seconds passed", "45 seconds passed". */
+export function intervalProgressPhrase(elapsedSeconds: number): string {
+  const mins = Math.floor(elapsedSeconds / 60);
+  const secs = elapsedSeconds % 60;
+
+  if (mins > 0 && secs > 0) {
+    const minWord = mins === 1 ? 'minute' : 'minutes';
+    return `${mins} ${minWord} ${secs} seconds passed`;
+  }
+  if (mins > 0) {
+    const minWord = mins === 1 ? 'minute' : 'minutes';
+    return `${mins} ${minWord} passed`;
+  }
+  return `${secs} seconds passed`;
+}
+
+/** "half mile passed", "1 kilometer passed", "500 meters passed". */
+export function distanceProgressPhrase(meters: number, unit: PaceUnit): string {
+  return `${formatCueDistanceForSpeech(meters, unit)} passed`;
+}
+
 /**
  * Speak elapsed time within the current interval.
  * Only fires when audio mode includes voice.
- *
- * Examples: "1 minute passed", "1 minute 30 seconds passed",
- *           "45 seconds passed"
  */
 export function speakIntervalProgress(
   elapsedSeconds: number,
   mode: AudioCueMode
 ): void {
   if (mode !== 'voice' && mode !== 'both') return;
+  speak(intervalProgressPhrase(elapsedSeconds));
+}
 
-  const mins = Math.floor(elapsedSeconds / 60);
-  const secs = elapsedSeconds % 60;
-
-  let phrase: string;
-  if (mins > 0 && secs > 0) {
-    const minWord = mins === 1 ? 'minute' : 'minutes';
-    phrase = `${mins} ${minWord} ${secs} seconds passed`;
-  } else if (mins > 0) {
-    const minWord = mins === 1 ? 'minute' : 'minutes';
-    phrase = `${mins} ${minWord} passed`;
-  } else {
-    phrase = `${secs} seconds passed`;
-  }
-
-  speak(phrase);
+/** Speak one or more cue phrases as a single utterance so they don't cancel each other. */
+export function speakCuePhrases(phrases: string[], mode: AudioCueMode): void {
+  if (mode !== 'voice' && mode !== 'both') return;
+  const cleaned = phrases.map((p) => p.trim().replace(/\.$/, '')).filter(Boolean);
+  if (cleaned.length === 0) return;
+  speak(cleaned.join('. ') + '.');
 }
 
 // ── Unified cue dispatcher ───────────────────────────────────────────
@@ -537,6 +548,20 @@ export async function playCue(
  *   "Current pace 4 minutes 12 seconds per K."
  *   "Pace unavailable."
  */
+export function paceCuePhrase(
+  currentPaceMinutes: number | null,
+  unit: PaceUnit,
+): string {
+  const unitLabel = unit === 'minPerMile' ? 'per mile' : 'per K';
+
+  if (currentPaceMinutes == null || !isFinite(currentPaceMinutes)) {
+    return 'Pace unavailable';
+  }
+
+  const currentStr = formatPaceForSpeech(currentPaceMinutes);
+  return `Current pace ${currentStr} ${unitLabel}`;
+}
+
 export function speakPaceCue(
   currentPaceMinutes: number | null,
   _targetPaceMinutes: number | undefined,
@@ -544,14 +569,5 @@ export function speakPaceCue(
   mode: AudioCueMode,
 ): void {
   if (mode !== 'voice' && mode !== 'both') return;
-
-  const unitLabel = unit === 'minPerMile' ? 'per mile' : 'per K';
-
-  if (currentPaceMinutes == null || !isFinite(currentPaceMinutes)) {
-    speak('Pace unavailable.');
-    return;
-  }
-
-  const currentStr = formatPaceForSpeech(currentPaceMinutes);
-  speak(`Current pace ${currentStr} ${unitLabel}.`);
+  speak(paceCuePhrase(currentPaceMinutes, unit) + '.');
 }

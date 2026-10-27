@@ -10,6 +10,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import type { AppSettings, AudioCueMode } from '../workout/workoutTypes';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import { hapticTap } from '../audio/haptics';
+import { cueDistanceLabel } from '../audio/cueSchedule';
 
 interface PreRunSettingsProps {
   settings: AppSettings;
@@ -23,6 +24,17 @@ export function PreRunSettings({ settings, onUpdate, hasDistanceFeature }: PreRu
   const audioCueLabel =
     settings.audioCueMode === 'voice' ? 'Voice' :
     settings.audioCueMode === 'tone' ? 'Tone' : 'Silent';
+
+  // Build a compact cue-schedule label for the summary chip.
+  const cueLabel = (() => {
+    if (settings.audioCueMode === 'silent') return null;
+    if (settings.progressCueBasis === 'distance') {
+      return cueDistanceLabel(settings.progressCueDistance, settings.paceUnit);
+    }
+    if (settings.timeRemainingInterval === 0) return null;
+    const v = settings.timeRemainingInterval;
+    return v >= 60 ? `${v / 60} min` : `${v}s`;
+  })();
 
   return (
     <View style={styles.container}>
@@ -54,6 +66,18 @@ export function PreRunSettings({ settings, onUpdate, hasDistanceFeature }: PreRu
               {audioCueLabel}
             </Text>
           </View>
+          {cueLabel && (
+            <View style={[styles.chip, styles.chipActive]}>
+              <Ionicons
+                name={settings.progressCueBasis === 'distance' ? 'map-outline' : 'time-outline'}
+                size={12}
+                color={Colors.primary}
+              />
+              <Text style={[styles.chipText, styles.chipTextActive]}>
+                {cueLabel}
+              </Text>
+            </View>
+          )}
         </View>
         <Ionicons
           name={expanded ? 'chevron-up' : 'chevron-down'}

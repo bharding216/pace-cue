@@ -43,11 +43,14 @@ import {
 } from '../ai/aiWorkoutService';
 import {
   WorkoutDefinition,
-  WorkoutRepeatBlock,
-  WorkoutInterval,
+  WorkoutBlock,
+  Segment,
+  RepeatGroup,
   flattenWorkout,
   formatTime,
   totalWorkoutSeconds,
+  defaultSegmentLabel,
+  segmentToIntervalType,
 } from '../workout/workoutTypes';
 import { WorkoutEditorForm } from './WorkoutEditorForm';
 import { hapticTap } from '../audio/haptics';
@@ -164,46 +167,58 @@ const barStyles = StyleSheet.create({
 
 // ── Workout Preview Card ─────────────────────────────────────
 
-function intervalLabel(i: WorkoutInterval): string {
-  if (i.label) return i.label;
-  switch (i.type) {
-    case 'warmup': return 'Warm Up';
-    case 'cooldown': return 'Cool Down';
-    case 'hard': return 'Hard';
-    case 'easy': return 'Easy';
-  }
-}
-
-function SectionPreview({ label, blocks }: { label: string; blocks: WorkoutRepeatBlock[] }) {
+function BlocksPreview({ blocks }: { blocks: WorkoutBlock[] }) {
   if (blocks.length === 0) return null;
+
   return (
     <View style={prevStyles.section}>
-      <Text style={prevStyles.sectionLabel}>{label}</Text>
-      {blocks.map((block, bi) => (
-        <View key={bi} style={prevStyles.block}>
-          {(block.repeatCount > 1 || block.name) && (
+      {blocks.map((block, bi) => {
+        if (block.blockType === 'segment') {
+          const seg = block;
+          const dur = seg.target.type === 'time' ? (seg.target.durationSeconds ?? 0) : 0;
+          return (
+            <View key={bi} style={prevStyles.intervalRow}>
+              <View style={[prevStyles.dot, { backgroundColor: intervalColor(segmentToIntervalType(seg.segmentType, seg.intensity)) }]} />
+              <Text style={prevStyles.intervalName} numberOfLines={1}>
+                {seg.label || defaultSegmentLabel(seg.segmentType)}
+              </Text>
+              <Text style={prevStyles.intervalDuration}>
+                {dur > 0 ? formatTime(dur) : 'GPS'}
+              </Text>
+            </View>
+          );
+        }
+        // RepeatGroup
+        const rg = block;
+        return (
+          <View key={bi} style={prevStyles.block}>
             <View style={prevStyles.blockHeader}>
-              {block.name && <Text style={prevStyles.blockName}>{block.name}</Text>}
-              {block.repeatCount > 1 && (
+              {rg.name && <Text style={prevStyles.blockName}>{rg.name}</Text>}
+              {rg.repetitions > 1 && (
                 <View style={prevStyles.repeatBadge}>
-                  <Text style={prevStyles.repeatText}>×{block.repeatCount}</Text>
+                  <Text style={prevStyles.repeatText}>×{rg.repetitions}</Text>
                 </View>
               )}
             </View>
-          )}
-          {block.intervals.map((interval, ii) => (
-            <View key={ii} style={prevStyles.intervalRow}>
-              <View style={[prevStyles.dot, { backgroundColor: intervalColor(interval.type) }]} />
-              <Text style={prevStyles.intervalName} numberOfLines={1}>
-                {intervalLabel(interval)}
-              </Text>
-              <Text style={prevStyles.intervalDuration}>
-                {formatTime(interval.durationSeconds)}
-              </Text>
-            </View>
-          ))}
-        </View>
-      ))}
+            {rg.blocks.map((inner, ii) => {
+              if (inner.blockType !== 'segment') return null;
+              const seg = inner;
+              const dur = seg.target.type === 'time' ? (seg.target.durationSeconds ?? 0) : 0;
+              return (
+                <View key={ii} style={prevStyles.intervalRow}>
+                  <View style={[prevStyles.dot, { backgroundColor: intervalColor(segmentToIntervalType(seg.segmentType, seg.intensity)) }]} />
+                  <Text style={prevStyles.intervalName} numberOfLines={1}>
+                    {seg.label || defaultSegmentLabel(seg.segmentType)}
+                  </Text>
+                  <Text style={prevStyles.intervalDuration}>
+                    {dur > 0 ? formatTime(dur) : 'GPS'}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -591,9 +606,7 @@ export function VoiceWorkoutSheet({
                     </Text>
                   </View>
 
-                  <SectionPreview label="WARM UP" blocks={proposedWorkout.warmup} />
-                  <SectionPreview label="INTERVALS" blocks={proposedWorkout.blocks} />
-                  <SectionPreview label="COOL DOWN" blocks={proposedWorkout.cooldown} />
+                  <BlocksPreview blocks={proposedWorkout.blocks} />
                 </View>
 
                 {/* Action buttons */}

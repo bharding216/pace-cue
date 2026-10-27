@@ -23,10 +23,12 @@ import type { PlanModification } from '../ai/planService';
 import {
   formatDurationForSpeech,
   formatDistanceForSpeech,
-  isDistanceInterval,
-  type WorkoutRepeatBlock,
-  type WorkoutInterval,
+  type WorkoutBlock,
+  type Segment,
+  type RepeatGroup,
+  defaultSegmentLabel,
 } from '../workout/workoutTypes';
+import { migrateToBlockModel } from '../workout/workoutStorage';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -137,16 +139,21 @@ export function ModificationReview({ items, coachMessage, onApply, onKeepOrigina
     });
   };
 
-  const formatInterval = (int: WorkoutInterval): string => {
-    const label = int.label || int.type;
-    const duration = isDistanceInterval(int as any)
-      ? formatDistanceForSpeech(int.distanceMeters!)
-      : formatDurationForSpeech(int.durationSeconds);
+  const formatSegment = (seg: Segment): string => {
+    const label = seg.label || defaultSegmentLabel(seg.segmentType);
+    let duration: string;
+    if (seg.target.type === 'distance' && seg.target.distanceMeters) {
+      duration = formatDistanceForSpeech(seg.target.distanceMeters);
+    } else if (seg.target.type === 'time' && seg.target.durationSeconds) {
+      duration = formatDurationForSpeech(seg.target.durationSeconds);
+    } else {
+      duration = 'manual';
+    }
     const parts = [`${duration} ${label}`];
-    if (int.effort) parts.push(`effort ${int.effort}/10`);
-    if (int.targetPace) {
-      const mins = Math.floor(int.targetPace);
-      const secs = Math.round((int.targetPace - mins) * 60);
+    if (seg.intensity) parts.push(seg.intensity);
+    if (seg.targetPace) {
+      const mins = Math.floor(seg.targetPace);
+      const secs = Math.round((seg.targetPace - mins) * 60);
       parts.push(`@ ${mins}:${secs.toString().padStart(2, '0')}/mi`);
     }
     return parts.join('  ·  ');
@@ -158,51 +165,39 @@ export function ModificationReview({ items, coachMessage, onApply, onKeepOrigina
     intervals: string[];
   };
 
-  const formatBlocks = (blocks: unknown[]): DetailBlock[] => {
-    if (!Array.isArray(blocks) || blocks.length === 0) return [];
+  const formatBlocks = (rawData: any): DetailBlock[] => {
+    // rawData may be old-format workout or new-format blocks array
+    let blocks: WorkoutBlock[] = [];
+
+    if (rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+      // Entire workout object — migrate
+      const migrated = migrateToBlockModel(rawData as any);
+      blocks = migrated.blocks;
+    } else if (Array.isArray(rawData)) {
+      // Could be old WorkoutRepeatBlock[] or new WorkoutBlock[]
+      if (rawData.length > 0 && rawData[0].blockType) {
+        blocks = rawData as WorkoutBlock[];
+      } else if (rawData.length > 0 && rawData[0].intervals) {
+        // Old format array — wrap in a fake workout and migrate
+        const migrated = migrateToBlockModel({ warmup: [], blocks: rawData, cooldown: [], name: '', id: '', createdAt: 0, updatedAt: 0 });
+        blocks = migrated.blocks;
+      }
+    }
+
+    if (blocks.length === 0) return [];
     const result: DetailBlock[] = [];
 
-    for (const raw of blocks as WorkoutRepeatBlock[]) {
-      const intervals = raw.intervals ?? [];
-      if (intervals.length === 0) continue;
-      const repeats = raw.repeatCount ?? (raw as any).repeat ?? 1;
-
-      if (repeats <= 1) {
-        result.push({
-          name: raw.name,
-          repeats: 1,
-          intervals: intervals.map(formatInterval),
-        });
-        continue;
-      }
-
-      // Split leading warmup / trailing cooldown out of repeating blocks
-      const isWarmup = (int: WorkoutInterval) =>
-        int.type === 'warmup' || /warm/i.test(int.label ?? '');
-      const isCooldown = (int: WorkoutInterval) =>
-        int.type === 'cooldown' || /cool/i.test(int.label ?? '');
-
-      let leadEnd = 0;
-      while (leadEnd < intervals.length && isWarmup(intervals[leadEnd])) leadEnd++;
-      let trailStart = intervals.length;
-      while (trailStart > leadEnd && isCooldown(intervals[trailStart - 1])) trailStart--;
-
-      const leading = intervals.slice(0, leadEnd);
-      const core = intervals.slice(leadEnd, trailStart);
-      const trailing = intervals.slice(trailStart);
-
-      if (leading.length > 0) {
-        result.push({ repeats: 1, intervals: leading.map(formatInterval) });
-      }
-      if (core.length > 0) {
-        result.push({
-          name: raw.name,
-          repeats,
-          intervals: core.map(formatInterval),
-        });
-      }
-      if (trailing.length > 0) {
-        result.push({ repeats: 1, intervals: trailing.map(formatInterval) });
+    for (const block of blocks) {
+      if (block.blockType === 'segment') {
+        result.push({ repeats: 1, intervals: [formatSegment(block)] });
+      } else {
+        const rg = block;
+        const segDescs = rg.blocks
+          .filter((b): b is Segment => b.blockType === 'segment')
+          .map(formatSegment);
+        if (segDescs.length > 0) {
+          result.push({ name: rg.name, repeats: rg.repetitions, intervals: segDescs });
+        }
       }
     }
 
@@ -235,7 +230,7 @@ export function ModificationReview({ items, coachMessage, onApply, onKeepOrigina
           item.modification.action !== 'skip' &&
           (item.modification.description || item.modification.workout || item.before?.description);
 
-        const renderBlockGroup = (label: string, blocks: unknown[], prefix: string) => {
+        const renderBlockGroup = (label: string, blocks: any, prefix: string) => {
           const parsed = formatBlocks(blocks);
           if (parsed.length === 0) return null;
           return (
@@ -331,9 +326,7 @@ export function ModificationReview({ items, coachMessage, onApply, onKeepOrigina
                   {/* Expanded workout details */}
                   {isExpanded && item.modification.workout && (
                     <View style={styles.workoutDetails}>
-                      {renderBlockGroup('Warm-up', item.modification.workout.warmup ?? [], `wu-${index}`)}
-                      {renderBlockGroup('Main', item.modification.workout.blocks ?? [], `bl-${index}`)}
-                      {renderBlockGroup('Cool-down', item.modification.workout.cooldown ?? [], `cd-${index}`)}
+                      {renderBlockGroup('Workout', item.modification.workout, `bl-${index}`)}
                     </View>
                   )}
                 </View>

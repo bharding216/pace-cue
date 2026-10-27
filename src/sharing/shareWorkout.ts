@@ -18,13 +18,17 @@ import { Share, Platform } from 'react-native';
 import Constants from 'expo-constants';
 import {
   WorkoutDefinition,
-  WorkoutRepeatBlock,
+  WorkoutBlock,
+  Segment,
+  RepeatGroup,
   CompletedWorkout,
   IntervalSplit,
   flattenWorkout,
   formatTime,
   generateId,
+  defaultSegmentLabel,
 } from '../workout/workoutTypes';
+import { migrateToBlockModel } from '../workout/workoutStorage';
 import { track } from '../analytics/track';
 import { supabase } from '../analytics/supabaseClient';
 import { formatDistance as formatUnitDistance } from '../pace/paceTracker';
@@ -34,7 +38,6 @@ import type { PaceUnit } from '../pace/paceTypes';
 
 const METERS_PER_MILE = 1609.344;
 
-/** Get the correct URL scheme for the current app variant. */
 function getScheme(): string {
   const variant = Constants.expoConfig?.extra?.appVariant as string | undefined;
   if (variant === 'development') return 'pacecue-dev';
@@ -42,7 +45,6 @@ function getScheme(): string {
   return 'pacecue';
 }
 
-/** Format a pace value (min/mile float) into MM:SS string. */
 function formatPace(paceMinutes: number | null | undefined): string {
   if (paceMinutes == null || !isFinite(paceMinutes)) return '--:--';
   const mins = Math.floor(paceMinutes);
@@ -50,48 +52,38 @@ function formatPace(paceMinutes: number | null | undefined): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-/** Format a duration in seconds to a human-readable short form (e.g. "3:00"). */
 function fmtDur(seconds: number): string {
   return formatTime(seconds);
 }
 
-/** Format distance in meters to a display string. */
 function formatDistance(meters: number): string {
   const miles = meters / METERS_PER_MILE;
   if (miles >= 0.1) return `${miles.toFixed(2)} mi`;
   return `${(meters / 1000).toFixed(2)} km`;
 }
 
-/** Capitalize first letter. */
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ── Text Formatting ──────────────────────────────────────────────────
 
-/** Describe a single repeat block in human-readable form. */
-function describeBlock(block: WorkoutRepeatBlock): string {
-  const parts = block.intervals.map((i) => {
-    const label = i.label || cap(i.type);
-    return `${fmtDur(i.durationSeconds)} ${label}`;
-  });
-  const joined = parts.join(' → ');
-  if (block.repeatCount > 1) {
-    return `${block.repeatCount}× (${joined})`;
+/** Describe a single workout block for text sharing. */
+function describeBlock(block: WorkoutBlock): string {
+  if (block.blockType === 'segment') {
+    const label = block.label || defaultSegmentLabel(block.segmentType);
+    if (block.target.type === 'distance' && block.target.distanceMeters) {
+      return `${formatDistance(block.target.distanceMeters)} ${label}`;
+    }
+    return `${fmtDur(block.target.durationSeconds ?? 0)} ${label}`;
   }
-  return joined;
-}
 
-/** Label for a workout phase. */
-function phaseLabel(phase: 'warmup' | 'blocks' | 'cooldown'): string {
-  switch (phase) {
-    case 'warmup':
-      return 'Warm-up';
-    case 'blocks':
-      return 'Main Sets';
-    case 'cooldown':
-      return 'Cooldown';
+  // RepeatGroup
+  const inner = block.blocks.map(describeBlock).join(' → ');
+  if (block.repetitions > 1) {
+    return `${block.repetitions}× (${inner})`;
   }
+  return inner;
 }
 
 /**
@@ -108,19 +100,8 @@ export function formatWorkoutText(def: WorkoutDefinition): string {
     '',
   ];
 
-  if (def.warmup.length > 0) {
-    const warmupLines = def.warmup.map((b) => `${phaseLabel('warmup')}: ${describeBlock(b)}`);
-    lines.push(...warmupLines);
-  }
-
-  if (def.blocks.length > 0) {
-    const blockLines = def.blocks.map((b) => `${phaseLabel('blocks')}: ${describeBlock(b)}`);
-    lines.push(...blockLines);
-  }
-
-  if (def.cooldown.length > 0) {
-    const cdLines = def.cooldown.map((b) => `${phaseLabel('cooldown')}: ${describeBlock(b)}`);
-    lines.push(...cdLines);
+  for (const block of def.blocks) {
+    lines.push(describeBlock(block));
   }
 
   return lines.join('\n');
@@ -175,25 +156,22 @@ export function formatResultsText(
 // ── Deep Link Encoding ───────────────────────────────────────────────
 
 /**
- * Minimal workout shape for sharing — strips runtime-only fields.
+ * New compact share format: just name + blocks.
  */
-interface ShareableWorkout {
-  n: string; // name
-  w: WorkoutRepeatBlock[]; // warmup
-  b: WorkoutRepeatBlock[]; // blocks
-  c: WorkoutRepeatBlock[]; // cooldown
+interface ShareableWorkoutV2 {
+  v: 2;
+  n: string;
+  b: WorkoutBlock[];
 }
 
 /**
  * Encode a workout definition into a deep link URL.
- * Uses a compact JSON format + base64 encoding.
  */
 export function encodeWorkoutLink(def: WorkoutDefinition): string {
-  const shareable: ShareableWorkout = {
+  const shareable: ShareableWorkoutV2 = {
+    v: 2,
     n: def.name,
-    w: def.warmup,
     b: def.blocks,
-    c: def.cooldown,
   };
 
   const json = JSON.stringify(shareable);
@@ -204,7 +182,7 @@ export function encodeWorkoutLink(def: WorkoutDefinition): string {
 
 /**
  * Decode a deep link URL back into a WorkoutDefinition.
- * Assigns a fresh id and timestamps.
+ * Handles both old v1 format ({ n, w, b, c }) and new v2 format ({ v:2, n, b }).
  */
 export function decodeWorkoutLink(url: string): WorkoutDefinition | null {
   try {
@@ -213,23 +191,45 @@ export function decodeWorkoutLink(url: string): WorkoutDefinition | null {
 
     const base64 = decodeURIComponent(match[1]);
     const json = atob(base64);
-    const parsed = JSON.parse(json) as ShareableWorkout;
+    const parsed = JSON.parse(json);
 
-    if (!parsed.n || !Array.isArray(parsed.b)) return null;
+    return decodeSharePayload(parsed);
+  } catch {
+    return null;
+  }
+}
 
+/** Decode a share payload (either v1 or v2) into a WorkoutDefinition. */
+function decodeSharePayload(parsed: any): WorkoutDefinition | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  // New v2 format
+  if (parsed.v === 2 && parsed.n && Array.isArray(parsed.b)) {
     const now = Date.now();
     return {
+      id: generateId(),
+      name: parsed.n,
+      blocks: parsed.b,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  // Old v1 format: { n, w, b, c } — migrate through block model
+  if (parsed.n && Array.isArray(parsed.b)) {
+    const oldDef = {
       id: generateId(),
       name: parsed.n,
       warmup: parsed.w ?? [],
       blocks: parsed.b,
       cooldown: parsed.c ?? [],
-      createdAt: now,
-      updatedAt: now,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
-  } catch {
-    return null;
+    return migrateToBlockModel(oldDef);
   }
+
+  return null;
 }
 
 // ── Short Link (Supabase) ────────────────────────────────────────────
@@ -237,7 +237,6 @@ export function decodeWorkoutLink(url: string): WorkoutDefinition | null {
 const SHARE_BASE_URL = 'https://splitcue.app/w';
 const SHORT_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
-/** Generate a random 7-character alphanumeric code. */
 function generateShortCode(): string {
   let code = '';
   for (let i = 0; i < 7; i++) {
@@ -246,26 +245,18 @@ function generateShortCode(): string {
   return code;
 }
 
-/**
- * Store a workout in Supabase and return an HTTPS share link.
- * The link points to an Edge Function landing page that lets recipients
- * open the workout in the app or download from the store.
- * Falls back to the legacy base64-encoded deep link if the upload fails.
- */
 export async function createShareLink(
   def: WorkoutDefinition,
   shareType: 'structure' | 'results' | 'challenge' = 'structure',
 ): Promise<string> {
-  const shareable: ShareableWorkout = {
+  const shareable: ShareableWorkoutV2 = {
+    v: 2,
     n: def.name,
-    w: def.warmup,
     b: def.blocks,
-    c: def.cooldown,
   };
 
   const code = generateShortCode();
 
-  // Grab authenticated user ID if available (null for anonymous users)
   const { data: { session } } = await supabase.auth.getSession();
   const userId = session?.user?.id ?? null;
 
@@ -291,9 +282,6 @@ export async function createShareLink(
   return encodeWorkoutLink(def);
 }
 
-/**
- * Resolve a short code into a WorkoutDefinition by fetching from Supabase.
- */
 export async function resolveShareCode(code: string): Promise<WorkoutDefinition | null> {
   try {
     const { data, error } = await supabase
@@ -304,19 +292,8 @@ export async function resolveShareCode(code: string): Promise<WorkoutDefinition 
 
     if (error || !data) return null;
 
-    const parsed = data.workout_data as ShareableWorkout;
-    if (!parsed.n || !Array.isArray(parsed.b)) return null;
-
-    const now = Date.now();
-    return {
-      id: generateId(),
-      name: parsed.n,
-      warmup: parsed.w ?? [],
-      blocks: parsed.b,
-      cooldown: parsed.c ?? [],
-      createdAt: now,
-      updatedAt: now,
-    };
+    const parsed = data.workout_data;
+    return decodeSharePayload(parsed);
   } catch {
     return null;
   }
@@ -324,10 +301,6 @@ export async function resolveShareCode(code: string): Promise<WorkoutDefinition 
 
 // ── Share Actions ────────────────────────────────────────────────────
 
-/**
- * Share a workout's structure via the native share sheet.
- * Used from the Home screen's WorkoutCard.
- */
 export async function shareWorkoutStructure(
   def: WorkoutDefinition,
 ): Promise<void> {
@@ -346,21 +319,16 @@ export async function shareWorkoutStructure(
       share_type: 'structure',
     });
   } catch {
-    // User cancelled or share failed — no action needed
+    // User cancelled or share failed
   }
 }
 
-/**
- * Share a completed workout's results (with structure) via the native share sheet.
- * Used from the History screen.
- */
 export async function shareWorkoutResults(
   def: WorkoutDefinition | null,
   completed: CompletedWorkout,
 ): Promise<void> {
   const parts: string[] = [];
 
-  // Include workout structure if we have the definition
   if (def) {
     parts.push(formatWorkoutText(def));
     parts.push('');
@@ -368,7 +336,6 @@ export async function shareWorkoutResults(
 
   parts.push(formatResultsText(completed));
 
-  // Include import link if we have the definition
   let link: string | undefined;
   if (def) {
     link = await createShareLink(def, 'results');
@@ -395,14 +362,12 @@ export async function shareWorkoutResults(
   }
 }
 
-/** Result the sender is daring a friend to beat. */
 export interface ChallengeResult {
   totalDurationMs: number;
   totalDistanceMeters?: number;
   paceUnit?: PaceUnit;
 }
 
-/** One-line mark, e.g. "24:10 · 3.10 mi · 7:48/mi". */
 export function formatChallengeMark(result: ChallengeResult): string | null {
   if (result.totalDurationMs <= 0) return null;
 
@@ -413,7 +378,6 @@ export function formatChallengeMark(result: ChallengeResult): string | null {
   if (meters != null && meters > 0) {
     parts.push(formatUnitDistance(meters, unit));
 
-    // Skip pace until there's enough distance for a meaningful mark.
     if (meters >= 100) {
       const minutes = result.totalDurationMs / 60000;
       const pace =
@@ -427,12 +391,6 @@ export function formatChallengeMark(result: ChallengeResult): string | null {
   return parts.join(' · ');
 }
 
-/**
- * Share a finished workout as a challenge.
- * The message includes the sender's result and a link the friend can
- * import so they can run the same workout.
- * Returns true when the share sheet reports the challenge was sent.
- */
 export async function shareWorkoutChallenge(
   def: WorkoutDefinition,
   result?: ChallengeResult,

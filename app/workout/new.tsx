@@ -7,7 +7,7 @@
 
 import React from 'react';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
-import { WorkoutDefinition, generateId, flattenWorkout } from '../../src/workout/workoutTypes';
+import { WorkoutDefinition, generateId, flattenWorkout, createSegment, createRepeatGroup } from '../../src/workout/workoutTypes';
 import { saveWorkout } from '../../src/workout/workoutStorage';
 import { WorkoutEditorForm } from '../../src/components/WorkoutEditorForm';
 import { addWorkoutToCalendar } from '../../src/ai/planService';
@@ -25,20 +25,15 @@ export default function NewWorkoutScreen() {
   const blank: WorkoutDefinition = {
     id: generateId(),
     name: '',
-    warmup: [
-      { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
-    ],
     blocks: [
-      {
-        intervals: [
-          { type: 'hard', durationSeconds: 180 },
-          { type: 'easy', durationSeconds: 120 },
+      createSegment('warmup', { target: { type: 'time', durationSeconds: 300 } }),
+      createRepeatGroup(4, {
+        blocks: [
+          createSegment('run', { intensity: 'hard', target: { type: 'time', durationSeconds: 180 } }),
+          createSegment('recovery', { target: { type: 'time', durationSeconds: 120 } }),
         ],
-        repeatCount: 4,
-      },
-    ],
-    cooldown: [
-      { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
+      }),
+      createSegment('cooldown', { target: { type: 'time', durationSeconds: 300 } }),
     ],
     createdAt: now,
     updatedAt: now,

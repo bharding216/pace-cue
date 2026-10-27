@@ -29,6 +29,15 @@ export interface PaceState {
 /** How often to announce pace (seconds, 0 = off). */
 export type PaceCueFrequency = 0 | 15 | 30 | 45 | 60 | 90 | 120;
 
+/** Whether a periodic cue fires on elapsed time or covered distance. */
+export type CueBasis = 'time' | 'distance';
+
+/**
+ * Distance step for periodic cues.
+ * Resolved to meters from the pace unit: quarter / half / full mile, or 250 m / 500 m / 1 km.
+ */
+export type CueDistancePreset = 'off' | 'quarter' | 'half' | 'full';
+
 /** Rolling window size for pace calculation (seconds). */
 export type PaceWindowSize = 10 | 30 | 60;
 

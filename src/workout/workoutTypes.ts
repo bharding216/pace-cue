@@ -1,152 +1,132 @@
 /**
  * Core data types for SplitCue workouts.
  *
- * The workout model is designed to be platform-independent so the same
- * engine can eventually drive an iPhone UI, Apple Watch UI, or anything else.
+ * The workout model uses a flat ordered list of Blocks. Each block is either
+ * a Segment (a single effort with a completion target) or a RepeatGroup
+ * (a set of blocks repeated N times). This cleanly separates structure,
+ * purpose, and intensity.
  */
 
+// ── Segment model ────────────────────────────────────────────────────
+
+/** The purpose of a segment within a workout. */
+export type SegmentType = 'warmup' | 'run' | 'recovery' | 'rest' | 'cooldown';
+
+/** How a segment ends. */
+export type TargetType = 'time' | 'distance' | 'manual';
+
+/** Named intensity levels. */
+export type Intensity = 'recovery' | 'easy' | 'moderate' | 'tempo' | 'hard' | 'sprint';
+
+/** Completion condition for a segment. */
+export interface SegmentTarget {
+  type: TargetType;
+  durationSeconds?: number; // when type is 'time'
+  distanceMeters?: number;  // when type is 'distance'
+}
+
+/** A single effort within a workout. */
+export interface Segment {
+  id: string;
+  blockType: 'segment';
+  segmentType: SegmentType;
+  label?: string;
+  target: SegmentTarget;
+  intensity?: Intensity;
+  targetPace?: number; // min/mile target pace
+}
+
+/** A group of blocks repeated a number of times. */
+export interface RepeatGroup {
+  id: string;
+  blockType: 'repeat';
+  repetitions: number;
+  name?: string;
+  blocks: WorkoutBlock[];
+}
+
+/** A block in a workout: either a single segment or a repeat group. */
+export type WorkoutBlock = Segment | RepeatGroup;
+
+// ── Legacy types (deprecated — kept for migration and downstream compat) ─
+
+/** @deprecated Use SegmentType + Intensity instead. */
 export type IntervalType = 'warmup' | 'hard' | 'easy' | 'cooldown';
 
-/** Predefined block name options safe for TTS pronunciation. */
-export const BLOCK_NAME_OPTIONS = [
-  'Sprint',
-  'Pace',
-  'Tempo',
-  'Recovery',
-  'Jog',
-  'Stride',
-  'Threshold',
-  'Race Pace',
-  'Cruise',
-  'Fartlek',
-  'Hill',
-  'Build Up',
-  'Easy Run',
-  'Steady',
-  'Speed',
-  'Endurance',
-] as const;
 
-export type BlockName = (typeof BLOCK_NAME_OPTIONS)[number];
-
-/**
- * Interval-level label presets, grouped by IntervalType.
- * Shown as quick-tap chips in the editor; users can also type a custom label.
- */
-export const INTERVAL_LABEL_OPTIONS: Record<IntervalType, readonly string[]> = {
-  hard: [
-    'Sprint',
-    'Run',
-    'Stride',
-    'Tempo',
-    'Race Pace',
-    'Threshold',
-    'Hill',
-    'Speed',
-    'Build Up',
-    'Fartlek',
-  ],
-  easy: [
-    'Walk',
-    'Jog',
-    'Recovery',
-    'Easy Run',
-    'Rest',
-    'Reset',
-    'Float',
-  ],
-  warmup: [
-    'Warm Up',
-    'Easy Jog',
-    'Walk',
-    'Stride',
-    'Drills',
-    'Rest',
-    'Reset',
-  ],
-  cooldown: [
-    'Cool Down',
-    'Easy Jog',
-    'Walk',
-  ],
-} as const;
-
-export interface WorkoutInterval {
-  type: IntervalType;
-  durationSeconds: number; // 0 for purely distance-based intervals
-  distanceMeters?: number; // if set and > 0, interval ends on GPS distance
-  label?: string; // optional user-facing label override
-  effort?: number; // optional perceived effort 1-10 (e.g. 7 = "7/10 effort")
-  targetPace?: number; // optional target pace in min/mile (e.g. 8.5 = 8:30/mile)
-}
-
-export interface WorkoutRepeatBlock {
-  intervals: WorkoutInterval[];
-  repeatCount: number;
-  name?: string; // predefined block name from BLOCK_NAME_OPTIONS
-}
+// ── Workout definition ───────────────────────────────────────────────
 
 export interface WorkoutDefinition {
   id: string;
   name: string;
-  warmup: WorkoutRepeatBlock[];
-  blocks: WorkoutRepeatBlock[];
-  cooldown: WorkoutRepeatBlock[];
-  targetDistanceMeters?: number; // if set, workout auto-finishes at this GPS distance
-  category?: WorkoutCategory; // user-assigned category override (auto-detected if omitted)
-  createdAt: number; // epoch ms
+  blocks: WorkoutBlock[];
+  targetDistanceMeters?: number;
+  category?: WorkoutCategory;
+  createdAt: number;
   updatedAt: number;
 }
+
+// ── Label presets ────────────────────────────────────────────────────
+
+/** Label presets grouped by segment type. */
+export const SEGMENT_LABEL_OPTIONS: Record<SegmentType, readonly string[]> = {
+  warmup: ['Warm Up', 'Easy Jog', 'Walk', 'Stride', 'Drills'],
+  run: ['Run', 'Sprint', 'Stride', 'Tempo', 'Race Pace', 'Threshold', 'Hill', 'Speed', 'Build Up', 'Fartlek', 'Steady'],
+  recovery: ['Walk', 'Jog', 'Recovery', 'Easy Run', 'Rest', 'Reset', 'Float'],
+  rest: ['Rest', 'Stop'],
+  cooldown: ['Cool Down', 'Easy Jog', 'Walk'],
+} as const;
+
+
+// ── Flattened interval (engine execution shape) ──────────────────────
 
 /** A flattened interval ready for the engine to execute sequentially. */
 export interface FlatInterval {
   type: IntervalType;
-  durationSeconds: number; // 0 for purely distance-based intervals
-  distanceMeters?: number; // if set, interval ends on GPS distance
+  durationSeconds: number;
+  distanceMeters?: number;
   label: string;
-  effort?: number; // 1-10 perceived effort rating
-  targetPace?: number; // min/mile target pace
-  index: number; // position in the flattened list
-  // Block/set context for verbose voice cues and progress display
-  blockName?: string; // user-assigned block name (e.g. "Sprint")
-  blockNumber: number; // 1-indexed block number across entire workout
-  setNumber: number; // 1-indexed repeat within the block
-  totalSets: number; // total repeats for this block
-  isFirstInSet: boolean; // first interval of a new repeat iteration
-  isFirstInBlock: boolean; // first interval of the block's very first repeat
-  blockSummary: string; // spoken format e.g. "3 minutes hard, 2 minutes easy"
-  blockIntervalCount: number; // how many intervals per set in this block
+  effort?: number;
+  targetPace?: number;
+  index: number;
+  blockName?: string;
+  blockNumber: number;
+  setNumber: number;
+  totalSets: number;
+  isFirstInSet: boolean;
+  isFirstInBlock: boolean;
+  blockSummary: string;
+  blockIntervalCount: number;
+  /** New: the segment type from the block model. */
+  segmentType: SegmentType;
+  /** New: the named intensity from the block model. */
+  intensity?: Intensity;
 }
 
-/** Phases the workout engine can be in. */
+// ── Engine state ─────────────────────────────────────────────────────
+
 export type EnginePhase = 'idle' | 'running' | 'paused' | 'finished';
 
 export interface EngineState {
   phase: EnginePhase;
-  /** The full ordered list of intervals for this workout. */
   intervals: FlatInterval[];
-  /** Index into `intervals` of the currently active interval. */
   currentIndex: number;
-  /** Absolute epoch-ms timestamp when the current interval ends. */
   intervalEndsAt: number;
-  /** How many ms were remaining when paused (used for resume). */
   pausedRemaining: number;
-  /** Total elapsed workout time in ms (tracked for history). */
   totalElapsedMs: number;
-  /** Timestamp of when the workout was started. */
   startedAt: number;
 }
 
-/** A single point on the recorded GPS route (abbreviated keys for storage). */
+// ── GPS & history ────────────────────────────────────────────────────
+
 export interface RoutePoint {
   lat: number;
   lng: number;
-  alt: number | null; // meters above sea level
-  ts: number; // epoch ms
-  dist: number; // cumulative distance in meters
+  alt: number | null;
+  ts: number;
+  dist: number;
 }
 
-/** Per-interval performance data captured during a workout. */
 export interface IntervalSplit {
   label: string;
   type: IntervalType;
@@ -166,7 +146,7 @@ export type WorkoutTagCategory = 'type' | 'feel' | 'effort' | 'weather' | 'socia
 export interface WorkoutTagGroup {
   category: WorkoutTagCategory;
   label: string;
-  icon: string; // Ionicons name
+  icon: string;
   tags: readonly string[];
 }
 
@@ -175,19 +155,7 @@ export const WORKOUT_TAG_GROUPS: readonly WorkoutTagGroup[] = [
     category: 'type',
     label: 'Run Type',
     icon: 'footsteps-outline',
-    tags: [
-      'Recovery',
-      'Easy Day',
-      'Long Run',
-      'Tempo',
-      'Speed Work',
-      'Race',
-      'Stroller Run',
-      'Trail',
-      'Treadmill',
-      'Track',
-      'Hill Training',
-    ],
+    tags: ['Recovery', 'Easy Day', 'Long Run', 'Tempo', 'Speed Work', 'Race', 'Stroller Run', 'Trail', 'Treadmill', 'Track', 'Hill Training'],
   },
   {
     category: 'feel',
@@ -215,54 +183,62 @@ export const WORKOUT_TAG_GROUPS: readonly WorkoutTagGroup[] = [
   },
 ] as const;
 
-/** All valid preset tags (flat list for validation). */
 export const ALL_PRESET_TAGS = WORKOUT_TAG_GROUPS.flatMap((g) => g.tags);
 
-/** Quick Start workout type tiles. */
+// ── Quick Start & Completed Workout ──────────────────────────────────
+
 export type QuickStartType = 'distance' | 'timed' | 'intervals' | 'tempo' | 'easy_run' | 'custom';
 
 export interface CompletedWorkout {
   id: string;
   workoutId: string;
   workoutName: string;
-  completedAt: number; // epoch ms
+  completedAt: number;
   totalDurationMs: number;
   splits?: IntervalSplit[];
   totalDistanceMeters?: number;
-  route?: RoutePoint[]; // full GPS track with elevation (null if pace tracking was off)
-  tags?: string[]; // user-applied tags from WORKOUT_TAG_GROUPS
-  /** Snapshot of the WorkoutDefinition used for this run (independent of later template edits). */
+  route?: RoutePoint[];
+  tags?: string[];
   configuration?: WorkoutDefinition;
-  /** Library template id when started from a saved workout. */
   templateId?: string;
-  /** plan_workouts.id when started from the training calendar. */
   planWorkoutId?: string;
-  /** Which Quick Start tile was used, if any. */
   quickStartType?: QuickStartType;
 }
 
-/** Audio cue preference. */
-export type AudioCueMode = 'voice' | 'beeps' | 'both' | 'silent';
+// ── Settings ─────────────────────────────────────────────────────────
 
-/** How often to announce elapsed time during an interval (in seconds, 0 = off). */
+export type AudioCueMode = 'voice' | 'beeps' | 'both' | 'silent';
 export type TimeRemainingInterval = 0 | 15 | 30 | 45 | 60 | 120;
 
-import type { PaceCueFrequency, PaceWindowSize, PaceUnit } from '../pace/paceTypes';
+import type {
+  CueBasis,
+  CueDistancePreset,
+  PaceCueFrequency,
+  PaceWindowSize,
+  PaceUnit,
+} from '../pace/paceTypes';
 
 export interface AppSettings {
   audioCueMode: AudioCueMode;
   hapticEnabled: boolean;
-  countdownWarningSeconds: number[]; // seconds before interval end to play warning(s)
+  countdownWarningSeconds: number[];
   keepScreenOn: boolean;
-  timeRemainingInterval: TimeRemainingInterval; // 0 = off, seconds between elapsed-time announcements
-  voiceIdentifier: string | null; // selected TTS voice identifier, null = system default
-  duckOtherAudio: boolean; // lower other apps' volume when cues play
-  // Pace tracking
+  timeRemainingInterval: TimeRemainingInterval;
+  /** Interval-progress cues: elapsed time, or distance covered in the interval. */
+  progressCueBasis: CueBasis;
+  /** Distance step for interval-progress cues. Used when progressCueBasis is 'distance'. */
+  progressCueDistance: CueDistancePreset;
+  voiceIdentifier: string | null;
+  duckOtherAudio: boolean;
   paceTrackingEnabled: boolean;
-  paceCueFrequency: PaceCueFrequency; // how often to announce pace (seconds, 0 = off)
-  paceWindow: PaceWindowSize; // rolling window for pace calculation (seconds)
-  paceUnit: PaceUnit; // min/mile or min/km
-  paceCueOnlyWithTarget: boolean; // only announce pace on intervals with a target pace set
+  paceCueFrequency: PaceCueFrequency;
+  /** Pace cues: every N seconds, or each time a distance is covered. */
+  paceCueBasis: CueBasis;
+  /** Distance step for pace cues. Used when paceCueBasis is 'distance'. */
+  paceCueDistance: CueDistancePreset;
+  paceWindow: PaceWindowSize;
+  paceUnit: PaceUnit;
+  paceCueOnlyWithTarget: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -271,110 +247,87 @@ export const DEFAULT_SETTINGS: AppSettings = {
   countdownWarningSeconds: [10],
   keepScreenOn: true,
   timeRemainingInterval: 60,
+  progressCueBasis: 'time',
+  progressCueDistance: 'full',
   voiceIdentifier: null,
   duckOtherAudio: true,
   paceTrackingEnabled: true,
   paceCueFrequency: 30,
+  paceCueBasis: 'time',
+  paceCueDistance: 'half',
   paceWindow: 30,
   paceUnit: 'minPerMile',
   paceCueOnlyWithTarget: false,
 };
 
-/** Default label for an interval based on its type. */
-function defaultLabel(type: IntervalType): string {
-  switch (type) {
+// ── Segment helpers ──────────────────────────────────────────────────
+
+/** Default user-facing label for a segment type. */
+export function defaultSegmentLabel(st: SegmentType): string {
+  switch (st) {
     case 'warmup': return 'Warm Up';
+    case 'run': return 'Run';
+    case 'recovery': return 'Recovery';
+    case 'rest': return 'Rest';
     case 'cooldown': return 'Cool Down';
-    case 'hard': return 'Hard';
-    case 'easy': return 'Easy';
   }
 }
 
-/** Format seconds into natural speech (e.g. "3 minutes", "1 minute 30 seconds"). */
+/** Map a SegmentType + Intensity to the legacy IntervalType for engine/color compat. */
+export function segmentToIntervalType(st: SegmentType, intensity?: Intensity): IntervalType {
+  switch (st) {
+    case 'warmup': return 'warmup';
+    case 'cooldown': return 'cooldown';
+    case 'rest':
+    case 'recovery': return 'easy';
+    case 'run':
+      if (!intensity) return 'hard';
+      return (intensity === 'recovery' || intensity === 'easy') ? 'easy' : 'hard';
+  }
+}
+
+/** Get the durationSeconds for a segment (0 for distance/manual targets). */
+function segmentDuration(seg: Segment): number {
+  return seg.target.type === 'time' ? (seg.target.durationSeconds ?? 0) : 0;
+}
+
+/** Get the distanceMeters for a segment (undefined for time/manual targets). */
+function segmentDistance(seg: Segment): number | undefined {
+  return seg.target.type === 'distance' ? seg.target.distanceMeters : undefined;
+}
+
+/** Map named intensity to a numeric effort (1-10) for legacy compat. */
+function intensityToEffort(intensity?: Intensity): number | undefined {
+  if (!intensity) return undefined;
+  switch (intensity) {
+    case 'recovery': return 2;
+    case 'easy': return 3;
+    case 'moderate': return 5;
+    case 'tempo': return 7;
+    case 'hard': return 8;
+    case 'sprint': return 10;
+  }
+}
+
+// ── Speech helpers ───────────────────────────────────────────────────
+
 export function formatDurationForSpeech(totalSeconds: number): string {
   const mins = Math.floor(totalSeconds / 60);
   const secs = totalSeconds % 60;
   if (mins > 0 && secs > 0) {
-    const minWord = mins === 1 ? 'minute' : 'minutes';
-    const secWord = secs === 1 ? 'second' : 'seconds';
-    return `${mins} ${minWord} ${secs} ${secWord}`;
+    return `${mins} ${mins === 1 ? 'minute' : 'minutes'} ${secs} ${secs === 1 ? 'second' : 'seconds'}`;
   } else if (mins > 0) {
     return `${mins} ${mins === 1 ? 'minute' : 'minutes'}`;
-  } else {
-    return `${secs} ${secs === 1 ? 'second' : 'seconds'}`;
   }
+  return `${secs} ${secs === 1 ? 'second' : 'seconds'}`;
 }
 
-/** Flatten a list of repeat blocks into sequential FlatIntervals. */
-function flattenBlocks(
-  blocks: WorkoutRepeatBlock[],
-  startIdx: number,
-  startBlockNumber: number,
-): { items: FlatInterval[]; nextIdx: number; nextBlockNumber: number } {
-  const items: FlatInterval[] = [];
-  let idx = startIdx;
-  let blockNum = startBlockNumber;
-  for (const block of blocks) {
-    const summary = block.intervals
-      .map(
-        (i) => {
-          const base = formatIntervalDescription(i);
-          return i.effort ? `${base} at ${i.effort} out of 10` : base;
-        },
-      )
-      .join(', ');
-    for (let r = 0; r < block.repeatCount; r++) {
-      for (let ii = 0; ii < block.intervals.length; ii++) {
-        const interval = block.intervals[ii];
-        items.push({
-          type: interval.type,
-          durationSeconds: interval.durationSeconds,
-          distanceMeters: interval.distanceMeters,
-          label: interval.label || defaultLabel(interval.type),
-          effort: interval.effort,
-          targetPace: interval.targetPace,
-          index: idx++,
-          blockName: block.name,
-          blockNumber: blockNum,
-          setNumber: r + 1,
-          totalSets: block.repeatCount,
-          isFirstInSet: ii === 0,
-          isFirstInBlock: ii === 0 && r === 0,
-          blockSummary: summary,
-          blockIntervalCount: block.intervals.length,
-        });
-      }
-    }
-    blockNum++;
-  }
-  return { items, nextIdx: idx, nextBlockNumber: blockNum };
-}
-
-/** Flatten a WorkoutDefinition into an ordered list of FlatIntervals. */
-export function flattenWorkout(def: WorkoutDefinition): FlatInterval[] {
-  const warmup = flattenBlocks(def.warmup, 0, 1);
-  const main = flattenBlocks(def.blocks, warmup.nextIdx, warmup.nextBlockNumber);
-  const cooldown = flattenBlocks(
-    def.cooldown,
-    main.nextIdx,
-    main.nextBlockNumber,
-  );
-  return [...warmup.items, ...main.items, ...cooldown.items];
-}
-
-/** Calculate total duration of a workout in seconds. */
-export function totalWorkoutSeconds(def: WorkoutDefinition): number {
-  return flattenWorkout(def).reduce((sum, i) => sum + i.durationSeconds, 0);
-}
-
-/** Format seconds into MM:SS. */
 export function formatTime(totalSeconds: number): string {
   const mins = Math.floor(Math.abs(totalSeconds) / 60);
   const secs = Math.floor(Math.abs(totalSeconds) % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-/** Generate a simple unique ID. */
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -383,11 +336,8 @@ export function generateId(): string {
 
 export const METERS_PER_MILE = 1609.344;
 export const METERS_PER_KM = 1000;
-
-/** Maximum engine duration for distance-based intervals (12 hours in ms). */
 export const DISTANCE_INTERVAL_MAX_MS = 12 * 60 * 60 * 1000;
 
-/** Common race distances in meters. */
 export const RACE_DISTANCES = {
   '5K': 5000,
   '10K': 10000,
@@ -395,24 +345,10 @@ export const RACE_DISTANCES = {
   'Marathon': 42195,
 } as const;
 
-/** Whether an interval is purely distance-based (no time limit). */
 export function isDistanceInterval(interval: { durationSeconds: number; distanceMeters?: number }): boolean {
   return !!(interval.distanceMeters && interval.distanceMeters > 0 && !interval.durationSeconds);
 }
 
-/** Whether a workout has any distance-based features. */
-export function hasDistanceFeature(def: WorkoutDefinition): boolean {
-  if (def.targetDistanceMeters) return true;
-  const allBlocks = [...def.warmup, ...def.blocks, ...def.cooldown];
-  return allBlocks.some(b =>
-    b.intervals.some(i => i.distanceMeters && i.distanceMeters > 0)
-  );
-}
-
-/**
- * Format meters into natural speech. Uses common names for well-known
- * distances; falls back to miles/km/meters as appropriate.
- */
 export function formatDistanceForSpeech(meters: number): string {
   if (Math.abs(meters - METERS_PER_MILE) < 10) return '1 mile';
   if (Math.abs(meters - METERS_PER_MILE * 0.5) < 10) return 'half mile';
@@ -436,7 +372,40 @@ export function formatDistanceForSpeech(meters: number): string {
   return `${Math.round(meters)} meters`;
 }
 
-/** Format meters for compact UI display (e.g. "1.00 mi" or "5.00 km"). */
+/**
+ * Speak a cue distance in the runner's unit.
+ * Mile steps use quarter-mile words ("half mile", "1 and a quarter miles").
+ * Kilometer steps use meters under 1 km, then whole and half kilometers.
+ */
+export function formatCueDistanceForSpeech(
+  meters: number,
+  unit: 'minPerMile' | 'minPerKm',
+): string {
+  if (unit === 'minPerMile') {
+    const quarters = Math.round((meters / METERS_PER_MILE) * 4);
+    const whole = Math.floor(quarters / 4);
+    const rem = ((quarters % 4) + 4) % 4;
+    if (whole <= 0) {
+      if (rem === 1) return 'quarter mile';
+      if (rem === 2) return 'half mile';
+      if (rem === 3) return 'three quarters of a mile';
+      return formatDistanceForSpeech(meters);
+    }
+    if (rem === 0) return `${whole} ${whole === 1 ? 'mile' : 'miles'}`;
+    const fraction = rem === 1 ? 'a quarter' : rem === 2 ? 'a half' : 'three quarters';
+    return `${whole} and ${fraction} miles`;
+  }
+
+  if (meters < METERS_PER_KM) return `${Math.round(meters)} meters`;
+  const quarters = Math.round((meters / METERS_PER_KM) * 4);
+  const whole = Math.floor(quarters / 4);
+  const rem = ((quarters % 4) + 4) % 4;
+  if (whole <= 0) return `${Math.round(meters)} meters`;
+  if (rem === 0) return `${whole} ${whole === 1 ? 'kilometer' : 'kilometers'}`;
+  if (rem === 2) return `${whole} and a half kilometers`;
+  return `${quarters / 4} kilometers`;
+}
+
 export function formatDistanceShort(meters: number, unit: 'minPerMile' | 'minPerKm'): string {
   if (unit === 'minPerMile') {
     return `${(meters / METERS_PER_MILE).toFixed(2)} mi`;
@@ -444,26 +413,185 @@ export function formatDistanceShort(meters: number, unit: 'minPerMile' | 'minPer
   return `${(meters / METERS_PER_KM).toFixed(2)} km`;
 }
 
-/** Format the description of an interval for block summaries (speech). */
-function formatIntervalDescription(i: WorkoutInterval): string {
-  const label = i.label || defaultLabel(i.type);
-  if (isDistanceInterval(i)) {
-    return `${formatDistanceForSpeech(i.distanceMeters!)} ${label}`;
+// ── Flatten ──────────────────────────────────────────────────────────
+
+/** Describe a segment for block summaries (speech). */
+function describeSegment(seg: Segment): string {
+  const label = seg.label || defaultSegmentLabel(seg.segmentType);
+  const dist = segmentDistance(seg);
+  if (dist && dist > 0) {
+    return `${formatDistanceForSpeech(dist)} ${label}`;
   }
-  return `${formatDurationForSpeech(i.durationSeconds)} ${label}`;
+  const dur = segmentDuration(seg);
+  if (dur > 0) {
+    return `${formatDurationForSpeech(dur)} ${label}`;
+  }
+  return label;
+}
+
+/**
+ * Recursively flatten a list of WorkoutBlocks into sequential FlatIntervals.
+ * RepeatGroups expand their children N times.
+ */
+function flattenBlockTree(
+  blocks: WorkoutBlock[],
+  startIdx: number,
+  startBlockNumber: number,
+): { items: FlatInterval[]; nextIdx: number; nextBlockNumber: number } {
+  const items: FlatInterval[] = [];
+  let idx = startIdx;
+  let blockNum = startBlockNumber;
+
+  for (const block of blocks) {
+    if (block.blockType === 'segment') {
+      const seg = block;
+      items.push({
+        type: segmentToIntervalType(seg.segmentType, seg.intensity),
+        durationSeconds: segmentDuration(seg),
+        distanceMeters: segmentDistance(seg),
+        label: seg.label || defaultSegmentLabel(seg.segmentType),
+        effort: seg.intensity ? intensityToEffort(seg.intensity) : undefined,
+        targetPace: seg.targetPace,
+        index: idx++,
+        blockName: undefined,
+        blockNumber: blockNum,
+        setNumber: 1,
+        totalSets: 1,
+        isFirstInSet: true,
+        isFirstInBlock: true,
+        blockSummary: describeSegment(seg),
+        blockIntervalCount: 1,
+        segmentType: seg.segmentType,
+        intensity: seg.intensity,
+      });
+      blockNum++;
+    } else {
+      const rg = block;
+      const innerSegments = collectSegments(rg.blocks);
+      const summary = innerSegments
+        .map((s) => {
+          const desc = describeSegment(s);
+          return s.intensity && s.intensity !== 'easy'
+            ? `${desc} at ${s.intensity}`
+            : desc;
+        })
+        .join(', ');
+
+      for (let r = 0; r < rg.repetitions; r++) {
+        let innerIdx = 0;
+        for (const inner of rg.blocks) {
+          if (inner.blockType === 'segment') {
+            const seg = inner;
+            items.push({
+              type: segmentToIntervalType(seg.segmentType, seg.intensity),
+              durationSeconds: segmentDuration(seg),
+              distanceMeters: segmentDistance(seg),
+              label: seg.label || defaultSegmentLabel(seg.segmentType),
+              effort: seg.intensity ? intensityToEffort(seg.intensity) : undefined,
+              targetPace: seg.targetPace,
+              index: idx++,
+              blockName: rg.name,
+              blockNumber: blockNum,
+              setNumber: r + 1,
+              totalSets: rg.repetitions,
+              isFirstInSet: innerIdx === 0,
+              isFirstInBlock: innerIdx === 0 && r === 0,
+              blockSummary: summary,
+              blockIntervalCount: innerSegments.length,
+              segmentType: seg.segmentType,
+              intensity: seg.intensity,
+            });
+            innerIdx++;
+          } else {
+            const nested = flattenBlockTree([inner], idx, blockNum);
+            for (const fi of nested.items) {
+              fi.blockNumber = blockNum;
+              fi.setNumber = r + 1;
+              fi.totalSets = rg.repetitions;
+            }
+            items.push(...nested.items);
+            idx = nested.nextIdx;
+            innerIdx += nested.items.length;
+          }
+        }
+      }
+      blockNum++;
+    }
+  }
+
+  return { items, nextIdx: idx, nextBlockNumber: blockNum };
+}
+
+/** Collect all top-level segments from a list of blocks (for summaries). */
+function collectSegments(blocks: WorkoutBlock[]): Segment[] {
+  if (!Array.isArray(blocks)) return [];
+  const result: Segment[] = [];
+  for (const b of blocks) {
+    if (b.blockType === 'segment') result.push(b);
+    else result.push(...collectSegments(b.blocks));
+  }
+  return result;
+}
+
+/** Flatten a WorkoutDefinition into an ordered list of FlatIntervals. */
+export function flattenWorkout(def: WorkoutDefinition): FlatInterval[] {
+  if (!Array.isArray(def.blocks) || def.blocks.length === 0) return [];
+  const result = flattenBlockTree(def.blocks, 0, 1);
+  return result.items;
+}
+
+/** Calculate total duration of a workout in seconds. */
+export function totalWorkoutSeconds(def: WorkoutDefinition): number {
+  return flattenWorkout(def).reduce((sum, i) => sum + i.durationSeconds, 0);
+}
+
+// ── Block tree walkers ───────────────────────────────────────────────
+
+/** Recursively walk the block tree, calling fn on every Segment. */
+function walkSegments(blocks: WorkoutBlock[], fn: (seg: Segment, repeatMultiplier: number) => void, multiplier = 1): void {
+  if (!Array.isArray(blocks)) return;
+  for (const b of blocks) {
+    if (b.blockType === 'segment') {
+      fn(b, multiplier);
+    } else {
+      walkSegments(b.blocks, fn, multiplier * b.repetitions);
+    }
+  }
+}
+
+/** Whether a workout has any distance-based features. */
+export function hasDistanceFeature(def: WorkoutDefinition): boolean {
+  if (def.targetDistanceMeters) return true;
+  let found = false;
+  walkSegments(def.blocks, (seg) => {
+    if (seg.target.type === 'distance' && seg.target.distanceMeters && seg.target.distanceMeters > 0) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+/** Total target distance for the workout (if any). */
+export function totalWorkoutDistanceMeters(def: WorkoutDefinition): number | null {
+  if (def.targetDistanceMeters) return def.targetDistanceMeters;
+  let total = 0;
+  walkSegments(def.blocks, (seg, mult) => {
+    if (seg.target.type === 'distance' && seg.target.distanceMeters) {
+      total += seg.target.distanceMeters * mult;
+    }
+  });
+  return total > 0 ? total : null;
 }
 
 // ── Workout categorization ───────────────────────────────────────────
 
 export type WorkoutCategory = 'easy' | 'tempo' | 'intervals' | 'long_run' | 'race';
 
-/** Map old category values to new ones for backward compatibility. */
 const LEGACY_CATEGORY_MAP: Record<string, WorkoutCategory> = {
   distance: 'easy',
   timed: 'easy',
 };
 
-/** Return the category of a workout: user-assigned override, or auto-detected. */
 export function categorizeWorkout(def: WorkoutDefinition): WorkoutCategory {
   if (def.category) {
     return LEGACY_CATEGORY_MAP[def.category] ?? def.category;
@@ -471,11 +599,7 @@ export function categorizeWorkout(def: WorkoutDefinition): WorkoutCategory {
   return inferCategory(def);
 }
 
-/** Infer a purpose-based category from the workout structure. */
 function inferCategory(def: WorkoutDefinition): WorkoutCategory {
-  const mainBlocks = def.blocks;
-
-  // Race: has a target distance matching a well-known race
   if (def.targetDistanceMeters) {
     const d = def.targetDistanceMeters;
     const isRaceDist =
@@ -486,39 +610,71 @@ function inferCategory(def: WorkoutDefinition): WorkoutCategory {
     if (isRaceDist) return 'race';
   }
 
-  // Intervals: repeating blocks with mixed interval types
-  const hasRepeats = mainBlocks.some(b => b.repeatCount > 1 && b.intervals.length > 1);
-  const hasMultipleBlocks = mainBlocks.length > 1;
-  if (hasRepeats || hasMultipleBlocks) return 'intervals';
+  if (!Array.isArray(def.blocks) || def.blocks.length === 0) return 'easy';
 
-  // Tempo: single sustained hard effort (one block, one hard interval, no repeats > 1)
+  // Check for repeat groups or multiple top-level blocks with runs
+  const hasRepeats = def.blocks.some(
+    (b) => b.blockType === 'repeat' && b.repetitions > 1 && b.blocks.length > 1
+  );
+  const runBlocks = def.blocks.filter(
+    (b) => b.blockType === 'segment' && b.segmentType === 'run'
+  );
+  const repeatGroups = def.blocks.filter((b) => b.blockType === 'repeat');
+  if (hasRepeats || repeatGroups.length > 1) return 'intervals';
+
+  // Tempo: single run segment with hard-ish intensity
+  const topSegments = def.blocks.filter((b) => b.blockType === 'segment') as Segment[];
+  const runSegments = topSegments.filter((s) => s.segmentType === 'run');
   if (
-    mainBlocks.length === 1 &&
-    mainBlocks[0].repeatCount === 1 &&
-    mainBlocks[0].intervals.length === 1 &&
-    mainBlocks[0].intervals[0].type === 'hard'
+    runSegments.length === 1 &&
+    repeatGroups.length === 0 &&
+    runSegments[0].intensity &&
+    ['tempo', 'hard', 'sprint', 'moderate'].includes(runSegments[0].intensity)
   ) {
     return 'tempo';
   }
 
-  // Long run: single easy effort longer than 45 minutes or > 8 km
-  const mainInterval =
-    mainBlocks.length === 1 && mainBlocks[0].intervals.length === 1
-      ? mainBlocks[0].intervals[0]
-      : null;
-  if (mainInterval && mainInterval.type === 'easy') {
-    const isLongTime = mainInterval.durationSeconds >= 2700;
-    const isLongDist = (mainInterval.distanceMeters ?? 0) >= 8000;
-    if (isLongTime || isLongDist) return 'long_run';
+  // Long run: single easy/recovery run > 45 min or > 8 km
+  if (runSegments.length === 1 && repeatGroups.length === 0) {
+    const seg = runSegments[0];
+    const isEasyIsh = !seg.intensity || seg.intensity === 'easy' || seg.intensity === 'recovery';
+    const isLongTime = seg.target.type === 'time' && (seg.target.durationSeconds ?? 0) >= 2700;
+    const isLongDist = seg.target.type === 'distance' && (seg.target.distanceMeters ?? 0) >= 8000;
+    if (isEasyIsh && (isLongTime || isLongDist)) return 'long_run';
   }
 
   return 'easy';
 }
 
-/** Total target distance for the workout (if any). */
-export function totalWorkoutDistanceMeters(def: WorkoutDefinition): number | null {
-  if (def.targetDistanceMeters) return def.targetDistanceMeters;
-  const flattened = flattenWorkout(def);
-  const totalDist = flattened.reduce((sum, i) => sum + (i.distanceMeters || 0), 0);
-  return totalDist > 0 ? totalDist : null;
+// ── Block construction helpers ───────────────────────────────────────
+
+/** Create a new Segment with sensible defaults. */
+export function createSegment(
+  segmentType: SegmentType = 'run',
+  overrides?: Partial<Omit<Segment, 'id' | 'blockType'>>,
+): Segment {
+  return {
+    id: generateId(),
+    blockType: 'segment',
+    segmentType,
+    target: { type: 'time', durationSeconds: segmentType === 'rest' ? 60 : 180 },
+    ...overrides,
+  };
+}
+
+/** Create a new RepeatGroup with default run + recovery. */
+export function createRepeatGroup(
+  repetitions = 4,
+  overrides?: Partial<Omit<RepeatGroup, 'id' | 'blockType'>>,
+): RepeatGroup {
+  return {
+    id: generateId(),
+    blockType: 'repeat',
+    repetitions,
+    blocks: [
+      createSegment('run', { intensity: 'hard', target: { type: 'time', durationSeconds: 180 } }),
+      createSegment('recovery', { target: { type: 'time', durationSeconds: 120 } }),
+    ],
+    ...overrides,
+  };
 }

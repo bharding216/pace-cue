@@ -113,7 +113,7 @@ export default function ConfigureWorkoutScreen() {
     }
 
     if (meta.templateId && original) {
-      Alert.alert('Save Workout', 'How would you like to save?', [
+      Alert.alert('Save Template', 'How would you like to save?', [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Update Original',
@@ -203,12 +203,7 @@ export default function ConfigureWorkoutScreen() {
         {/* Sticky bottom actions */}
         <View style={styles.bottomBar}>
           {isModified && original && (
-            <View style={styles.modifiedRow}>
-              <Text style={styles.modifiedText}>Modified for this run</Text>
-              <TouchableOpacity onPress={handleResetToSaved} activeOpacity={0.7}>
-                <Text style={styles.resetText}>Reset to Saved</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.modifiedText}>Modified for this run</Text>
           )}
 
           <TouchableOpacity
@@ -220,14 +215,26 @@ export default function ConfigureWorkoutScreen() {
             <Text style={styles.startBtnText}>Start Workout</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.saveBtn}
-            onPress={handleSaveChanges}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="download-outline" size={16} color={Colors.textSecondary} />
-            <Text style={styles.saveBtnText}>Save Changes</Text>
-          </TouchableOpacity>
+          <View style={styles.secondaryRow}>
+            {isModified && original && (
+              <TouchableOpacity
+                style={styles.secondaryBtn}
+                onPress={handleResetToSaved}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-undo-outline" size={16} color={Colors.textSecondary} />
+                <Text style={styles.secondaryBtnText}>Reset</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.secondaryBtn}
+              onPress={handleSaveChanges}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="download-outline" size={16} color={Colors.textSecondary} />
+              <Text style={styles.secondaryBtnText}>Save Changes</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </>
@@ -255,7 +262,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
   },
   doneButtonText: {
-    color: Colors.primary,
+    color: Colors.black,
     fontSize: FontSize.md,
     fontWeight: '700',
   },
@@ -267,22 +274,13 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.surfaceLight,
     backgroundColor: Colors.background,
   },
-  modifiedRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
-  },
   modifiedText: {
     fontSize: FontSize.xs,
     color: Colors.warning,
     fontWeight: '600',
     fontStyle: 'italic',
-  },
-  resetText: {
-    fontSize: FontSize.xs,
-    color: Colors.accent,
-    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
   },
   startBtn: {
     flexDirection: 'row',
@@ -299,14 +297,20 @@ const styles = StyleSheet.create({
     fontSize: FontSize.lg,
     fontWeight: '800',
   },
-  saveBtn: {
+  secondaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing.lg,
+  },
+  secondaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.sm + 2,
     gap: Spacing.xs,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
   },
-  saveBtnText: {
+  secondaryBtnText: {
     color: Colors.textSecondary,
     fontSize: FontSize.sm,
     fontWeight: '600',

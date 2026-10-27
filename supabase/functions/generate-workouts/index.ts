@@ -44,6 +44,8 @@ interface RequestBody {
   race_type: string;
   race_date: string;
   goal_time_minutes?: number | null;
+  goal_type?: 'race' | 'pace_target';
+  goal_pace?: number | null;
   days_per_week: number;
   total_weeks: number;
   workouts: WorkoutRequest[];
@@ -54,15 +56,29 @@ interface RequestBody {
 function buildSystemPrompt(body: RequestBody): string {
   const sections: string[] = [];
 
+  const isPaceTarget = body.goal_type === 'pace_target';
   const raceLabel = body.race_type === 'custom'
-    ? 'custom race'
+    ? isPaceTarget ? 'pace development' : 'custom race'
     : body.race_type.replace('_', ' ');
 
-  sections.push(`You are SplitCue's AI running coach. You create detailed, structured workout definitions for specific training days within an existing plan.
+  if (isPaceTarget) {
+    const paceStr = body.goal_pace
+      ? `${Math.floor(body.goal_pace)}:${String(Math.round((body.goal_pace - Math.floor(body.goal_pace)) * 60)).padStart(2, '0')}/mi`
+      : 'target pace';
+    sections.push(`You are SplitCue's AI running coach. You create detailed, structured workout definitions for specific training days within an existing plan.
+
+You are generating detailed workouts for a ${raceLabel} plan (${body.total_weeks} weeks total, ${body.days_per_week} days/week, target pace: ${paceStr} by ${body.race_date}).
+
+This is a pace development plan — NOT a race plan. Workouts should progressively build toward sustaining the target pace. Include tempo segments at or near goal pace and intervals slightly faster.
+
+Each workout must be a complete structured interval workout matching the SplitCue format with warmup, blocks, and cooldown sections.`);
+  } else {
+    sections.push(`You are SplitCue's AI running coach. You create detailed, structured workout definitions for specific training days within an existing plan.
 
 You are generating detailed workouts for a ${raceLabel} training plan (${body.total_weeks} weeks total, ${body.days_per_week} days/week, race on ${body.race_date}).
 
 Each workout must be a complete structured interval workout matching the SplitCue format with warmup, blocks, and cooldown sections.`);
+  }
 
   // Runner profile
   const profile = body.profile;
@@ -112,29 +128,39 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) matching:
       "workout": {
         "name": "string — short name matching the day_label",
         "category": "easy" | "tempo" | "intervals" | "long_run" | "race",
-        "warmup": [RepeatBlock],
-        "blocks": [RepeatBlock],
-        "cooldown": [RepeatBlock],
+        "blocks": [WorkoutBlock],
         "targetDistanceMeters": number (optional) — total workout auto-finish distance in meters
       }
     }
   ]
 }
 
-RepeatBlock = {
-  "intervals": [Interval],
-  "repeatCount": number,
-  "name": "string (optional) — one of: Sprint, Pace, Tempo, Recovery, Jog, Stride, Threshold, Race Pace, Cruise, Fartlek, Hill, Build Up, Easy Run, Steady, Speed, Endurance"
-}
+WorkoutBlock = Segment | RepeatGroup
 
-Interval = {
-  "type": "warmup" | "hard" | "easy" | "cooldown",
-  "durationSeconds": number — set to 0 for distance-based intervals,
-  "distanceMeters": number (optional) — if set with durationSeconds=0, interval ends by GPS distance,
+Segment = {
+  "blockType": "segment",
+  "segmentType": "warmup" | "run" | "recovery" | "rest" | "cooldown",
   "label": "string (optional)",
-  "effort": number (optional, RPE 1-10),
+  "target": { "type": "time" | "distance", "durationSeconds": number, "distanceMeters": number },
+  "intensity": "recovery" | "easy" | "moderate" | "tempo" | "hard" | "sprint" (optional),
   "targetPace": number (optional, min/mile e.g. 8.5 = 8:30/mi)
 }
+
+RepeatGroup = {
+  "blockType": "repeat",
+  "repetitions": number,
+  "name": "string (optional)",
+  "blocks": [WorkoutBlock]
+}
+
+Segment types:
+- "warmup": warm-up at the start
+- "run": main effort (intensity determines how hard)
+- "recovery": active recovery between efforts (jog, walk)
+- "rest": complete stop
+- "cooldown": cool-down at the end
+
+Intensity levels: "recovery" | "easy" | "moderate" | "tempo" | "hard" | "sprint"
 
 Category meanings:
 - "easy": recovery runs, easy-effort runs
@@ -144,13 +170,12 @@ Category meanings:
 - "race": race simulations, time trials, race-distance runs
 
 Rules:
-- effort and targetPace are MUTUALLY EXCLUSIVE per interval. Use at most one.
-- If the runner has pace data, prefer targetPace for hard/tempo intervals.
-- An interval can be TIME-BASED (durationSeconds > 0) or DISTANCE-BASED (durationSeconds = 0, distanceMeters > 0). Use distance-based for track repeats (400m, 800m, mile repeats) and race-distance runs.
-- durationSeconds must be a non-negative integer (0 for distance-based intervals).
-- repeatCount must be a positive integer (1 = no repeat).
-- warmup and cooldown can be empty [].
-- blocks must have at least one RepeatBlock.
+- intensity and targetPace are MUTUALLY EXCLUSIVE per segment. Use at most one.
+- If the runner has pace data, prefer targetPace for hard/tempo segments.
+- A segment target can be TIME-BASED (type "time", durationSeconds > 0) or DISTANCE-BASED (type "distance", distanceMeters > 0).
+- blocks must have at least one block.
+- repetitions must be a positive integer (1 = no repeat, use a Segment instead).
+- Put warmup segments at the start and cooldown at the end of the blocks array.
 - Return one workout object per date requested, in the same order.
 - Match the workout to the day_label and description from the plan outline.
 - Scale intensity and volume to the training phase (week_theme) and weekly mileage target.
@@ -162,7 +187,7 @@ Real training plans reuse the same core workouts across weeks with small progres
 
 - REUSE workout structures across weeks. If Week 3 has 4×800m repeats, Week 5 can use the same structure with 5×800m or a slightly faster target pace — don't invent a completely different interval workout.
 - Limit interval variety. A good plan uses 3–5 distinct interval session types across the whole cycle (e.g. short repeats, long repeats, tempo intervals, fartlek). Vary the volume/intensity, not the format.
-- Easy runs should be simple. An "Easy Run" is just a single easy block — don't add intervals, strides, or complexity. Keep the structure identical across weeks, only adjusting duration.
+- Easy runs should be simple. An "Easy Run" is just a single easy segment — don't add intervals, strides, or complexity. Keep the structure identical across weeks, only adjusting duration.
 - Long runs should also be simple unless the label explicitly says "progression" or "tempo finish."
 - Progress through volume first (more repeats, longer duration), then intensity (faster pace, shorter recovery). Don't change the workout format each week.
 - When multiple workouts in the same batch share the same day_label (e.g. two "Intervals" days), they can share the same structure — differentiate only by repeat count or pace target.`);

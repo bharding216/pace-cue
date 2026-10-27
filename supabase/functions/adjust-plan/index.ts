@@ -39,6 +39,8 @@ interface RequestBody {
     title: string;
     race_type: string;
     race_date: string;
+    goal_type?: 'race' | 'pace_target';
+    goal_pace?: number | null;
     start_date: string;
     days_per_week: number;
     total_weeks: number;
@@ -69,13 +71,24 @@ Be encouraging and explain WHY you're making the changes (e.g. "Moving your long
 
   // Plan context
   const plan = body.plan_summary;
+  const isPaceTarget = plan.goal_type === 'pace_target';
   const upcomingWorkouts = plan.workouts
     .filter((w) => w.status === "planned")
     .slice(0, 21); // Next 3 weeks
 
+  let goalLine: string;
+  if (isPaceTarget) {
+    const paceStr = plan.goal_pace
+      ? `${Math.floor(plan.goal_pace)}:${String(Math.round((plan.goal_pace - Math.floor(plan.goal_pace)) * 60)).padStart(2, '0')}/mi`
+      : 'target pace';
+    goalLine = `Goal: Hold ${paceStr} comfortably by ${plan.race_date} (pace development plan — no race)`;
+  } else {
+    goalLine = `Race: ${plan.race_type} on ${plan.race_date}`;
+  }
+
   sections.push(`## Current Plan
 Title: ${plan.title}
-Race: ${plan.race_type} on ${plan.race_date}
+${goalLine}
 Training days/week: ${plan.days_per_week}
 Total weeks: ${plan.total_weeks}
 

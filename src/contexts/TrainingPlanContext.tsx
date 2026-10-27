@@ -67,7 +67,7 @@ interface TrainingPlanContextType {
   /** Restore an archived plan back to active */
   restorePlan: (planId: string) => Promise<void>;
   /** Update mutable plan fields (race_date, days_per_week, etc.) */
-  updatePlan: (planId: string, fields: Partial<Pick<import('../types/database').TrainingPlan, 'race_date' | 'days_per_week' | 'title' | 'goal_time_minutes'>>) => Promise<void>;
+  updatePlan: (planId: string, fields: Partial<Pick<import('../types/database').TrainingPlan, 'race_date' | 'days_per_week' | 'title' | 'goal_time_minutes' | 'goal_pace'>>) => Promise<void>;
 }
 
 const TrainingPlanContext = createContext<TrainingPlanContextType | null>(null);
@@ -278,7 +278,7 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
 
   const updatePlanFn = useCallback(async (
     planId: string,
-    fields: Partial<Pick<TrainingPlan, 'race_date' | 'days_per_week' | 'title' | 'goal_time_minutes'>>,
+    fields: Partial<Pick<TrainingPlan, 'race_date' | 'days_per_week' | 'title' | 'goal_time_minutes' | 'goal_pace'>>,
   ) => {
     await updateTrainingPlanApi(planId, fields);
     setPlans((prev) =>

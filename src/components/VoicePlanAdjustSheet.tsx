@@ -114,7 +114,7 @@ function buildQuickChips(
     });
   }
 
-  if (daysToRace > 0 && daysToRace <= 14 && plan.race_type !== 'custom') {
+  if (daysToRace > 0 && daysToRace <= 14 && plan.race_type !== 'custom' && (plan.goal_type ?? 'race') === 'race') {
     chips.push({
       icon: 'flag-outline',
       label: 'Help me taper',
@@ -310,6 +310,8 @@ export function VoicePlanAdjustSheet({
           title: plan.title,
           raceType: plan.race_type,
           raceDate: plan.race_date,
+          goalType: plan.goal_type ?? 'race',
+          goalPace: plan.goal_pace ?? null,
           startDate: plan.start_date,
           daysPerWeek: plan.days_per_week,
           totalWeeks,

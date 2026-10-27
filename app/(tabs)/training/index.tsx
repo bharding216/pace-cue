@@ -83,7 +83,7 @@ export default function TrainingScreen() {
   );
 
   const raceDates = useMemo(
-    () => racePlans.filter((p) => p.race_date).map((p) => p.race_date),
+    () => racePlans.filter((p) => p.race_date && (p.goal_type ?? 'race') === 'race').map((p) => p.race_date),
     [racePlans],
   );
 

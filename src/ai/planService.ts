@@ -11,7 +11,8 @@
 
 import { supabase } from '../analytics/supabaseClient';
 import { generateId } from '../workout/workoutTypes';
-import type { TrainingPlan, PlanWorkout, PlanOutlineWeek, RaceType } from '../types/database';
+import { migrateToBlockModel } from '../workout/workoutStorage';
+import type { TrainingPlan, PlanWorkout, PlanOutlineWeek, RaceType, GoalType } from '../types/database';
 import type { AIContext } from './aiWorkoutService';
 import { serializeHistorySummary } from './historySummary';
 
@@ -39,6 +40,10 @@ export interface PlanGenerationInput {
   customDistanceMeters?: number;
   raceDate: string;
   goalTimeMinutes?: number | null;
+  /** 'race' (default) or 'pace_target' — determines plan structure and AI prompts. */
+  goalType?: GoalType;
+  /** Target pace in min/mile decimal (e.g. 8.5 = 8:30/mi). Only for pace_target plans. */
+  goalPace?: number | null;
   startDate: string;
   daysPerWeek: number;
   /** If set, the user prefers a flexible range from daysPerWeekMin to daysPerWeek days. */
@@ -138,67 +143,10 @@ async function extractFunctionError(error: any, fallback: string): Promise<strin
 
 // ── AI Workout Normalizer ───────────────────────────────────
 
-/**
- * Normalize AI-generated workout data so warmup/cooldown intervals
- * are placed in their dedicated arrays instead of inside `blocks`.
- *
- * The AI frequently puts warmup and cooldown intervals into the
- * main `blocks` array. This function detects them by `type` and
- * `label` and moves them to the correct section.
+/** Normalize AI-generated workout data to the new block model.
+ * Old-format responses (warmup/blocks/cooldown) are migrated.
+ * New-format responses (blocks with blockType) are passed through.
  */
-function normalizeWorkoutSections(workout: {
-  name: string;
-  warmup: any[];
-  blocks: any[];
-  cooldown: any[];
-}): { name: string; warmup: any[]; blocks: any[]; cooldown: any[] } {
-  const isWarmup = (int: any) =>
-    int.type === 'warmup' || /warm/i.test(int.label ?? '');
-  const isCooldown = (int: any) =>
-    int.type === 'cooldown' || /cool/i.test(int.label ?? '');
-
-  const warmup = [...(workout.warmup ?? [])];
-  const cooldown = [...(workout.cooldown ?? [])];
-  const cleaned: any[] = [];
-
-  for (const block of workout.blocks ?? []) {
-    const intervals: any[] = block.intervals ?? [];
-    if (intervals.length === 0) {
-      cleaned.push(block);
-      continue;
-    }
-
-    const repeats = block.repeatCount ?? block.repeat ?? 1;
-
-    // For non-repeating blocks, split leading warmup / trailing cooldown
-    // For repeating blocks, also split — warmup/cooldown shouldn't repeat
-    let leadEnd = 0;
-    while (leadEnd < intervals.length && isWarmup(intervals[leadEnd])) leadEnd++;
-    let trailStart = intervals.length;
-    while (trailStart > leadEnd && isCooldown(intervals[trailStart - 1])) trailStart--;
-
-    const leading = intervals.slice(0, leadEnd);
-    const core = intervals.slice(leadEnd, trailStart);
-    const trailing = intervals.slice(trailStart);
-
-    if (leading.length > 0) {
-      warmup.push({ intervals: leading, repeatCount: 1, name: block.name && leading.length === intervals.length ? block.name : undefined });
-    }
-    if (core.length > 0) {
-      cleaned.push({ ...block, intervals: core, repeatCount: repeats });
-    }
-    if (trailing.length > 0) {
-      cooldown.push({ intervals: trailing, repeatCount: 1 });
-    }
-  }
-
-  return {
-    name: workout.name,
-    warmup,
-    blocks: cleaned,
-    cooldown,
-  };
-}
 
 // ── Phase 1: Plan Outline ───────────────────────────────────
 
@@ -225,6 +173,8 @@ export async function generatePlanOutline(input: PlanGenerationInput): Promise<P
       race_distance_meters: input.raceType === 'custom' ? (input.customDistanceMeters ?? null) : getRaceDistanceMeters(input.raceType),
       race_date: input.raceDate,
       goal_time_minutes: input.goalTimeMinutes,
+      goal_type: input.goalType ?? 'race',
+      goal_pace: input.goalPace ?? null,
       start_date: input.startDate,
       days_per_week: input.daysPerWeek,
       days_per_week_min: input.daysPerWeekMin ?? null,
@@ -277,6 +227,8 @@ export async function generateWorkoutDetails(
       race_type: plan.race_type,
       race_date: plan.race_date,
       goal_time_minutes: plan.goal_time_minutes,
+      goal_type: plan.goal_type ?? 'race',
+      goal_pace: plan.goal_pace ?? null,
       days_per_week: plan.days_per_week,
       total_weeks: totalWeeks,
       workouts: workoutRequests,
@@ -298,18 +250,15 @@ export async function generateWorkoutDetails(
       const matchingPw = workoutsToDetail.find((pw) => pw.date === detail.date);
       if (!matchingPw || !detail.workout) return Promise.resolve();
 
-      const normalized = normalizeWorkoutSections({
+      const workoutData = migrateToBlockModel({
+        id: generateId(),
         name: detail.workout.name,
         warmup: detail.workout.warmup ?? [],
         blocks: detail.workout.blocks ?? [],
         cooldown: detail.workout.cooldown ?? [],
-      });
-      const workoutData = {
-        id: generateId(),
-        ...normalized,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-      };
+      });
 
       return supabase
         .from('plan_workouts')
@@ -359,6 +308,8 @@ export async function generateWorkoutDetailsWithProfile(
       race_type: plan.race_type,
       race_date: plan.race_date,
       goal_time_minutes: plan.goal_time_minutes,
+      goal_type: plan.goal_type ?? 'race',
+      goal_pace: plan.goal_pace ?? null,
       days_per_week: plan.days_per_week,
       total_weeks: totalWeeks,
       workouts: workoutRequests,
@@ -379,18 +330,15 @@ export async function generateWorkoutDetailsWithProfile(
       const matchingPw = workoutsToDetail.find((pw) => pw.date === detail.date);
       if (!matchingPw || !detail.workout) return Promise.resolve();
 
-      const normalized = normalizeWorkoutSections({
+      const workoutData = migrateToBlockModel({
+        id: generateId(),
         name: detail.workout.name,
         warmup: detail.workout.warmup ?? [],
         blocks: detail.workout.blocks ?? [],
         cooldown: detail.workout.cooldown ?? [],
-      });
-      const workoutData = {
-        id: generateId(),
-        ...normalized,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-      };
+      });
 
       return supabase
         .from('plan_workouts')
@@ -461,6 +409,8 @@ export interface PlanAdjustmentInput {
     title: string;
     raceType: string;
     raceDate: string;
+    goalType?: string;
+    goalPace?: number | null;
     startDate: string;
     daysPerWeek: number;
     totalWeeks: number;
@@ -489,6 +439,8 @@ export async function adjustPlan(input: PlanAdjustmentInput): Promise<PlanAdjust
       title: input.planSummary.title,
       race_type: input.planSummary.raceType,
       race_date: input.planSummary.raceDate,
+      goal_type: input.planSummary.goalType ?? 'race',
+      goal_pace: input.planSummary.goalPace ?? null,
       start_date: input.planSummary.startDate,
       days_per_week: input.planSummary.daysPerWeek,
       total_weeks: input.planSummary.totalWeeks,
@@ -667,6 +619,8 @@ export async function savePlanOutline(
       race_distance_meters: input.raceType === 'custom' ? (input.customDistanceMeters ?? null) : getRaceDistanceMeters(input.raceType),
       race_date: input.raceDate,
       goal_time_minutes: input.goalTimeMinutes ?? null,
+      goal_type: input.goalType ?? 'race',
+      goal_pace: input.goalPace ?? null,
       start_date: input.startDate,
       days_per_week: input.daysPerWeek,
       outline: result.weeks,
@@ -731,6 +685,16 @@ export async function loadActivePlans(userId: string): Promise<TrainingPlan[]> {
   return (data ?? []) as TrainingPlan[];
 }
 
+/** Migrate workout_data on each PlanWorkout from old to new block model. */
+function migratePlanWorkoutData(workouts: PlanWorkout[]): PlanWorkout[] {
+  return workouts.map((pw) => {
+    if (pw.workout_data && typeof pw.workout_data === 'object') {
+      return { ...pw, workout_data: migrateToBlockModel(pw.workout_data) };
+    }
+    return pw;
+  });
+}
+
 /** Load all workouts for a given plan. */
 export async function loadPlanWorkouts(planId: string): Promise<PlanWorkout[]> {
   const { data, error } = await supabase
@@ -744,7 +708,7 @@ export async function loadPlanWorkouts(planId: string): Promise<PlanWorkout[]> {
     return [];
   }
 
-  return (data ?? []) as PlanWorkout[];
+  return migratePlanWorkoutData((data ?? []) as PlanWorkout[]);
 }
 
 /** Load all plan workouts for a user across all plans (active + archived). */
@@ -760,7 +724,7 @@ export async function loadUserPlanWorkouts(userId: string): Promise<PlanWorkout[
     return [];
   }
 
-  return (data ?? []) as PlanWorkout[];
+  return migratePlanWorkoutData((data ?? []) as PlanWorkout[]);
 }
 
 /**
@@ -783,6 +747,7 @@ export async function ensureCustomPlan(userId: string): Promise<TrainingPlan> {
       title: 'My Training Calendar',
       race_type: 'custom',
       race_date: today,
+      goal_type: 'race',
       start_date: today,
       days_per_week: 5,
       status: 'active',
@@ -816,7 +781,7 @@ export async function loadPlanWorkoutsInRange(
     return [];
   }
 
-  return (data ?? []) as PlanWorkout[];
+  return migratePlanWorkoutData((data ?? []) as PlanWorkout[]);
 }
 
 /** Mark a plan workout as completed and link to the completed workout. */
@@ -917,17 +882,15 @@ export async function applyPlanModifications(
 
       if (mod.action === 'update') {
         const workoutData = mod.workout
-          ? {
+          ? migrateToBlockModel({
               id: generateId(),
-              ...normalizeWorkoutSections({
-                name: mod.workout.name,
-                warmup: mod.workout.warmup ?? [],
-                blocks: mod.workout.blocks ?? [],
-                cooldown: mod.workout.cooldown ?? [],
-              }),
+              name: mod.workout.name,
+              warmup: mod.workout.warmup ?? [],
+              blocks: mod.workout.blocks ?? [],
+              cooldown: mod.workout.cooldown ?? [],
               createdAt: Date.now(),
               updatedAt: Date.now(),
-            }
+            })
           : null;
 
         console.log(`[applyMods] workout data:`, workoutData ? `name=${workoutData.name}, blocks=${workoutData.blocks.length}` : 'null');
@@ -1009,9 +972,7 @@ export async function addWorkoutToCalendar(
       workout_data: {
         id: workout.id,
         name: workout.name,
-        warmup: workout.warmup ?? [],
         blocks: workout.blocks ?? [],
-        cooldown: workout.cooldown ?? [],
         targetDistanceMeters: workout.targetDistanceMeters ?? null,
         createdAt: workout.createdAt ?? Date.now(),
         updatedAt: Date.now(),
@@ -1078,7 +1039,7 @@ export async function loadArchivedPlans(userId: string): Promise<TrainingPlan[]>
 /** Update mutable fields on a training plan (e.g. race_date, days_per_week). */
 export async function updateTrainingPlan(
   planId: string,
-  fields: Partial<Pick<TrainingPlan, 'race_date' | 'days_per_week' | 'title' | 'goal_time_minutes'>>,
+  fields: Partial<Pick<TrainingPlan, 'race_date' | 'days_per_week' | 'title' | 'goal_time_minutes' | 'goal_pace'>>,
 ): Promise<void> {
   const { error } = await supabase
     .from('training_plans')

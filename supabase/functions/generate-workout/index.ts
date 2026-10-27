@@ -89,27 +89,43 @@ Respond with ONLY a JSON object (no markdown fences, no extra text) matching:
   "workout": {
     "name": "string — short workout name, e.g. 'Tempo Run' or 'Hill Repeats'",
     "category": "easy" | "tempo" | "intervals" | "long_run" | "race",
-    "warmup": [RepeatBlock],
-    "blocks": [RepeatBlock],
-    "cooldown": [RepeatBlock],
+    "blocks": [WorkoutBlock],
     "targetDistanceMeters": number (optional) — total workout auto-finish distance in meters
   }
 }
 
-RepeatBlock = {
-  "intervals": [Interval],
-  "repeatCount": number,
-  "name": "string (optional) — one of: Sprint, Pace, Tempo, Recovery, Jog, Stride, Threshold, Race Pace, Cruise, Fartlek, Hill, Build Up, Easy Run, Steady, Speed, Endurance"
-}
+WorkoutBlock = Segment | RepeatGroup
 
-Interval = {
-  "type": "warmup" | "hard" | "easy" | "cooldown",
-  "durationSeconds": number — set to 0 for distance-based intervals,
-  "distanceMeters": number (optional) — if set with durationSeconds=0, interval ends by GPS distance,
+Segment = {
+  "blockType": "segment",
+  "segmentType": "warmup" | "run" | "recovery" | "rest" | "cooldown",
   "label": "string (optional) — human-readable label e.g. 'Sprint', 'Recovery Jog'",
-  "effort": number (optional) — RPE 1-10,
+  "target": { "type": "time" | "distance", "durationSeconds": number, "distanceMeters": number },
+  "intensity": "recovery" | "easy" | "moderate" | "tempo" | "hard" | "sprint" (optional),
   "targetPace": number (optional) — min/mile e.g. 8.5 = 8:30/mi
 }
+
+RepeatGroup = {
+  "blockType": "repeat",
+  "repetitions": number,
+  "name": "string (optional)",
+  "blocks": [WorkoutBlock]
+}
+
+Segment types:
+- "warmup": warm-up segments at the start of the workout
+- "run": the main effort segments (intensity determines how hard)
+- "recovery": active recovery between hard efforts (jog, walk)
+- "rest": complete stop/standing rest
+- "cooldown": cool-down segments at the end
+
+Intensity levels:
+- "recovery": very easy, used for segment type "recovery"
+- "easy": conversational pace
+- "moderate": comfortably hard
+- "tempo": lactate threshold effort
+- "hard": VO2max / speed work effort
+- "sprint": near-max sprint effort
 
 Category meanings:
 - "easy": recovery runs, easy-effort runs
@@ -119,14 +135,15 @@ Category meanings:
 - "race": race simulations, time trials, race-distance runs
 
 Rules:
-- effort and targetPace are MUTUALLY EXCLUSIVE on each interval. Use at most one.
-- If the runner's profile includes pace data, prefer targetPace for hard/tempo intervals.
-- Otherwise use effort.
-- An interval can be TIME-BASED (durationSeconds > 0) or DISTANCE-BASED (durationSeconds = 0, distanceMeters > 0). Use distance-based for track repeats (400m, 800m, mile repeats) and race-distance runs.
-- warmup and cooldown arrays can be empty [] if not needed.
-- blocks must have at least one RepeatBlock.
-- durationSeconds must be a non-negative integer (0 for distance-based intervals).
-- repeatCount must be a positive integer (1 = no repeat).
+- intensity and targetPace are MUTUALLY EXCLUSIVE per segment. Use at most one.
+- If the runner's profile includes pace data, prefer targetPace for hard/tempo segments.
+- Otherwise use intensity.
+- A segment target can be TIME-BASED (type "time", durationSeconds > 0) or DISTANCE-BASED (type "distance", distanceMeters > 0). Use distance-based for track repeats (400m, 800m, mile repeats) and race-distance runs.
+- For time-based targets, include durationSeconds in the target object. For distance-based, include distanceMeters.
+- blocks must have at least one block.
+- repetitions must be a positive integer (1 = no repeat, just use a Segment instead).
+- Use RepeatGroups for interval sets: e.g. 6× (3 min run + 2 min recovery).
+- Put warmup segments at the start and cooldown at the end of the blocks array — they are top-level Segments, not inside RepeatGroups.
 - targetDistanceMeters is optional — use for race-distance workouts (e.g. 5000 for 5K, 21097 for half marathon).`);
 
   return sections.join("\n\n");

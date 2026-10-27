@@ -3,7 +3,16 @@
  * Organized by purpose: easy, tempo, intervals, long run, and race.
  */
 
-import { WorkoutDefinition, generateId } from './workoutTypes';
+import {
+  WorkoutDefinition,
+  generateId,
+  type Segment,
+  type RepeatGroup,
+  type WorkoutBlock,
+  type SegmentType,
+  type Intensity,
+  type SegmentTarget,
+} from './workoutTypes';
 
 /** Names of presets that use distance-based intervals, used for backfill detection. */
 const DISTANCE_PRESET_NAMES = [
@@ -31,482 +40,240 @@ export function getMissingDistancePresets(existing: WorkoutDefinition[]): Workou
   );
 }
 
+// ── Block-building helpers ───────────────────────────────────────────
+
+function seg(
+  segmentType: SegmentType,
+  target: SegmentTarget,
+  opts?: { label?: string; intensity?: Intensity; targetPace?: number },
+): Segment {
+  return {
+    id: generateId(),
+    blockType: 'segment',
+    segmentType,
+    target,
+    label: opts?.label,
+    intensity: opts?.intensity,
+    targetPace: opts?.targetPace,
+  };
+}
+
+function time(seconds: number): SegmentTarget {
+  return { type: 'time', durationSeconds: seconds };
+}
+
+function dist(meters: number): SegmentTarget {
+  return { type: 'distance', distanceMeters: meters };
+}
+
+function repeat(
+  repetitions: number,
+  blocks: WorkoutBlock[],
+  name?: string,
+): RepeatGroup {
+  return { id: generateId(), blockType: 'repeat', repetitions, name, blocks };
+}
+
 export function createPresets(): WorkoutDefinition[] {
   const now = Date.now();
+  const w = (name: string, blocks: WorkoutBlock[], extra?: Partial<WorkoutDefinition>): WorkoutDefinition => ({
+    id: generateId(),
+    name,
+    blocks,
+    createdAt: now,
+    updatedAt: now,
+    ...extra,
+  });
 
   return [
     // ── Easy / Recovery ──────────────────────────────────────────────
 
-    {
-      id: generateId(),
-      name: 'Easy 30 Min',
-      category: 'easy',
-      warmup: [],
-      blocks: [
-        {
-          intervals: [
-            { type: 'easy', durationSeconds: 1800, label: 'Easy Run' },
-          ],
-          repeatCount: 1,
-        },
-      ],
-      cooldown: [],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: 'Easy 45 Min',
-      category: 'easy',
-      warmup: [],
-      blocks: [
-        {
-          intervals: [
-            { type: 'easy', durationSeconds: 2700, label: 'Easy Run' },
-          ],
-          repeatCount: 1,
-        },
-      ],
-      cooldown: [],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: '2 Mile Easy',
-      category: 'easy',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'easy', durationSeconds: 0, distanceMeters: 3219, label: 'Easy Run' },
-          ],
-          repeatCount: 1,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 180 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: 'Run/Walk',
-      category: 'easy',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 180, label: 'Walk' }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'easy', durationSeconds: 180, label: 'Run' },
-            { type: 'easy', durationSeconds: 60, label: 'Walk' },
-          ],
-          repeatCount: 8,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 120, label: 'Walk' }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
+    w('Easy 30 Min', [
+      seg('run', time(1800), { label: 'Easy Run', intensity: 'easy' }),
+    ], { category: 'easy' }),
+
+    w('Easy 45 Min', [
+      seg('run', time(2700), { label: 'Easy Run', intensity: 'easy' }),
+    ], { category: 'easy' }),
+
+    w('2 Mile Easy', [
+      seg('warmup', time(300)),
+      seg('run', dist(3219), { label: 'Easy Run', intensity: 'easy' }),
+      seg('cooldown', time(180)),
+    ], { category: 'easy' }),
+
+    w('Run/Walk', [
+      seg('warmup', time(180), { label: 'Walk' }),
+      repeat(8, [
+        seg('run', time(180), { label: 'Run', intensity: 'easy' }),
+        seg('recovery', time(60), { label: 'Walk' }),
+      ]),
+      seg('cooldown', time(120), { label: 'Walk' }),
+    ], { category: 'easy' }),
 
     // ── Tempo ──────────────────────────────────────────────────────
 
-    {
-      id: generateId(),
-      name: 'Tempo Run',
-      category: 'tempo',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 480 }], repeatCount: 1 },
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 20, label: 'Stride' },
-            { type: 'easy', durationSeconds: 60, label: 'Easy Jog' },
-          ],
-          repeatCount: 3,
-        },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 1200, label: 'Tempo' },
-          ],
-          repeatCount: 1,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: '10K Steady',
-      category: 'tempo',
-      targetDistanceMeters: 10000,
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 480 }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 0, distanceMeters: 10000, label: 'Steady' },
-          ],
-          repeatCount: 1,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
+    w('Tempo Run', [
+      seg('warmup', time(480)),
+      repeat(3, [
+        seg('run', time(20), { label: 'Stride', intensity: 'hard' }),
+        seg('recovery', time(60), { label: 'Easy Jog' }),
+      ]),
+      seg('run', time(1200), { label: 'Tempo', intensity: 'tempo' }),
+      seg('cooldown', time(300)),
+    ], { category: 'tempo' }),
+
+    w('10K Steady', [
+      seg('warmup', time(480)),
+      seg('run', dist(10000), { label: 'Steady', intensity: 'tempo' }),
+      seg('cooldown', time(300)),
+    ], { category: 'tempo', targetDistanceMeters: 10000 }),
 
     // ── Intervals ──────────────────────────────────────────────────
 
-    {
-      id: generateId(),
-      name: '5K Speed',
-      category: 'intervals',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 600 }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 180, label: 'Hard' },
-            { type: 'easy', durationSeconds: 120, label: 'Easy' },
-          ],
-          repeatCount: 6,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: 'Short Intervals',
-      category: 'intervals',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 90, label: 'Sprint' },
-            { type: 'easy', durationSeconds: 90, label: 'Recover' },
-          ],
-          repeatCount: 8,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: 'Pyramid',
-      category: 'intervals',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 600 }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 60 },
-            { type: 'easy', durationSeconds: 60 },
-          ],
-          repeatCount: 1,
-        },
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 120 },
-            { type: 'easy', durationSeconds: 120 },
-          ],
-          repeatCount: 1,
-        },
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 180 },
-            { type: 'easy', durationSeconds: 180 },
-          ],
-          repeatCount: 1,
-        },
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 120 },
-            { type: 'easy', durationSeconds: 120 },
-          ],
-          repeatCount: 1,
-        },
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 60 },
-            { type: 'easy', durationSeconds: 60 },
-          ],
-          repeatCount: 1,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: 'Fartlek',
-      category: 'intervals',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 600 }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 120, label: 'Speed' },
-            { type: 'easy', durationSeconds: 60, label: 'Jog' },
-          ],
-          repeatCount: 3,
-        },
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 60, label: 'Sprint' },
-            { type: 'easy', durationSeconds: 60, label: 'Jog' },
-          ],
-          repeatCount: 3,
-        },
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 30, label: 'Sprint' },
-            { type: 'easy', durationSeconds: 30, label: 'Float' },
-          ],
-          repeatCount: 4,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: 'Hill Repeats',
-      category: 'intervals',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 600 }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 60, label: 'Hill' },
-            { type: 'easy', durationSeconds: 90, label: 'Jog' },
-          ],
-          repeatCount: 8,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: 'Mile Repeats (Distance)',
-      category: 'intervals',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 600 }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 0, distanceMeters: 1609, label: 'Race Pace' },
-            { type: 'easy', durationSeconds: 120, label: 'Recovery' },
-          ],
-          repeatCount: 4,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: 'Mile Intervals',
-      category: 'intervals',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 600 }], repeatCount: 1 },
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 20, label: 'Stride' },
-            { type: 'easy', durationSeconds: 60, label: 'Easy Jog' },
-          ],
-          repeatCount: 3,
-        },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 360, label: 'Race Pace' },
-            { type: 'easy', durationSeconds: 120, label: 'Recovery' },
-          ],
-          repeatCount: 4,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: '400m Repeats',
-      category: 'intervals',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 600 }], repeatCount: 1 },
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 20, label: 'Stride' },
-            { type: 'easy', durationSeconds: 40, label: 'Easy Jog' },
-          ],
-          repeatCount: 4,
-        },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 90, label: 'Sprint' },
-            { type: 'easy', durationSeconds: 90, label: 'Recovery' },
-          ],
-          repeatCount: 10,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: '5K Training',
-      category: 'intervals',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 480 }], repeatCount: 1 },
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 20, label: 'Stride' },
-            { type: 'easy', durationSeconds: 60, label: 'Easy Jog' },
-          ],
-          repeatCount: 3,
-        },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 300, label: 'Tempo' },
-            { type: 'easy', durationSeconds: 120, label: 'Recovery' },
-          ],
-          repeatCount: 3,
-        },
-        {
-          intervals: [
-            { type: 'hard', durationSeconds: 60, label: 'Speed' },
-            { type: 'easy', durationSeconds: 60, label: 'Jog' },
-          ],
-          repeatCount: 3,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
+    w('5K Speed', [
+      seg('warmup', time(600)),
+      repeat(6, [
+        seg('run', time(180), { label: 'Hard', intensity: 'hard' }),
+        seg('recovery', time(120), { label: 'Easy' }),
+      ]),
+      seg('cooldown', time(300)),
+    ], { category: 'intervals' }),
+
+    w('Short Intervals', [
+      seg('warmup', time(300)),
+      repeat(8, [
+        seg('run', time(90), { label: 'Sprint', intensity: 'sprint' }),
+        seg('recovery', time(90), { label: 'Recover' }),
+      ]),
+      seg('cooldown', time(300)),
+    ], { category: 'intervals' }),
+
+    w('Pyramid', [
+      seg('warmup', time(600)),
+      repeat(1, [
+        seg('run', time(60), { intensity: 'hard' }),
+        seg('recovery', time(60)),
+      ]),
+      repeat(1, [
+        seg('run', time(120), { intensity: 'hard' }),
+        seg('recovery', time(120)),
+      ]),
+      repeat(1, [
+        seg('run', time(180), { intensity: 'hard' }),
+        seg('recovery', time(180)),
+      ]),
+      repeat(1, [
+        seg('run', time(120), { intensity: 'hard' }),
+        seg('recovery', time(120)),
+      ]),
+      repeat(1, [
+        seg('run', time(60), { intensity: 'hard' }),
+        seg('recovery', time(60)),
+      ]),
+      seg('cooldown', time(300)),
+    ], { category: 'intervals' }),
+
+    w('Fartlek', [
+      seg('warmup', time(600)),
+      repeat(3, [
+        seg('run', time(120), { label: 'Speed', intensity: 'hard' }),
+        seg('recovery', time(60), { label: 'Jog' }),
+      ]),
+      repeat(3, [
+        seg('run', time(60), { label: 'Sprint', intensity: 'sprint' }),
+        seg('recovery', time(60), { label: 'Jog' }),
+      ]),
+      repeat(4, [
+        seg('run', time(30), { label: 'Sprint', intensity: 'sprint' }),
+        seg('recovery', time(30), { label: 'Float' }),
+      ]),
+      seg('cooldown', time(300)),
+    ], { category: 'intervals' }),
+
+    w('Hill Repeats', [
+      seg('warmup', time(600)),
+      repeat(8, [
+        seg('run', time(60), { label: 'Hill', intensity: 'hard' }),
+        seg('recovery', time(90), { label: 'Jog' }),
+      ]),
+      seg('cooldown', time(300)),
+    ], { category: 'intervals' }),
+
+    w('Mile Repeats (Distance)', [
+      seg('warmup', time(600)),
+      repeat(4, [
+        seg('run', dist(1609), { label: 'Race Pace', intensity: 'hard' }),
+        seg('recovery', time(120), { label: 'Recovery' }),
+      ]),
+      seg('cooldown', time(300)),
+    ], { category: 'intervals' }),
+
+    w('Mile Intervals', [
+      seg('warmup', time(600)),
+      repeat(3, [
+        seg('run', time(20), { label: 'Stride', intensity: 'hard' }),
+        seg('recovery', time(60), { label: 'Easy Jog' }),
+      ]),
+      repeat(4, [
+        seg('run', time(360), { label: 'Race Pace', intensity: 'hard' }),
+        seg('recovery', time(120), { label: 'Recovery' }),
+      ]),
+      seg('cooldown', time(300)),
+    ], { category: 'intervals' }),
+
+    w('400m Repeats', [
+      seg('warmup', time(600)),
+      repeat(4, [
+        seg('run', time(20), { label: 'Stride', intensity: 'hard' }),
+        seg('recovery', time(40), { label: 'Easy Jog' }),
+      ]),
+      repeat(10, [
+        seg('run', time(90), { label: 'Sprint', intensity: 'sprint' }),
+        seg('recovery', time(90), { label: 'Recovery' }),
+      ]),
+      seg('cooldown', time(300)),
+    ], { category: 'intervals' }),
+
+    w('5K Training', [
+      seg('warmup', time(480)),
+      repeat(3, [
+        seg('run', time(20), { label: 'Stride', intensity: 'hard' }),
+        seg('recovery', time(60), { label: 'Easy Jog' }),
+      ]),
+      repeat(3, [
+        seg('run', time(300), { label: 'Tempo', intensity: 'tempo' }),
+        seg('recovery', time(120), { label: 'Recovery' }),
+      ]),
+      repeat(3, [
+        seg('run', time(60), { label: 'Speed', intensity: 'sprint' }),
+        seg('recovery', time(60), { label: 'Jog' }),
+      ]),
+      seg('cooldown', time(300)),
+    ], { category: 'intervals' }),
 
     // ── Long Runs ──────────────────────────────────────────────────
 
-    {
-      id: generateId(),
-      name: 'Long Run 60 Min',
-      category: 'long_run',
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'easy', durationSeconds: 3300, label: 'Endurance' },
-          ],
-          repeatCount: 1,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
+    w('Long Run 60 Min', [
+      seg('warmup', time(300)),
+      seg('run', time(3300), { label: 'Endurance', intensity: 'easy' }),
+      seg('cooldown', time(300)),
+    ], { category: 'long_run' }),
 
     // ── Race / Time Trial ──────────────────────────────────────────
 
-    {
-      id: generateId(),
-      name: '5K Easy Run',
-      category: 'race',
-      targetDistanceMeters: 5000,
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'easy', durationSeconds: 0, distanceMeters: 5000, label: 'Easy Run' },
-          ],
-          repeatCount: 1,
-        },
-      ],
-      cooldown: [
-        { intervals: [{ type: 'cooldown', durationSeconds: 300 }], repeatCount: 1 },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId(),
-      name: 'Half Marathon Run/Walk',
-      category: 'race',
-      targetDistanceMeters: 21097,
-      warmup: [
-        { intervals: [{ type: 'warmup', durationSeconds: 300, label: 'Walk' }], repeatCount: 1 },
-      ],
-      blocks: [
-        {
-          intervals: [
-            { type: 'easy', durationSeconds: 600, label: 'Run' },
-            { type: 'easy', durationSeconds: 60, label: 'Walk' },
-          ],
-          repeatCount: 15,
-        },
-      ],
-      cooldown: [],
-      createdAt: now,
-      updatedAt: now,
-    },
+    w('5K Easy Run', [
+      seg('warmup', time(300)),
+      seg('run', dist(5000), { label: 'Easy Run', intensity: 'easy' }),
+      seg('cooldown', time(300)),
+    ], { category: 'race', targetDistanceMeters: 5000 }),
+
+    w('Half Marathon Run/Walk', [
+      seg('warmup', time(300), { label: 'Walk' }),
+      repeat(15, [
+        seg('run', time(600), { label: 'Run', intensity: 'easy' }),
+        seg('recovery', time(60), { label: 'Walk' }),
+      ]),
+    ], { category: 'race', targetDistanceMeters: 21097 }),
   ];
 }
