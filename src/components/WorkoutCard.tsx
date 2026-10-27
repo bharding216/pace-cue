@@ -61,10 +61,11 @@ export function WorkoutCard({
   return (
     <TouchableOpacity
       activeOpacity={0.9}
-      onPress={onEdit}
+      onPress={() => {
+        if (!isActive) onEdit();
+      }}
       onLongPress={drag}
       delayLongPress={200}
-      disabled={isActive}
       style={[styles.card, isActive && styles.cardActive]}
     >
       <View style={styles.header}>
@@ -153,7 +154,7 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     marginBottom: Spacing.md,
     borderWidth: 1,
-    borderColor: Colors.surfaceLight,
+    borderColor: Colors.textMuted,
   },
   cardActive: {
     backgroundColor: Colors.surface,
