@@ -23,6 +23,7 @@ import RetentionCurveChart from '@/components/RetentionCurveChart';
 import TodaysActivity from '@/components/TodaysActivity';
 import AIUsageBreakdown from '@/components/AIUsageBreakdown';
 import SignOutButton from '@/components/SignOutButton';
+import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,7 +68,15 @@ export default async function DashboardPage() {
             Signed in as {user?.email}
           </p>
         </div>
-        <SignOutButton />
+        <div className="flex items-center gap-3">
+          <Link
+            href="/notifications"
+            className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+          >
+            Notifications
+          </Link>
+          <SignOutButton />
+        </div>
       </header>
 
       {/* ── Usage ─────────────────────────────────────────── */}

@@ -113,10 +113,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         image: './assets/splash-icon.png',
         imageWidth: 200,
-        backgroundColor: '#181818',
+        backgroundColor: '#000000',
         dark: {
           image: './assets/splash-icon.png',
-          backgroundColor: '#181818',
+          backgroundColor: '#000000',
         },
       },
     ],
@@ -125,6 +125,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         microphonePermission: 'SplitCue uses the microphone for voice commands to your AI coach.',
         enableBackgroundPlayback: true,
+      },
+    ],
+    [
+      'expo-notifications',
+      {
+        icon: './assets/notification-icon.png',
+        color: '#4ADE80',
+        defaultChannel: 'announcements',
       },
     ],
     [

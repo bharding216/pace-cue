@@ -36,7 +36,7 @@ function uuid(): string {
  * Get or create a persistent anonymous user ID.
  * Created once on first call, then cached in memory + AsyncStorage.
  */
-async function getAnonymousId(): Promise<string> {
+export async function getAnonymousId(): Promise<string> {
   if (cachedId) return cachedId;
 
   try {

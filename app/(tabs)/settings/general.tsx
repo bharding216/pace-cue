@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -20,17 +21,62 @@ import { loadSettings, saveSettings } from '../../../src/workout/workoutStorage'
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 import { hapticTap } from '../../../src/audio/haptics';
 import { exportData, importData } from '../../../src/workout/backupManager';
+import {
+  disablePushNotifications,
+  enablePushNotifications,
+  getPushToggleState,
+} from '../../../src/notifications/pushRegistration';
 
 export default function GeneralSettingsScreen() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushDenied, setPushDenied] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+
+  const refreshPushToggle = useCallback(() => {
+    getPushToggleState().then((state) => {
+      setPushEnabled(state.enabled);
+      setPushDenied(state.osDenied);
+    });
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       loadSettings().then(setSettings);
-    }, []),
+      refreshPushToggle();
+    }, [refreshPushToggle]),
   );
+
+  const handlePushToggle = async (on: boolean) => {
+    if (pushBusy) return;
+    hapticTap();
+    setPushEnabled(on);
+    setPushBusy(true);
+    try {
+      if (on) {
+        const result = await enablePushNotifications();
+        if (!result.ok && result.osDenied) {
+          Alert.alert(
+            'Notifications are off',
+            'Enable notifications for SplitCue in system settings to hear about new features.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            ],
+          );
+        } else if (!result.ok && result.error) {
+          Alert.alert('Notifications', result.error);
+        }
+      } else {
+        await disablePushNotifications();
+      }
+      refreshPushToggle();
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   const update = async (partial: Partial<AppSettings>) => {
     const next = { ...settings, ...partial };
@@ -96,6 +142,31 @@ export default function GeneralSettingsScreen() {
           thumbColor={Colors.white}
         />
       </View>
+
+      {/* Feature notifications */}
+      <Text style={styles.sectionTitle}>Notifications</Text>
+      <Text style={styles.sectionSub}>
+        Get a notification when we ship something new.
+      </Text>
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>New feature updates</Text>
+        <Switch
+          value={pushEnabled}
+          disabled={pushBusy}
+          onValueChange={handlePushToggle}
+          trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
+          thumbColor={Colors.white}
+        />
+      </View>
+      {pushDenied && !pushEnabled && (
+        <TouchableOpacity
+          onPress={() => Linking.openSettings()}
+          activeOpacity={0.7}
+          style={styles.settingsLink}
+        >
+          <Text style={styles.settingsLinkText}>Open system settings</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Backup & Restore */}
       <Text style={styles.sectionTitle}>Backup & Restore</Text>
@@ -180,5 +251,14 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '600',
     color: Colors.textPrimary,
+  },
+  settingsLink: {
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  settingsLinkText: {
+    fontSize: FontSize.sm,
+    color: Colors.accent,
+    fontWeight: '600',
   },
 });

@@ -165,6 +165,45 @@ export type PlanWorkout = {
   updated_at: string;
 };
 
+// ── Push notifications ───────────────────────────────────────
+
+export type PushPlatform = 'ios' | 'android';
+export type PushEnvironment = 'development' | 'preview' | 'production';
+
+export type PushToken = {
+  id: string;
+  token: string;
+  anonymous_user_id: string | null;
+  user_id: string | null;
+  platform: PushPlatform;
+  environment: PushEnvironment;
+  app_version: string | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  last_seen_at: string;
+};
+
+export type PushSendTicket = {
+  token: string;
+  ticketId: string | null;
+  status: 'ok' | 'error';
+  error: string | null;
+};
+
+export type PushSend = {
+  id: string;
+  title: string;
+  body: string;
+  url: string | null;
+  environments: string[];
+  recipient_count: number;
+  error_count: number;
+  tickets: PushSendTicket[];
+  created_at: string;
+  receipts_checked_at: string | null;
+};
+
 // ── Constants ────────────────────────────────────────────────
 
 export const FREE_TIER_AI_WORKOUTS = 5;

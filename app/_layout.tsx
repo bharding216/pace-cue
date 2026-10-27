@@ -18,10 +18,15 @@ import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { SubscriptionProvider } from '../src/contexts/SubscriptionContext';
 import { TrainingPlanProvider } from '../src/contexts/TrainingPlanContext';
 import { syncAll } from '../src/sync/cloudSync';
+import {
+  maybePromptForFeatureUpdates,
+  refreshPushToken,
+  subscribeToNotificationOpens,
+} from '../src/notifications/pushRegistration';
 
 function RootLayoutInner() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const prevUserIdRef = useRef<string | null>(null);
 
   // End any Live Activities orphaned by a force-kill during a workout.
@@ -33,6 +38,20 @@ function RootLayoutInner() {
   useEffect(() => {
     track('app_opened');
   }, []);
+
+  // Open an in-app path when the user taps a push notification.
+  useEffect(() => {
+    return subscribeToNotificationOpens((url) => {
+      router.push(url as any);
+    });
+  }, [router]);
+
+  // Keep the device token current, and ask about feature updates once.
+  useEffect(() => {
+    if (authLoading) return;
+    refreshPushToken();
+    maybePromptForFeatureUpdates();
+  }, [authLoading, user?.id]);
 
   // Cloud sync on foreground + when user changes.
   // Clear local data when switching between accounts so the new user
