@@ -218,6 +218,9 @@ export const WORKOUT_TAG_GROUPS: readonly WorkoutTagGroup[] = [
 /** All valid preset tags (flat list for validation). */
 export const ALL_PRESET_TAGS = WORKOUT_TAG_GROUPS.flatMap((g) => g.tags);
 
+/** Quick Start workout type tiles. */
+export type QuickStartType = 'distance' | 'timed' | 'intervals' | 'tempo' | 'easy_run' | 'custom';
+
 export interface CompletedWorkout {
   id: string;
   workoutId: string;
@@ -228,6 +231,14 @@ export interface CompletedWorkout {
   totalDistanceMeters?: number;
   route?: RoutePoint[]; // full GPS track with elevation (null if pace tracking was off)
   tags?: string[]; // user-applied tags from WORKOUT_TAG_GROUPS
+  /** Snapshot of the WorkoutDefinition used for this run (independent of later template edits). */
+  configuration?: WorkoutDefinition;
+  /** Library template id when started from a saved workout. */
+  templateId?: string;
+  /** plan_workouts.id when started from the training calendar. */
+  planWorkoutId?: string;
+  /** Which Quick Start tile was used, if any. */
+  quickStartType?: QuickStartType;
 }
 
 /** Audio cue preference. */

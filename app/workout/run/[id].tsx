@@ -34,8 +34,8 @@ import {
 } from '../../../src/workout/workoutTypes';
 import type { PaceCueFrequency } from '../../../src/pace/paceTypes';
 import { loadWorkouts, loadSettings, saveSettings } from '../../../src/workout/workoutStorage';
-import { getTempWorkout, clearTempWorkout } from '../../../src/workout/tempWorkoutCache';
-import { useWorkoutRunner } from '../../../src/hooks/useWorkoutRunner';
+import { getTempWorkout, getTempWorkoutMeta, clearTempWorkout } from '../../../src/workout/tempWorkoutCache';
+import { useWorkoutRunner, type SessionMeta } from '../../../src/hooks/useWorkoutRunner';
 import { Timer } from '../../../src/components/Timer';
 import { IntervalProgress } from '../../../src/components/IntervalProgress';
 import { formatPaceDisplay, formatDistance } from '../../../src/pace/paceTracker';
@@ -57,6 +57,7 @@ import { ChallengeFriendCard } from '../../../src/components/ChallengeFriendCard
 import { RouteMap } from '../../../src/components/RouteMap';
 import { NewRecordsBanner } from '../../../src/components/PersonalBests';
 import { updateHistoryEntry, loadHistory } from '../../../src/workout/workoutStorage';
+import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
 import { detectNewRecords, detectNewAwards, computeStats } from '../../../src/stats/personalRecords';
 import type { PersonalRecord, AwardBadge } from '../../../src/stats/personalRecords';
 
@@ -67,17 +68,23 @@ export default function ActiveWorkoutScreen() {
   const router = useRouter();
   const [workout, setWorkout] = useState<WorkoutDefinition | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [sessionMeta, setSessionMeta] = useState<SessionMeta | undefined>();
 
   useEffect(() => {
     const cached = getTempWorkout(id!);
     if (cached) {
+      const meta = getTempWorkoutMeta(id!);
       clearTempWorkout(id!);
       setWorkout(cached);
+      setSessionMeta(meta ? { ...meta } : undefined);
       loadSettings().then(setSettings);
     } else {
       Promise.all([loadWorkouts(), loadSettings()]).then(([workouts, s]) => {
         const found = workouts.find((w) => w.id === id);
-        if (found) setWorkout(found);
+        if (found) {
+          setWorkout(found);
+          setSessionMeta({ templateId: found.id });
+        }
         setSettings(s);
       });
     }
@@ -108,6 +115,7 @@ export default function ActiveWorkoutScreen() {
       workout={workout}
       settings={settings}
       onUpdateSettings={updateSettings}
+      sessionMeta={sessionMeta}
     />
   );
 }
@@ -116,18 +124,22 @@ function ActiveWorkoutInner({
   workout,
   settings,
   onUpdateSettings,
+  sessionMeta,
 }: {
   workout: WorkoutDefinition;
   settings: AppSettings;
   onUpdateSettings: (partial: Partial<AppSettings>) => Promise<void>;
+  sessionMeta?: SessionMeta;
 }) {
   const router = useRouter();
-  const runner = useWorkoutRunner(workout, settings);
+  const runner = useWorkoutRunner(workout, settings, sessionMeta);
+  const { completeWorkout: completePlanWorkout } = useTrainingPlan();
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [newRecords, setNewRecords] = useState<PersonalRecord[]>([]);
   const [newAwards, setNewAwards] = useState<AwardBadge[]>([]);
   const [allRecords, setAllRecords] = useState<PersonalRecord[]>([]);
+  const planCompletionDone = useRef(false);
 
   const { state } = runner;
 
@@ -142,6 +154,20 @@ function ActiveWorkoutInner({
       setAllRecords(computeStats(history).records);
     }).catch(() => {});
   }, [state.phase, runner.completedEntryId]);
+
+  // Mark the plan workout as completed when a plan run finishes
+  useEffect(() => {
+    if (
+      state.phase !== 'finished' ||
+      !runner.completedEntryId ||
+      !sessionMeta?.planWorkoutId ||
+      planCompletionDone.current
+    ) return;
+    planCompletionDone.current = true;
+    completePlanWorkout(sessionMeta.planWorkoutId, runner.completedEntryId).catch((e) =>
+      console.warn('Failed to complete plan workout:', e),
+    );
+  }, [state.phase, runner.completedEntryId, sessionMeta?.planWorkoutId, completePlanWorkout]);
 
   // Save tags to the completed history entry whenever they change
   useEffect(() => {

@@ -30,14 +30,21 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   WorkoutDefinition,
+  CompletedWorkout,
   categorizeWorkout,
   WorkoutCategory,
+  generateId,
+  totalWorkoutSeconds,
+  formatTime,
 } from '../../src/workout/workoutTypes';
-import { loadWorkouts, deleteWorkout, saveWorkouts } from '../../src/workout/workoutStorage';
-import { createPresets, getMissingDistancePresets } from '../../src/workout/presets';
+import { loadWorkouts, loadHistory, deleteWorkout, saveWorkouts } from '../../src/workout/workoutStorage';
+import { setTempWorkout } from '../../src/workout/tempWorkoutCache';
 import { WorkoutCard } from '../../src/components/WorkoutCard';
+import { QUICK_START_TILES } from '../../src/workout/quickStartDefaults';
 import { hapticTap } from '../../src/audio/haptics';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { useTrainingPlan } from '../../src/contexts/TrainingPlanContext';
+import { TodayWorkoutCard } from '../../src/components/TodayWorkoutCard';
 import { onSyncStatusChange } from '../../src/sync/cloudSync';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 
@@ -467,28 +474,75 @@ const CATEGORIES: CategoryConfig[] = [
   },
 ];
 
+function formatRelativeDate(epoch: number): string {
+  const diff = Date.now() - epoch;
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  return new Date(epoch).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/** Build a structural fingerprint for deduplication — ignores name, id, timestamps. */
+function structureKey(w: WorkoutDefinition): string {
+  const strip = (blocks: typeof w.blocks) =>
+    blocks.map((b) => ({
+      intervals: b.intervals.map((i) => ({
+        type: i.type,
+        dur: i.durationSeconds,
+        dist: i.distanceMeters ?? 0,
+      })),
+      reps: b.repeatCount,
+    }));
+  return JSON.stringify({
+    warmup: strip(w.warmup),
+    blocks: strip(w.blocks),
+    cooldown: strip(w.cooldown),
+    target: w.targetDistanceMeters ?? 0,
+    category: w.category ?? '',
+  });
+}
+
+/** Return up to 5 unique recent configurations from history. */
+function getRecentWorkouts(history: CompletedWorkout[]): CompletedWorkout[] {
+  const seen = new Set<string>();
+  const result: CompletedWorkout[] = [];
+  for (const run of history) {
+    if (!run.configuration) continue;
+    const key = structureKey(run.configuration);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(run);
+    if (result.length >= 5) break;
+  }
+  return result;
+}
+
+function todayDateKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { dayEntries } = useTrainingPlan();
   const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
+  const [recentRuns, setRecentRuns] = useState<CompletedWorkout[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const todayEntry = dayEntries[todayDateKey()];
+  const todayPlanWorkout = todayEntry?.planWorkouts?.[0] ?? null;
   const [expanded, setExpanded] = useState<Set<WorkoutCategory>>(new Set());
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0);
 
   const reload = useCallback(async () => {
-    let data = await loadWorkouts();
-    if (data.length === 0) {
-      data = createPresets();
-      await saveWorkouts(data);
-    } else {
-      const missing = getMissingDistancePresets(data);
-      if (missing.length > 0) {
-        data = [...missing, ...data];
-        await saveWorkouts(data);
-      }
-    }
+    const [data, history] = await Promise.all([loadWorkouts(), loadHistory()]);
     setWorkouts(data);
+    setRecentRuns(getRecentWorkouts(history));
     setLoading(false);
   }, []);
 
@@ -584,19 +638,96 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Action buttons */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={styles.newBtn}
-            onPress={() => router.push('/workout/new')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="add" size={18} color={Colors.black} />
-            <Text style={styles.newBtnText}>Create Custom Workout</Text>
-          </TouchableOpacity>
+        {/* Today's Planned Workout */}
+        {todayPlanWorkout && (
+          <TodayWorkoutCard
+            planWorkout={todayPlanWorkout}
+            onStart={(workoutData, planWorkoutId) => {
+              const workout = {
+                ...workoutData,
+                id: workoutData.id || generateId(),
+                updatedAt: Date.now(),
+              };
+              setTempWorkout(workout, { planWorkoutId });
+              router.push({ pathname: '/workout/configure' as any, params: { id: workout.id } });
+            }}
+            onAdjust={() => {
+              router.push('/(tabs)/training' as any);
+            }}
+          />
+        )}
+
+        {/* Quick Start */}
+        <View style={styles.quickStartSection}>
+          <Text style={styles.sectionLabel}>QUICK START</Text>
+          <Text style={styles.sectionSubtext}>What kind of run are you doing today?</Text>
+          <View style={styles.quickStartGrid}>
+            {QUICK_START_TILES.map((tile) => (
+              <TouchableOpacity
+                key={tile.type}
+                style={styles.quickStartTile}
+                onPress={() => router.push({ pathname: '/workout/configure' as any, params: { quickStart: tile.type } })}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.quickStartIcon, { backgroundColor: tile.color + '22' }]}>
+                  <Ionicons name={tile.icon as any} size={22} color={tile.color} />
+                </View>
+                <Text style={styles.quickStartLabel}>{tile.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
-        {/* Category sections */}
+        {/* Recently Used */}
+        {recentRuns.length > 0 && (
+          <View style={styles.recentSection}>
+            <Text style={styles.sectionLabel}>RECENTLY USED</Text>
+            {recentRuns.map((run) => {
+              const config = run.configuration!;
+              const secs = totalWorkoutSeconds(config);
+              const ago = formatRelativeDate(run.completedAt);
+              return (
+                <TouchableOpacity
+                  key={run.id}
+                  style={styles.recentCard}
+                  onPress={() => {
+                    const draft = { ...config, id: generateId(), updatedAt: Date.now() };
+                    setTempWorkout(draft, { templateId: run.templateId });
+                    router.push({ pathname: '/workout/configure' as any, params: { id: draft.id } });
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.recentCardMain}>
+                    <Text style={styles.recentName} numberOfLines={1}>
+                      {config.name || run.workoutName}
+                    </Text>
+                    <Text style={styles.recentMeta}>
+                      {secs > 0 ? formatTime(secs) : ''}{' '}
+                      {ago}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.recentRepeatBtn}
+                    onPress={() => {
+                      const draft = { ...config, id: generateId(), updatedAt: Date.now() };
+                      setTempWorkout(draft, { templateId: run.templateId });
+                      router.push(`/workout/run/${draft.id}`);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="play" size={14} color={Colors.black} />
+                    <Text style={styles.recentRepeatText}>Repeat</Text>
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Your Workouts */}
+        {workouts.length > 0 && (
+          <Text style={[styles.sectionLabel, { marginTop: Spacing.lg }]}>YOUR WORKOUTS</Text>
+        )}
         {CATEGORIES.map((cat) => {
           const items = grouped[cat.key];
           const isExpanded = expanded.has(cat.key);
@@ -639,7 +770,7 @@ export default function HomeScreen() {
                       scrollY={scrollY}
                       onReorder={(ordered) => handleReorder(cat.key, ordered)}
                       onStart={(id) => router.push(`/workout/run/${id}`)}
-                      onEdit={(id) => router.push(`/workout/${id}`)}
+                      onEdit={(id) => router.push({ pathname: '/workout/configure' as any, params: { id } })}
                       onDelete={handleDelete}
                     />
                   )}
@@ -651,7 +782,7 @@ export default function HomeScreen() {
 
         {workouts.length === 0 && (
           <Text style={styles.emptyText}>
-            No workouts yet. Create one to get started!
+            No saved workouts yet. Tap Quick Start above to begin, or save a workout to build your library.
           </Text>
         )}
       </ScrollView>
@@ -697,25 +828,93 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 1,
   },
-  actionRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginBottom: Spacing.lg,
+  // ── Quick Start ──
+  quickStartSection: {
+    marginBottom: Spacing.md,
   },
-  newBtn: {
-    flex: 1,
+  sectionLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    color: Colors.textMuted,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: Spacing.xs,
+  },
+  sectionSubtext: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.md,
+  },
+  quickStartGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  quickStartTile: {
+    width: (Dimensions.get('window').width - Spacing.md * 2 - Spacing.sm * 2) / 3,
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    borderRadius: BorderRadius.lg,
+    paddingVertical: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  quickStartIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.primary,
-    paddingVertical: Spacing.sm + 4,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
   },
-  newBtnText: {
-    color: Colors.black,
+  quickStartLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+
+  // ── Recent section ──
+  recentSection: {
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  recentCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm + 2,
+    marginBottom: Spacing.xs,
+    borderWidth: 1,
+    borderColor: Colors.surfaceLight,
+  },
+  recentCardMain: {
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  recentName: {
     fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: 2,
+  },
+  recentMeta: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+  },
+  recentRepeatBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.xs + 2,
+    paddingHorizontal: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    gap: 4,
+  },
+  recentRepeatText: {
+    fontSize: FontSize.xs,
     fontWeight: '800',
+    color: Colors.black,
   },
 
   // ── Category sections ──

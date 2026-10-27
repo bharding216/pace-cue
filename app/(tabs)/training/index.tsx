@@ -166,13 +166,13 @@ export default function TrainingScreen() {
   const selectedDayEntry = dayEntries[selectedDate];
 
 
-  const handleStartWorkout = useCallback((workoutData: WorkoutDefinition) => {
+  const handleStartWorkout = useCallback((workoutData: WorkoutDefinition, planWorkoutId?: string) => {
     const workout: WorkoutDefinition = {
       ...workoutData,
       id: workoutData.id || generateId(),
       updatedAt: Date.now(),
     };
-    setTempWorkout(workout);
+    setTempWorkout(workout, { planWorkoutId });
     router.push(`/workout/run/${workout.id}`);
   }, [router]);
 
@@ -186,13 +186,13 @@ export default function TrainingScreen() {
     await moveWorkout(moveTarget.id, newDate);
   }, [moveTarget, moveWorkout]);
 
-  const handleEditWorkout = useCallback((workoutData: WorkoutDefinition) => {
+  const handleEditWorkout = useCallback((workoutData: WorkoutDefinition, planWorkoutId?: string) => {
     const workout: WorkoutDefinition = {
       ...workoutData,
       id: workoutData.id || generateId(),
       updatedAt: Date.now(),
     };
-    setTempWorkout(workout);
+    setTempWorkout(workout, { planWorkoutId });
     router.push(`/workout/${workout.id}`);
   }, [router]);
 
@@ -200,8 +200,14 @@ export default function TrainingScreen() {
     router.push(`/run/${historyEntryId}` as any);
   }, [router]);
 
-  const handleRunAgain = useCallback(async (workoutId: string) => {
-    router.push(`/workout/run/${workoutId}`);
+  const handleRunAgain = useCallback(async (run: import('../../../src/workout/workoutTypes').CompletedWorkout) => {
+    if (run.configuration) {
+      const draft = { ...run.configuration, id: generateId(), updatedAt: Date.now() };
+      setTempWorkout(draft, { templateId: run.templateId });
+      router.push(`/workout/run/${draft.id}`);
+    } else {
+      router.push(`/workout/run/${run.workoutId}`);
+    }
   }, [router]);
 
   const handleMoveWorkoutFromDay = useCallback((workoutId: string) => {

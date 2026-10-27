@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { DayEntry } from '../contexts/TrainingPlanContext';
-import type { WorkoutDefinition, WorkoutRepeatBlock, IntervalType } from '../workout/workoutTypes';
+import type { WorkoutDefinition, WorkoutRepeatBlock, IntervalType, CompletedWorkout } from '../workout/workoutTypes';
 import { formatTime, totalWorkoutSeconds, totalWorkoutDistanceMeters, isDistanceInterval } from '../workout/workoutTypes';
 import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../constants/theme';
 
@@ -24,14 +24,14 @@ import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../const
 interface DayDetailProps {
   entry: DayEntry | undefined;
   selectedDate: string;
-  onStartWorkout: (workoutData: WorkoutDefinition) => void;
+  onStartWorkout: (workoutData: WorkoutDefinition, planWorkoutId: string) => void;
   onRemoveWorkout?: (workoutId: string) => void;
   onMoveWorkout?: (workoutId: string) => void;
-  onEditWorkout?: (workoutData: WorkoutDefinition) => void;
+  onEditWorkout?: (workoutData: WorkoutDefinition, planWorkoutId: string) => void;
   /** Open voice-driven AI edit for a specific plan workout */
   onVoiceEdit?: (workoutId: string) => void;
   onViewRun: (historyEntryId: string) => void;
-  onRunAgain: (workoutId: string) => void;
+  onRunAgain: (run: CompletedWorkout) => void;
   onAddWorkout?: (date: string) => void;
 }
 
@@ -278,7 +278,7 @@ export function DayDetail({
                   <View style={styles.actionRow}>
                     <TouchableOpacity
                       style={styles.startBtn}
-                      onPress={() => onStartWorkout(pw.workout_data as WorkoutDefinition)}
+                      onPress={() => onStartWorkout(pw.workout_data as WorkoutDefinition, pw.id)}
                       activeOpacity={0.8}
                     >
                       <Ionicons name="play" size={16} color={Colors.black} />
@@ -288,7 +288,7 @@ export function DayDetail({
                     {onEditWorkout && (
                       <TouchableOpacity
                         style={styles.editBtn}
-                        onPress={() => onEditWorkout(pw.workout_data as WorkoutDefinition)}
+                        onPress={() => onEditWorkout(pw.workout_data as WorkoutDefinition, pw.id)}
                         activeOpacity={0.7}
                       >
                         <Ionicons name="create-outline" size={14} color={Colors.textPrimary} />
@@ -388,7 +388,7 @@ export function DayDetail({
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.secondaryBtn}
-              onPress={() => onRunAgain(run.workoutId)}
+              onPress={() => onRunAgain(run)}
               activeOpacity={0.7}
             >
               <Ionicons name="play" size={14} color={Colors.textPrimary} />

@@ -60,11 +60,19 @@ interface Props {
    * explicit "Save to Library" / "Save as New" actions instead.
    */
   isPlanWorkout?: boolean;
+  /**
+   * When true, the form is embedded in the configure screen.
+   * Hides save/cancel buttons (the parent provides Start Workout / Save Changes).
+   * Reports every change via onSessionChange.
+   */
+  sessionMode?: boolean;
+  /** Called on every edit when sessionMode is true. */
+  onSessionChange?: (workout: WorkoutDefinition) => void;
 }
 
 const EDIT_HINT_KEY = '@pacecue/edit_hint_shown';
 
-export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, autoSave, isPlanWorkout }: Props) {
+export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, autoSave, isPlanWorkout, sessionMode, onSessionChange }: Props) {
   const [name, setName] = useState(initial.name);
   const [warmup, setWarmup] = useState(initial.warmup);
   const [blocks, setBlocks] = useState(initial.blocks);
@@ -146,13 +154,27 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
 
   // Track edits for plan workout mode (no auto-save, but need to know if dirty)
   useEffect(() => {
-    if (!isPlanWorkout) return;
+    if (!isPlanWorkout && !sessionMode) return;
     if (isFirstRender.current) {
       isFirstRender.current = false;
       return;
     }
     setHasEdits(true);
   }, [name, warmup, blocks, cooldown, targetDistance, category]);
+
+  // Report changes to the parent in session mode
+  useEffect(() => {
+    if (!sessionMode || !onSessionChange) return;
+    onSessionChange({
+      ...initial,
+      name,
+      warmup,
+      blocks,
+      cooldown,
+      targetDistanceMeters: targetDistance > 0 ? targetDistance : undefined,
+      category,
+    });
+  }, [name, warmup, blocks, cooldown, targetDistance, category, sessionMode]);
 
   const dismissEditHint = useCallback(() => {
     Animated.timing(hintOpacity, {
@@ -298,7 +320,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
   return (
     <View style={styles.container}>
       {/* Sticky header for auto-save mode (library workouts) */}
-      {effectiveAutoSave && (
+      {effectiveAutoSave && !sessionMode && (
         <View style={styles.autoSaveHeader}>
           <View style={styles.autoSaveStatus}>
             {saveStatus === 'saved' ? (
@@ -336,7 +358,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
       )}
 
       {/* Sticky header for plan workout mode (not in library yet) */}
-      {isPlanWorkout && (
+      {isPlanWorkout && !sessionMode && (
         <View style={styles.planWorkoutHeader}>
           <View style={styles.planWorkoutBadge}>
             <Ionicons name="calendar-outline" size={14} color={Colors.accent} />
@@ -349,7 +371,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
       )}
 
       {/* One-time edit hint (auto-save mode only) */}
-      {showEditHint && effectiveAutoSave && (
+      {showEditHint && effectiveAutoSave && !sessionMode && (
         <Animated.View style={[styles.editHintBar, { opacity: hintOpacity }]}>
           <View style={styles.editHintContent}>
             <Ionicons name="information-circle-outline" size={16} color={Colors.accent} />
@@ -480,7 +502,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
       )}
 
       {/* Actions — new workout creation */}
-      {!autoSave && !isPlanWorkout && (
+      {!autoSave && !isPlanWorkout && !sessionMode && (
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.saveBtn}
@@ -500,7 +522,7 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
       )}
 
       {/* Actions — plan workout (explicit save to library) */}
-      {isPlanWorkout && (
+      {isPlanWorkout && !sessionMode && (
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.saveBtn}

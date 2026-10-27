@@ -21,6 +21,7 @@ import {
   IntervalType,
   isDistanceInterval,
   hasDistanceFeature,
+  QuickStartType,
 } from '../workout/workoutTypes';
 import {
   createEngineState,
@@ -163,9 +164,17 @@ export interface WorkoutRunnerControls {
   stop: () => void;
 }
 
+/** Session metadata passed through from the temp cache to the history entry. */
+export interface SessionMeta {
+  templateId?: string;
+  planWorkoutId?: string;
+  quickStartType?: QuickStartType;
+}
+
 export function useWorkoutRunner(
   workout: WorkoutDefinition,
-  settings: AppSettings
+  settings: AppSettings,
+  sessionMeta?: SessionMeta,
 ): WorkoutRunnerControls {
   const [engine, setEngine] = useState<EngineState>(() =>
     createEngineState(workout)
@@ -261,6 +270,10 @@ export function useWorkoutRunner(
       splits: [...splitsRef.current],
       totalDistanceMeters: ps.totalDistanceMeters > 0 ? ps.totalDistanceMeters : undefined,
       route: fullTrack.length > 0 ? samplesToRoute(fullTrack) : undefined,
+      configuration: workout,
+      templateId: sessionMeta?.templateId,
+      planWorkoutId: sessionMeta?.planWorkoutId,
+      quickStartType: sessionMeta?.quickStartType,
     };
     setCompletedEntryId(entryId);
     setCompletedRoute(entry.route ?? null);
@@ -269,7 +282,7 @@ export function useWorkoutRunner(
       console.warn('Failed to save workout history:', e),
     );
     return entryId;
-  }, [workout.id, workout.name]);
+  }, [workout.id, workout.name, sessionMeta]);
 
   // Live Activity: throttle updates to ~1/sec to stay within the system budget
   const lastLAUpdate = useRef(0);

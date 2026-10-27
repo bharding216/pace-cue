@@ -17,6 +17,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { CompletedWorkout, IntervalSplit, formatTime, generateId } from '../../src/workout/workoutTypes';
 import { loadHistory, loadWorkouts, loadSettings, saveWorkout } from '../../src/workout/workoutStorage';
+import { setTempWorkout } from '../../src/workout/tempWorkoutCache';
 import { DEFAULT_SETTINGS } from '../../src/workout/workoutTypes';
 import type { PaceUnit } from '../../src/pace/paceTypes';
 import { RouteMap } from '../../src/components/RouteMap';
@@ -188,14 +189,14 @@ export default function RunDetailsScreen() {
 
   const handleUseAsTemplate = async () => {
     if (!run) return;
-    const workouts = await loadWorkouts();
-    const source = workouts.find((w) => w.id === run.workoutId);
+    const source = run.configuration
+      ?? (await loadWorkouts()).find((w) => w.id === run.workoutId);
     if (source) {
       const newId = generateId();
       const copy = {
         ...source,
         id: newId,
-        name: `${source.name} (Copy)`,
+        name: `${source.name || run.workoutName} (Copy)`,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -324,7 +325,15 @@ export default function RunDetailsScreen() {
         <View style={styles.actionRow}>
           <TouchableOpacity
             style={styles.actionBtn}
-            onPress={() => router.push(`/workout/run/${run.workoutId}`)}
+            onPress={() => {
+              if (run.configuration) {
+                const draft = { ...run.configuration, id: generateId(), updatedAt: Date.now() };
+                setTempWorkout(draft, { templateId: run.templateId });
+                router.push(`/workout/run/${draft.id}`);
+              } else {
+                router.push(`/workout/run/${run.workoutId}`);
+              }
+            }}
             activeOpacity={0.7}
           >
             <Ionicons name="play" size={16} color={Colors.black} />

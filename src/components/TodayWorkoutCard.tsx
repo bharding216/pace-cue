@@ -13,7 +13,7 @@ import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 
 interface TodayWorkoutCardProps {
   planWorkout: PlanWorkout;
-  onStart: (workoutData: WorkoutDefinition) => void;
+  onStart: (workoutData: WorkoutDefinition, planWorkoutId: string) => void;
   onAdjust: () => void;
 }
 
@@ -104,7 +104,7 @@ export function TodayWorkoutCard({ planWorkout, onStart, onAdjust }: TodayWorkou
         <>
           <TouchableOpacity
             style={styles.startBtn}
-            onPress={() => onStart(workoutData)}
+            onPress={() => onStart(workoutData, planWorkout.id)}
             activeOpacity={0.8}
           >
             <Ionicons name="play" size={18} color={Colors.black} />

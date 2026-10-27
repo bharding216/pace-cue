@@ -183,6 +183,10 @@ function RootLayoutInner() {
           options={{ title: 'Edit Workout', presentation: 'modal' }}
         />
         <Stack.Screen
+          name="workout/configure"
+          options={{ title: 'Configure Run', presentation: 'modal' }}
+        />
+        <Stack.Screen
           name="workout/new"
           options={{ title: 'New Workout', presentation: 'modal' }}
         />

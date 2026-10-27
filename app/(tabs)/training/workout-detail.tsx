@@ -83,26 +83,26 @@ export default function WorkoutDetailScreen() {
   const isCompleted = planWorkout?.status === 'completed';
 
   const handleStart = useCallback(() => {
-    if (!workoutData) return;
+    if (!workoutData || !planWorkout) return;
     const workout: WorkoutDefinition = {
       ...workoutData,
       id: workoutData.id || generateId(),
       updatedAt: Date.now(),
     };
-    setTempWorkout(workout);
+    setTempWorkout(workout, { planWorkoutId: planWorkout.id });
     router.push(`/workout/run/${workout.id}`);
-  }, [workoutData, router]);
+  }, [workoutData, planWorkout, router]);
 
   const handleEdit = useCallback(() => {
-    if (!workoutData) return;
+    if (!workoutData || !planWorkout) return;
     const workout: WorkoutDefinition = {
       ...workoutData,
       id: workoutData.id || generateId(),
       updatedAt: Date.now(),
     };
-    setTempWorkout(workout);
+    setTempWorkout(workout, { planWorkoutId: planWorkout.id });
     router.push(`/workout/${workout.id}`);
-  }, [workoutData, router]);
+  }, [workoutData, planWorkout, router]);
 
   const handleGenerateDetail = useCallback(async () => {
     if (!planWorkout || !ownerPlan) return;

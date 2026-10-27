@@ -22,8 +22,9 @@ import ReanimatedSwipeable, {
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { CompletedWorkout, WorkoutDefinition, IntervalSplit, formatTime } from '../../src/workout/workoutTypes';
+import { CompletedWorkout, WorkoutDefinition, IntervalSplit, formatTime, generateId } from '../../src/workout/workoutTypes';
 import { loadHistory, clearHistory, deleteHistoryEntry, updateHistoryEntry, loadWorkouts, loadSettings } from '../../src/workout/workoutStorage';
+import { setTempWorkout } from '../../src/workout/tempWorkoutCache';
 import { TagBadges, TagPicker } from '../../src/components/TagPicker';
 import { exportData, importData } from '../../src/workout/backupManager';
 import { shareWorkoutResults } from '../../src/sharing/shareWorkout';
@@ -320,6 +321,16 @@ export default function HistoryScreen() {
       if (status === 'success') reload();
     });
   }, [reload]);
+
+  const handleRunAgain = useCallback((item: CompletedWorkout) => {
+    if (item.configuration) {
+      const draft = { ...item.configuration, id: generateId(), updatedAt: Date.now() };
+      setTempWorkout(draft, { templateId: item.templateId });
+      router.push(`/workout/run/${draft.id}`);
+    } else {
+      router.push(`/workout/run/${item.workoutId}`);
+    }
+  }, [router]);
 
   const handleShare = (item: CompletedWorkout) => {
     const def = workoutsRef.current.find((w) => w.id === item.workoutId) ?? null;
@@ -708,7 +719,7 @@ export default function HistoryScreen() {
                     <View style={styles.expandedActions}>
                       <TouchableOpacity
                         style={styles.actionBtn}
-                        onPress={() => router.push(`/workout/run/${item.workoutId}`)}
+                        onPress={() => handleRunAgain(item)}
                         activeOpacity={0.7}
                       >
                         <Ionicons name="play" size={14} color={Colors.black} />
