@@ -1,10 +1,15 @@
 /**
- * Shared "Push to Strava" button component.
+ * Shared "Upload to Strava" button component.
  *
  * Used on both the post-workout finished screen and the run history
- * details screen. Only renders when the user is signed in. With
- * `allowConnect`, users without Strava linked can connect and upload
- * in one tap; otherwise it renders only when Strava is connected.
+ * details screen. Renders only when Strava is connected, unless
+ * `allowConnect` is set:
+ *   - signed out: a "Sign in to upload to Strava" link to the login screen
+ *   - signed in, not connected: the official "Connect with Strava" button,
+ *     which connects and then uploads this run
+ *
+ * Strava's brand guidelines require their unmodified button artwork for
+ * the OAuth entry point and #FC5200 for "View on Strava" links.
  */
 
 import React, { useState } from 'react';
@@ -15,8 +20,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Linking,
+  Image,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useStrava } from './useStrava';
 import { hapticTap } from '../audio/haptics';
@@ -39,7 +46,7 @@ interface StravaPushButtonProps {
   route?: RoutePoint[];
   splits?: IntervalSplit[];
   configuration?: WorkoutDefinition;
-  /** Offer "Connect & upload" when Strava isn't linked yet. */
+  /** Offer sign-in / "Connect with Strava" when Strava isn't linked yet. */
   allowConnect?: boolean;
 }
 
@@ -57,17 +64,36 @@ export function StravaPushButton({
   configuration,
   allowConnect,
 }: StravaPushButtonProps) {
+  const router = useRouter();
   const { user } = useAuth();
   const strava = useStrava();
   const [pushState, setPushState] = useState<PushState>('idle');
   const [activityUrl, setActivityUrl] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Don't render if user isn't signed in, Strava isn't connected (unless
-  // connecting is offered), or the workout hasn't been saved yet
-  if (!user || strava.loading) return null;
+  // Don't render until the workout is saved and Strava status is known,
+  // or when Strava isn't connected and connecting isn't offered here
+  if (!completedEntryId || strava.loading) return null;
   if (!strava.isConnected && !allowConnect) return null;
-  if (!completedEntryId) return null;
+
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <TouchableOpacity
+          style={styles.signInLink}
+          onPress={() => {
+            hapticTap();
+            router.push('/login' as any);
+          }}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+        >
+          <Ionicons name="log-in-outline" size={16} color={Colors.textSecondary} />
+          <Text style={styles.signInText}>Sign in to upload to Strava</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   const handlePush = async () => {
     hapticTap();
@@ -147,7 +173,28 @@ export function StravaPushButton({
   }
 
   const busy = pushState === 'connecting' || pushState === 'pushing';
-  const label = strava.isConnected ? 'Upload to Strava' : 'Connect Strava & upload';
+
+  if (!strava.isConnected && !busy) {
+    return (
+      <View style={styles.container}>
+        <TouchableOpacity
+          style={styles.connectBtn}
+          onPress={handlePush}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Connect with Strava"
+        >
+          <Image
+            source={require('../../assets/strava/connect-with-strava.png')}
+            style={styles.connectImage}
+          />
+        </TouchableOpacity>
+        <Text style={styles.connectHint}>
+          Connect once and this run uploads right away. After that, uploads take one tap.
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -157,7 +204,7 @@ export function StravaPushButton({
         disabled={busy}
         activeOpacity={0.8}
         accessibilityRole="button"
-        accessibilityLabel={label}
+        accessibilityLabel="Upload to Strava"
       >
         {busy ? (
           <>
@@ -169,20 +216,15 @@ export function StravaPushButton({
         ) : (
           <>
             <Ionicons name="fitness-outline" size={18} color="#FFFFFF" />
-            <Text style={styles.pushBtnText}>{label}</Text>
+            <Text style={styles.pushBtnText}>Upload to Strava</Text>
           </>
         )}
       </TouchableOpacity>
-      {!strava.isConnected && !busy && (
-        <Text style={styles.connectHint}>
-          You'll sign in to Strava once. After that, uploads take one tap.
-        </Text>
-      )}
     </View>
   );
 }
 
-const STRAVA_ORANGE = '#FC4C02';
+const STRAVA_ORANGE = '#FC5200';
 
 const styles = StyleSheet.create({
   container: {
@@ -204,6 +246,25 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  connectBtn: {
+    alignSelf: 'center',
+  },
+  connectImage: {
+    width: 237,
+    height: 48,
+  },
+  signInLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.sm,
+  },
+  signInText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
   },
   connectHint: {
     marginTop: Spacing.xs,

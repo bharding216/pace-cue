@@ -12,6 +12,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -175,49 +176,55 @@ export default function AccountScreen() {
       <View style={styles.connectedAppsSection}>
         <Text style={styles.connectedAppsTitle}>Connected Apps</Text>
         <View style={styles.stravaCard}>
-          <View style={styles.stravaInfo}>
-            <View style={styles.stravaBrand}>
-              <Ionicons name="fitness-outline" size={22} color="#FC4C02" />
-              <Text style={styles.stravaName}>Strava</Text>
+          <View style={styles.stravaRow}>
+            <View style={styles.stravaInfo}>
+              <View style={styles.stravaBrand}>
+                <Ionicons name="fitness-outline" size={22} color="#FC5200" />
+                <Text style={styles.stravaName}>Strava</Text>
+              </View>
+              {strava.isConnected ? (
+                <Text style={styles.stravaStatus}>
+                  Connected{strava.athleteName ? ` as ${strava.athleteName}` : ''}
+                </Text>
+              ) : (
+                <Text style={styles.stravaStatus}>
+                  Upload completed workouts to Strava
+                </Text>
+              )}
             </View>
-            {strava.isConnected ? (
-              <Text style={styles.stravaStatus}>
-                Connected{strava.athleteName ? ` as ${strava.athleteName}` : ''}
-              </Text>
-            ) : (
-              <Text style={styles.stravaStatus}>
-                Push completed workouts to Strava
-              </Text>
+            {strava.isConnected && (
+              <TouchableOpacity
+                style={styles.stravaDisconnectBtn}
+                onPress={() => {
+                  hapticTap();
+                  strava.disconnect();
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.stravaDisconnectText}>Disconnect</Text>
+              </TouchableOpacity>
             )}
           </View>
-          {strava.isConnected ? (
-            <TouchableOpacity
-              style={styles.stravaDisconnectBtn}
-              onPress={() => {
-                hapticTap();
-                strava.disconnect();
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.stravaDisconnectText}>Disconnect</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={styles.stravaConnectBtn}
-              onPress={() => {
-                hapticTap();
-                strava.connect();
-              }}
-              disabled={strava.connecting}
-              activeOpacity={0.8}
-            >
-              {strava.connecting ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Text style={styles.stravaConnectText}>Connect</Text>
-              )}
-            </TouchableOpacity>
-          )}
+          {!strava.isConnected &&
+            (strava.connecting ? (
+              <ActivityIndicator color="#FC5200" style={styles.stravaConnecting} />
+            ) : (
+              <TouchableOpacity
+                style={styles.stravaConnectBtn}
+                onPress={() => {
+                  hapticTap();
+                  strava.connect();
+                }}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Connect with Strava"
+              >
+                <Image
+                  source={require('../../../assets/strava/connect-with-strava.png')}
+                  style={styles.stravaConnectImage}
+                />
+              </TouchableOpacity>
+            ))}
         </View>
       </View>
 
@@ -431,13 +438,15 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   stravaCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: Colors.surface,
     padding: Spacing.md,
     borderRadius: BorderRadius.md,
     borderWidth: 1.5,
     borderColor: Colors.surfaceLight,
+  },
+  stravaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   stravaInfo: {
     flex: 1,
@@ -459,17 +468,16 @@ const styles = StyleSheet.create({
     marginLeft: 22 + Spacing.sm,
   },
   stravaConnectBtn: {
-    backgroundColor: '#FC4C02',
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    minWidth: 90,
-    alignItems: 'center',
+    alignSelf: 'center',
+    marginTop: Spacing.md,
   },
-  stravaConnectText: {
-    color: '#FFFFFF',
-    fontSize: FontSize.sm,
-    fontWeight: '700',
+  stravaConnectImage: {
+    width: 237,
+    height: 48,
+  },
+  stravaConnecting: {
+    marginTop: Spacing.md,
+    height: 48,
   },
   stravaDisconnectBtn: {
     paddingVertical: Spacing.sm,
