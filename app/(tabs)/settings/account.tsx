@@ -26,8 +26,7 @@ export default function AccountScreen() {
   const router = useRouter();
   const { user, signOut, deleteAccount } = useAuth();
   const [deleting, setDeleting] = useState(false);
-  const { tier, subscription, aiWorkoutsUsed, aiWorkoutsLimit, manageSubscription } =
-    useSubscription();
+  const { tier, manageSubscription } = useSubscription();
 
   const strava = useStrava();
 
@@ -171,23 +170,6 @@ export default function AccountScreen() {
           safe and available if you switch devices.
         </Text>
       </View>
-
-      {/* AI Usage */}
-      {aiWorkoutsLimit != null && (
-        <View style={styles.syncBlock}>
-          <View style={styles.row}>
-            <Ionicons name="sparkles" size={20} color={Colors.accent} />
-            <Text style={styles.rowLabel}>
-              AI workouts this month: {aiWorkoutsUsed} / {aiWorkoutsLimit}
-            </Text>
-          </View>
-          <Text style={styles.syncHint}>
-            Each workout you save from the AI builder counts toward your
-            monthly limit. Editing or deleting a saved workout doesn't use
-            another credit.
-          </Text>
-        </View>
-      )}
 
       {/* Connected Apps */}
       <View style={styles.connectedAppsSection}>

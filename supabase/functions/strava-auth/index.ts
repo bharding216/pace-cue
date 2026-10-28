@@ -54,7 +54,9 @@ async function getAuthUserId(req: Request): Promise<string | null> {
 
 /** Service-role Supabase client for DB writes that bypass RLS. */
 function adminClient() {
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }
 
 // ── Handler ──────────────────────────────────────────────────
@@ -156,8 +158,8 @@ Deno.serve(async (req) => {
         );
 
       if (dbError) {
-        console.error("DB upsert error:", dbError);
-        return errorResponse("Failed to save Strava connection", 500);
+        console.error("DB upsert error:", JSON.stringify(dbError));
+        return errorResponse(`Failed to save Strava connection: ${dbError.message}`, 500);
       }
 
       return jsonResponse({

@@ -7,7 +7,6 @@
  * server-side.
  */
 
-import Constants from 'expo-constants';
 import * as WebBrowser from 'expo-web-browser';
 import { supabase } from '../analytics/supabaseClient';
 import { track } from '../analytics/track';
@@ -84,31 +83,24 @@ export interface ConnectResult {
  */
 export async function connectStrava(): Promise<ConnectResult> {
   try {
-    // Step 1: Get the authorize URL from the Edge Function
-    const { data: urlData, error: urlError } = await supabase.functions.invoke(
-      'strava-auth',
-      {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        body: undefined,
-        // Pass redirect_uri as a query param — supabase.functions.invoke
-        // doesn't support query params natively, so we encode it manually
-      },
-    );
-
-    // supabase.functions.invoke doesn't support GET query params cleanly,
-    // so we call the function URL directly
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       return { success: false, error: 'Please sign in first' };
     }
 
-    const fnUrl = `${Constants.expoConfig?.extra?.supabaseUrl ?? 'https://oakhqqrxsavmoeqlzcny.supabase.co'}/functions/v1/strava-auth?redirect_uri=${encodeURIComponent(STRAVA_REDIRECT_URI)}`;
+    // Step 1: Get the authorize URL from the Edge Function.
+    // We call the function URL directly (instead of supabase.functions.invoke)
+    // because we need to pass redirect_uri as a query param on a GET request.
+    const SUPABASE_URL = 'https://oakhqqrxsavmoeqlzcny.supabase.co';
+    const SUPABASE_ANON_KEY =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ha2hxcXJ4c2F2bW9lcWx6Y255Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyOTgyMDYsImV4cCI6MjEwNjg3NDIwNn0.kLmkWC2SgnSfaGY20s4WXo2n1BauLboEZZQDYbrKs4M';
+
+    const fnUrl = `${SUPABASE_URL}/functions/v1/strava-auth?redirect_uri=${encodeURIComponent(STRAVA_REDIRECT_URI)}`;
     const getRes = await fetch(fnUrl, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${session.access_token}`,
-        apikey: session.access_token,
+        apikey: SUPABASE_ANON_KEY,
       },
     });
 
@@ -143,24 +135,32 @@ export async function connectStrava(): Promise<ConnectResult> {
     }
 
     // Step 4: Exchange the code for tokens via the Edge Function
-    const { data, error } = await supabase.functions.invoke('strava-auth', {
-      body: { code },
+    const exchangeRes = await fetch(`${SUPABASE_URL}/functions/v1/strava-auth`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        apikey: SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ code }),
     });
 
-    if (error) {
-      const message = typeof error === 'object' && 'message' in error
-        ? (error as any).message
-        : 'Failed to connect Strava';
-      return { success: false, error: message };
+    const exchangeBody = await exchangeRes.json().catch(() => ({}));
+
+    if (!exchangeRes.ok) {
+      return {
+        success: false,
+        error: exchangeBody.error ?? `Strava connection failed (${exchangeRes.status})`,
+      };
     }
 
     track('strava_connected', {
-      strava_athlete_id: data?.stravaAthleteId,
+      strava_athlete_id: exchangeBody.stravaAthleteId,
     });
 
     return {
       success: true,
-      athleteName: data?.athleteName,
+      athleteName: exchangeBody.athleteName,
     };
   } catch (e: any) {
     console.warn('Strava connect error:', e);
@@ -176,11 +176,22 @@ export async function connectStrava(): Promise<ConnectResult> {
  */
 export async function disconnectStrava(): Promise<{ error?: string }> {
   try {
-    const { error } = await supabase.functions.invoke('strava-auth', {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return { error: 'Not signed in' };
+
+    const SUPABASE_URL = 'https://oakhqqrxsavmoeqlzcny.supabase.co';
+    const SUPABASE_ANON_KEY =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ha2hxcXJ4c2F2bW9lcWx6Y255Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyOTgyMDYsImV4cCI6MjEwNjg3NDIwNn0.kLmkWC2SgnSfaGY20s4WXo2n1BauLboEZZQDYbrKs4M';
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/strava-auth`, {
       method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
     });
 
-    if (error) {
+    if (!res.ok) {
       return { error: 'Failed to disconnect Strava' };
     }
 

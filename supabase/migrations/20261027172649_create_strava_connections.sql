@@ -37,3 +37,6 @@ create policy "Users can delete own strava connection"
 
 -- Inserts and updates go through the service_role key (Edge Functions).
 -- No insert/update policy for the authenticated role keeps tokens secure.
+
+-- The service role bypasses RLS but still needs table privileges.
+grant select, insert, update, delete on table public.strava_connections to service_role;

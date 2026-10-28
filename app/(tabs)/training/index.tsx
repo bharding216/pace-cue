@@ -479,7 +479,7 @@ export default function TrainingScreen() {
               activeOpacity={0.8}
             >
               <Ionicons name="add" size={18} color={Colors.black} />
-              <Text style={styles.addWorkoutBtnText}>Add Workout</Text>
+              <Text style={styles.addWorkoutBtnText} numberOfLines={1}>Add Workout</Text>
             </TouchableOpacity>
             {hasPlan && user && (
               <TouchableOpacity
@@ -488,24 +488,26 @@ export default function TrainingScreen() {
                 activeOpacity={0.8}
               >
                 <Ionicons name="add-circle-outline" size={18} color={Colors.accent} />
-                <Text style={styles.addPlanBannerText}>Add Plan</Text>
+                <Text style={styles.addPlanBannerText} numberOfLines={1}>Add Plan</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity
               style={styles.statsBtn}
-              onPress={() => router.push('/(tabs)/history' as any)}
+              onPress={() => router.push('/(tabs)/training/history' as any)}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="History"
             >
               <Ionicons name="time" size={18} color={Colors.primary} />
-              <Text style={styles.statsBtnText}>History</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.statsBtn}
               onPress={() => router.push('/(tabs)/training/stats' as any)}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Stats"
             >
               <Ionicons name="stats-chart" size={18} color={Colors.primary} />
-              <Text style={styles.statsBtnText}>Stats</Text>
             </TouchableOpacity>
           </View>
 
@@ -624,19 +626,13 @@ const styles = StyleSheet.create({
     color: Colors.black,
   },
   statsBtn: {
-    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md - 2,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
-  },
-  statsBtnText: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.textSecondary,
   },
   scrollContent: {
     padding: Spacing.md,
@@ -814,8 +810,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md - 2,
+    paddingVertical: Spacing.md,
+    gap: Spacing.xs,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
   },

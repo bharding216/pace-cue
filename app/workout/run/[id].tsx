@@ -215,7 +215,7 @@ function ActiveWorkoutInner({
 
   const handleFinishedDone = useCallback(() => {
     router.dismissAll();
-    router.navigate('/(tabs)/history');
+    router.navigate('/(tabs)/training/history' as any);
   }, [router]);
 
   // ── IDLE state ──

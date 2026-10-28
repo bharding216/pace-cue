@@ -20,6 +20,7 @@ export default function TrainingLayout() {
       <Stack.Screen name="profile" options={{ title: 'Running Profile' }} />
       <Stack.Screen name="chat" options={{ title: 'Adjust Plan' }} />
       <Stack.Screen name="stats" options={{ title: 'Stats & Records' }} />
+      <Stack.Screen name="history" options={{ title: 'History' }} />
     </Stack>
   );
 }

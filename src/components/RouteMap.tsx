@@ -5,11 +5,13 @@
  * Supports two overlay modes:
  *   - Pace heatmap: color-coded segments from green (fast) to red (slow)
  *   - Interval markers: shows where each workout interval started
+ * The map can be expanded into a full-screen modal.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import MapView, { Marker, Polyline, type Region } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { RoutePoint, IntervalSplit } from '../workout/workoutTypes';
 import type { PaceUnit } from '../pace/paceTypes';
@@ -244,7 +246,10 @@ export function RouteMap({
   records,
 }: RouteMapProps) {
   const mapRef = useRef<MapView>(null);
+  const fullscreenMapRef = useRef<MapView>(null);
+  const insets = useSafeAreaInsets();
   const [overlay, setOverlay] = useState<MapOverlay>('route');
+  const [fullscreen, setFullscreen] = useState(false);
 
   const coordinates = useMemo(
     () => route.map(toCoord),
@@ -274,18 +279,29 @@ export function RouteMap({
     return route[route.length - 1].dist > 50;
   }, [route]);
 
-  const fitMap = (animated: boolean) => {
-    if (coordinates.length > 1 && mapRef.current) {
-      mapRef.current.fitToCoordinates(coordinates, {
-        edgePadding: { top: 48, right: 32, bottom: 48, left: 32 },
-        animated,
-      });
+  const fitMap = (
+    ref: RefObject<MapView | null>,
+    animated: boolean,
+    edgePadding = { top: 48, right: 32, bottom: 48, left: 32 },
+  ) => {
+    if (coordinates.length > 1 && ref.current) {
+      ref.current.fitToCoordinates(coordinates, { edgePadding, animated });
     }
   };
 
+  // Leave room for the floating top bar and bottom legend panel
+  const fullscreenPadding = {
+    top: insets.top + 96,
+    right: 32,
+    bottom: insets.bottom + 120,
+    left: 32,
+  };
+  const fitFullscreenMap = (animated: boolean) =>
+    fitMap(fullscreenMapRef, animated, fullscreenPadding);
+
   useEffect(() => {
     // Small delay to ensure the map is rendered before fitting
-    const timeout = setTimeout(() => fitMap(true), 300);
+    const timeout = setTimeout(() => fitMap(mapRef, true), 300);
     return () => clearTimeout(timeout);
   }, [coordinates]);
 
@@ -294,192 +310,175 @@ export function RouteMap({
   const startCoord = toCoord(route[0]);
   const endCoord = toCoord(route[route.length - 1]);
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Route</Text>
-
-        {/* Overlay toggle: route vs pace heatmap */}
-        {hasPaceData && (
-          <View style={styles.toggleRow}>
-            <TouchableOpacity
-              style={[
-                styles.toggleBtn,
-                overlay === 'route' && styles.toggleBtnActive,
-              ]}
-              onPress={() => setOverlay('route')}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="navigate-outline"
-                size={12}
-                color={overlay === 'route' ? Colors.primary : Colors.textMuted}
-              />
-              <Text
-                style={[
-                  styles.toggleLabel,
-                  overlay === 'route' && styles.toggleLabelActive,
-                ]}
-              >
-                Route
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.toggleBtn,
-                overlay === 'pace' && styles.toggleBtnActive,
-              ]}
-              onPress={() => setOverlay('pace')}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="speedometer-outline"
-                size={12}
-                color={overlay === 'pace' ? Colors.primary : Colors.textMuted}
-              />
-              <Text
-                style={[
-                  styles.toggleLabel,
-                  overlay === 'pace' && styles.toggleLabelActive,
-                ]}
-              >
-                Pace
-              </Text>
-            </TouchableOpacity>
-
-            {hasRecords && (
-              <TouchableOpacity
-                style={[
-                  styles.toggleBtn,
-                  overlay === 'records' && styles.toggleBtnActive,
-                ]}
-                onPress={() => setOverlay('records')}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name="trophy-outline"
-                  size={12}
-                  color={overlay === 'records' ? Colors.warning : Colors.textMuted}
-                />
-                <Text
-                  style={[
-                    styles.toggleLabel,
-                    overlay === 'records' && styles.toggleLabelActive,
-                    overlay === 'records' && { color: Colors.warning },
-                  ]}
-                >
-                  PBs
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-      </View>
-
-      <View style={[styles.mapWrapper, { height }]}>
-        <MapView
-          ref={mapRef}
-          style={styles.map}
-          userInterfaceStyle="dark"
-          onLayout={() => fitMap(false)}
-          pitchEnabled={false}
-          rotateEnabled={false}
-          showsUserLocation={false}
-          showsMyLocationButton={false}
-          showsCompass={false}
-          showsScale={false}
-          showsTraffic={false}
-          showsBuildings={false}
-          showsIndoors={false}
-          showsPointsOfInterest={false}
-          toolbarEnabled={false}
-          loadingEnabled
-          loadingBackgroundColor={Colors.surface}
+  // Overlay toggle: route vs pace heatmap
+  const overlayToggle = hasPaceData ? (
+    <View style={styles.toggleRow}>
+      <TouchableOpacity
+        style={[
+          styles.toggleBtn,
+          overlay === 'route' && styles.toggleBtnActive,
+        ]}
+        onPress={() => setOverlay('route')}
+        activeOpacity={0.7}
+      >
+        <Ionicons
+          name="navigate-outline"
+          size={12}
+          color={overlay === 'route' ? Colors.primary : Colors.textMuted}
+        />
+        <Text
+          style={[
+            styles.toggleLabel,
+            overlay === 'route' && styles.toggleLabelActive,
+          ]}
         >
-          {/* Route line — single color or pace heatmap */}
-          {overlay === 'pace' && paceSegments.length > 0 ? (
-            paceSegments.map((seg, i) => (
-              <Polyline
-                key={`pace-${i}`}
-                coordinates={seg.coordinates}
-                strokeColor={seg.color}
-                strokeWidth={4}
-              />
-            ))
-          ) : (
-            <Polyline
-              coordinates={coordinates}
-              strokeColor={Colors.accent}
-              strokeWidth={4}
-            />
-          )}
+          Route
+        </Text>
+      </TouchableOpacity>
 
-          {/* Interval boundary markers */}
-          {intervalMarkers.map((m, i) => (
-            <Marker
-              key={`interval-${i}`}
-              coordinate={m.coordinate}
-              anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={false}
-            >
-              <View style={[styles.intervalDot, { backgroundColor: m.color }]}>
-                <Text style={styles.intervalDotText}>
-                  {i + 1}
-                </Text>
-              </View>
-            </Marker>
-          ))}
+      <TouchableOpacity
+        style={[
+          styles.toggleBtn,
+          overlay === 'pace' && styles.toggleBtnActive,
+        ]}
+        onPress={() => setOverlay('pace')}
+        activeOpacity={0.7}
+      >
+        <Ionicons
+          name="speedometer-outline"
+          size={12}
+          color={overlay === 'pace' ? Colors.primary : Colors.textMuted}
+        />
+        <Text
+          style={[
+            styles.toggleLabel,
+            overlay === 'pace' && styles.toggleLabelActive,
+          ]}
+        >
+          Pace
+        </Text>
+      </TouchableOpacity>
 
-          {/* PB distance markers */}
-          {overlay === 'records' && pbMarkers.map((m, i) => (
-            <Marker
-              key={`pb-${i}`}
-              coordinate={m.coordinate}
-              anchor={{ x: 0.5, y: 1 }}
-              tracksViewChanges={false}
-            >
-              <View style={styles.pbPinContainer}>
-                <View style={styles.pbPin}>
-                  <Ionicons name="trophy" size={10} color={Colors.black} />
-                </View>
-                <View style={styles.pbPinTail} />
-              </View>
-            </Marker>
-          ))}
-
-          {/* Start marker */}
-          <Marker
-            coordinate={startCoord}
-            anchor={{ x: 0.5, y: 1 }}
-            tracksViewChanges={false}
+      {hasRecords && (
+        <TouchableOpacity
+          style={[
+            styles.toggleBtn,
+            overlay === 'records' && styles.toggleBtnActive,
+          ]}
+          onPress={() => setOverlay('records')}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name="trophy-outline"
+            size={12}
+            color={overlay === 'records' ? Colors.warning : Colors.textMuted}
+          />
+          <Text
+            style={[
+              styles.toggleLabel,
+              overlay === 'records' && styles.toggleLabelActive,
+              overlay === 'records' && { color: Colors.warning },
+            ]}
           >
-            <View style={styles.pinContainer}>
-              <View style={[styles.pin, { backgroundColor: Colors.primary }]}>
-                <Ionicons name="flag" size={12} color={Colors.black} />
-              </View>
-              <View style={[styles.pinTail, { borderTopColor: Colors.primary }]} />
-            </View>
-          </Marker>
+            PBs
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  ) : null;
 
-          {/* Finish marker */}
-          <Marker
-            coordinate={endCoord}
-            anchor={{ x: 0.5, y: 1 }}
-            tracksViewChanges={false}
-          >
-            <View style={styles.pinContainer}>
-              <View style={[styles.pin, { backgroundColor: Colors.danger }]}>
-                <Ionicons name="flag" size={12} color={Colors.white} />
-              </View>
-              <View style={[styles.pinTail, { borderTopColor: Colors.danger }]} />
-            </View>
-          </Marker>
-        </MapView>
-      </View>
+  const mapLayers = (
+    <>
+      {/* Route line — single color or pace heatmap */}
+      {overlay === 'pace' && paceSegments.length > 0 ? (
+        paceSegments.map((seg, i) => (
+          <Polyline
+            key={`pace-${i}`}
+            coordinates={seg.coordinates}
+            strokeColor={seg.color}
+            strokeWidth={4}
+          />
+        ))
+      ) : (
+        <Polyline
+          coordinates={coordinates}
+          strokeColor={Colors.accent}
+          strokeWidth={4}
+        />
+      )}
 
+      {/* Interval boundary markers */}
+      {intervalMarkers.map((m, i) => (
+        <Marker
+          key={`interval-${i}`}
+          coordinate={m.coordinate}
+          anchor={{ x: 0.5, y: 0.5 }}
+          tracksViewChanges={false}
+        >
+          <View style={[styles.intervalDot, { backgroundColor: m.color }]}>
+            <Text style={styles.intervalDotText}>
+              {i + 1}
+            </Text>
+          </View>
+        </Marker>
+      ))}
+
+      {/* PB distance markers */}
+      {overlay === 'records' && pbMarkers.map((m, i) => (
+        <Marker
+          key={`pb-${i}`}
+          coordinate={m.coordinate}
+          anchor={{ x: 0.5, y: 1 }}
+          tracksViewChanges={false}
+        >
+          <View style={styles.pbPinContainer}>
+            <View style={styles.pbPin}>
+              <Ionicons name="trophy" size={10} color={Colors.black} />
+            </View>
+            <View style={styles.pbPinTail} />
+          </View>
+        </Marker>
+      ))}
+
+      {/* Start marker */}
+      <Marker
+        coordinate={startCoord}
+        anchor={{ x: 0.5, y: 1 }}
+        tracksViewChanges={false}
+      >
+        <View style={styles.pinContainer}>
+          <View style={[styles.pin, { backgroundColor: Colors.primary }]}>
+            <Ionicons name="flag" size={12} color={Colors.black} />
+          </View>
+          <View style={[styles.pinTail, { borderTopColor: Colors.primary }]} />
+        </View>
+      </Marker>
+
+      {/* Finish marker */}
+      <Marker
+        coordinate={endCoord}
+        anchor={{ x: 0.5, y: 1 }}
+        tracksViewChanges={false}
+      >
+        <View style={styles.pinContainer}>
+          <View style={[styles.pin, { backgroundColor: Colors.danger }]}>
+            <Ionicons name="flag" size={12} color={Colors.white} />
+          </View>
+          <View style={[styles.pinTail, { borderTopColor: Colors.danger }]} />
+        </View>
+      </Marker>
+    </>
+  );
+
+  const showPaceLegend = overlay === 'pace' && paceSegments.length > 0;
+  const showPbLegend = overlay === 'records' && pbMarkers.length > 0;
+  const showIntervalLegend = intervalMarkers.length > 0;
+  const hasLegend = showPaceLegend || showPbLegend || showIntervalLegend;
+
+  const legends = (
+    <>
       {/* Pace heatmap legend */}
-      {overlay === 'pace' && paceSegments.length > 0 && (
+      {showPaceLegend && (
         <View style={styles.legend}>
           <Text style={styles.legendLabel}>Fast</Text>
           <View style={styles.legendRamp}>
@@ -495,7 +494,7 @@ export function RouteMap({
       )}
 
       {/* PB records legend */}
-      {overlay === 'records' && pbMarkers.length > 0 && (
+      {showPbLegend && (
         <View style={styles.pbLegend}>
           {pbMarkers.map((m, i) => (
             <View key={`pb-legend-${i}`} style={styles.pbLegendItem}>
@@ -514,7 +513,7 @@ export function RouteMap({
       )}
 
       {/* Interval legend (when markers are visible) */}
-      {intervalMarkers.length > 0 && (
+      {showIntervalLegend && (
         <View style={styles.intervalLegend}>
           {intervalMarkers.map((m, i) => (
             <View key={i} style={styles.intervalLegendItem}>
@@ -528,6 +527,112 @@ export function RouteMap({
           ))}
         </View>
       )}
+    </>
+  );
+
+  const sharedMapProps = {
+    userInterfaceStyle: 'dark',
+    pitchEnabled: false,
+    rotateEnabled: false,
+    showsUserLocation: false,
+    showsMyLocationButton: false,
+    showsCompass: false,
+    showsTraffic: false,
+    showsBuildings: false,
+    showsIndoors: false,
+    showsPointsOfInterest: false,
+    toolbarEnabled: false,
+    loadingEnabled: true,
+    loadingBackgroundColor: Colors.surface,
+  } as const;
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Route</Text>
+        {overlayToggle}
+      </View>
+
+      <View style={[styles.mapWrapper, { height }]}>
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          onLayout={() => fitMap(mapRef, false)}
+          showsScale={false}
+          {...sharedMapProps}
+        >
+          {mapLayers}
+        </MapView>
+
+        <TouchableOpacity
+          style={styles.expandBtn}
+          onPress={() => setFullscreen(true)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="View route full screen"
+          hitSlop={8}
+        >
+          <Ionicons name="expand-outline" size={16} color={Colors.textPrimary} />
+        </TouchableOpacity>
+      </View>
+
+      {legends}
+
+      <Modal
+        visible={fullscreen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setFullscreen(false)}
+      >
+        <View style={styles.fullscreenContainer}>
+          <MapView
+            ref={fullscreenMapRef}
+            style={StyleSheet.absoluteFill}
+            onMapReady={() => fitFullscreenMap(false)}
+            showsScale
+            {...sharedMapProps}
+          >
+            {mapLayers}
+          </MapView>
+
+          <View style={[styles.fullscreenTopBar, { top: insets.top + Spacing.sm }]}>
+            <TouchableOpacity
+              style={styles.fullscreenIconBtn}
+              onPress={() => setFullscreen(false)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Close full screen route"
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={22} color={Colors.textPrimary} />
+            </TouchableOpacity>
+
+            {overlayToggle}
+
+            <TouchableOpacity
+              style={styles.fullscreenIconBtn}
+              onPress={() => fitFullscreenMap(true)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Recenter route"
+              hitSlop={8}
+            >
+              <Ionicons name="locate-outline" size={20} color={Colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          {hasLegend && (
+            <View
+              style={[
+                styles.fullscreenLegendPanel,
+                { bottom: insets.bottom + Spacing.md },
+              ]}
+            >
+              {legends}
+            </View>
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -583,6 +688,49 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  expandBtn: {
+    position: 'absolute',
+    top: Spacing.sm,
+    right: Spacing.sm,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(10, 10, 15, 0.75)',
+  },
+  // Full-screen modal
+  fullscreenContainer: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  fullscreenTopBar: {
+    position: 'absolute',
+    left: Spacing.md,
+    right: Spacing.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  fullscreenIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(10, 10, 15, 0.85)',
+  },
+  fullscreenLegendPanel: {
+    position: 'absolute',
+    left: Spacing.md,
+    right: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    // Legend rows already carry their own marginTop
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.sm + Spacing.xs,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: 'rgba(22, 22, 31, 0.92)',
   },
   // Custom pin markers
   pinContainer: {

@@ -22,25 +22,26 @@ import ReanimatedSwipeable, {
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { CompletedWorkout, WorkoutDefinition, IntervalSplit, formatTime, generateId } from '../../src/workout/workoutTypes';
-import { loadHistory, clearHistory, deleteHistoryEntry, updateHistoryEntry, loadWorkouts, loadSettings } from '../../src/workout/workoutStorage';
-import { setTempWorkout } from '../../src/workout/tempWorkoutCache';
-import { TagBadges, TagPicker } from '../../src/components/TagPicker';
-import { exportData, importData } from '../../src/workout/backupManager';
-import { shareWorkoutResults } from '../../src/sharing/shareWorkout';
-import { useAuth } from '../../src/contexts/AuthContext';
-import { onSyncStatusChange } from '../../src/sync/cloudSync';
-import { analyzeElevation, aggregateByTerrain } from '../../src/pace/elevationAnalysis';
-import { ElevationProfile } from '../../src/components/ElevationProfile';
-import { TerrainSummary } from '../../src/components/TerrainSummary';
-import { RouteMap } from '../../src/components/RouteMap';
-import { DEFAULT_SETTINGS } from '../../src/workout/workoutTypes';
-import type { PaceUnit } from '../../src/pace/paceTypes';
-import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../../src/constants/theme';
-import { computeStats } from '../../src/stats/personalRecords';
-import type { StatsSnapshot } from '../../src/stats/personalRecords';
-import { RecordsGrid, AwardsList, LifetimeStats } from '../../src/components/PersonalBests';
-import { ProgressChart } from '../../src/components/ProgressChart';
+import { CompletedWorkout, WorkoutDefinition, IntervalSplit, formatTime, generateId } from '../../../src/workout/workoutTypes';
+import { loadHistory, clearHistory, deleteHistoryEntry, updateHistoryEntry, loadWorkouts, loadSettings } from '../../../src/workout/workoutStorage';
+import { setTempWorkout } from '../../../src/workout/tempWorkoutCache';
+import { TagBadges, TagPicker } from '../../../src/components/TagPicker';
+import { exportData, importData } from '../../../src/workout/backupManager';
+import { shareWorkoutResults } from '../../../src/sharing/shareWorkout';
+import { useAuth } from '../../../src/contexts/AuthContext';
+import { onSyncStatusChange } from '../../../src/sync/cloudSync';
+import { analyzeElevation, aggregateByTerrain } from '../../../src/pace/elevationAnalysis';
+import { ElevationProfile } from '../../../src/components/ElevationProfile';
+import { TerrainSummary } from '../../../src/components/TerrainSummary';
+import { RouteMap } from '../../../src/components/RouteMap';
+import { StravaPushButton } from '../../../src/strava/StravaPushButton';
+import { DEFAULT_SETTINGS } from '../../../src/workout/workoutTypes';
+import type { PaceUnit } from '../../../src/pace/paceTypes';
+import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../../../src/constants/theme';
+import { computeStats } from '../../../src/stats/personalRecords';
+import type { StatsSnapshot } from '../../../src/stats/personalRecords';
+import { RecordsGrid, AwardsList, LifetimeStats } from '../../../src/components/PersonalBests';
+import { ProgressChart } from '../../../src/components/ProgressChart';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -744,6 +745,20 @@ export default function HistoryScreen() {
                         <Text style={styles.actionBtnLabelSecondary}>Edit</Text>
                       </TouchableOpacity>
                     </View>
+
+                    <View style={styles.stravaRow}>
+                      <StravaPushButton
+                        completedEntryId={item.id}
+                        workoutName={item.workoutName}
+                        workoutId={item.workoutId}
+                        completedAt={item.completedAt}
+                        totalDurationMs={item.totalDurationMs}
+                        totalDistanceMeters={item.totalDistanceMeters}
+                        route={item.route}
+                        splits={item.splits}
+                        configuration={item.configuration}
+                      />
+                    </View>
                     </View>
                 )}
                 </View>
@@ -978,6 +993,9 @@ const styles = StyleSheet.create({
   expandedActions: {
     flexDirection: 'row',
     gap: Spacing.sm,
+  },
+  stravaRow: {
+    marginTop: Spacing.sm,
   },
   actionBtn: {
     flex: 1,
