@@ -55,6 +55,8 @@ import { hapticTap } from '../../../src/audio/haptics';
 import { setDuckingEnabled, setVoiceIdentifier } from '../../../src/audio/audioManager';
 import { TagPicker } from '../../../src/components/TagPicker';
 import { PreRunSettings } from '../../../src/components/PreRunSettings';
+import { PreRunLocationCard, BackgroundLocationCard } from '../../../src/components/LocationPermissionCards';
+import { useLocationAccess } from '../../../src/hooks/useLocationAccess';
 
 import { ChallengeFriendCard } from '../../../src/components/ChallengeFriendCard';
 import { RouteMap } from '../../../src/components/RouteMap';
@@ -145,8 +147,29 @@ function ActiveWorkoutInner({
   const [newAwards, setNewAwards] = useState<AwardBadge[]>([]);
   const [allRecords, setAllRecords] = useState<PersonalRecord[]>([]);
   const planCompletionDone = useRef(false);
+  const { access: locationAccess, request: requestLocation } = useLocationAccess();
+  const locationAsked = useRef(false);
 
   const { state } = runner;
+  const needsGps =
+    settings.paceTrackingEnabled ||
+    hasDistanceFeature(workout) ||
+    distanceProgressCuesNeedGps(settings);
+
+  const handleAllowLocation = useCallback(() => {
+    locationAsked.current = true;
+    requestLocation().catch(() => {});
+  }, [requestLocation]);
+
+  const handleStart = async () => {
+    hapticTap();
+    // Ask before the timer starts if the user skipped the pre-run card.
+    if (needsGps && locationAccess === 'askable' && !locationAsked.current) {
+      locationAsked.current = true;
+      await requestLocation().catch(() => {});
+    }
+    runner.start();
+  };
 
   // Detect new personal records when the workout finishes
   useEffect(() => {
@@ -321,6 +344,9 @@ function ActiveWorkoutInner({
 
         {/* Static footer */}
         <View style={styles.idleFooter}>
+          {needsGps && locationAccess && (
+            <PreRunLocationCard access={locationAccess} onAllow={handleAllowLocation} />
+          )}
           <PreRunSettings
             settings={settings}
             onUpdate={onUpdateSettings}
@@ -328,10 +354,7 @@ function ActiveWorkoutInner({
           />
           <TouchableOpacity
             style={styles.bigStartBtn}
-            onPress={() => {
-              hapticTap();
-              runner.start();
-            }}
+            onPress={handleStart}
             activeOpacity={0.8}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -403,6 +426,8 @@ function ActiveWorkoutInner({
             />
           </View>
         )}
+
+        {needsGps && <BackgroundLocationCard />}
 
         {/* Push to Strava */}
         <StravaPushButton

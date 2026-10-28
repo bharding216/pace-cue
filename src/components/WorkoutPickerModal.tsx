@@ -1,22 +1,19 @@
 /**
- * WorkoutPickerModal — bottom sheet to pick a workout from the user's library
- * for adding to a specific calendar date.
+ * WorkoutPickerModal — bottom sheet to pick a workout for a specific calendar date.
  *
- * Features: text search, category filter chips (easy / tempo / intervals / long run / race),
- * and a "Create New Workout" action.
+ * Two sources: built-in workout templates (filterable by category) and, optionally,
+ * the user's recently completed workouts. Also offers voice and manual creation.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Modal,
   FlatList,
   ActivityIndicator,
-  Keyboard,
   Platform,
 } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
@@ -28,9 +25,20 @@ import {
   formatTime,
   flattenWorkout,
   categorizeWorkout,
+  generateId,
 } from '../workout/workoutTypes';
-import { loadWorkouts } from '../workout/workoutStorage';
+import { createPresets } from '../workout/presets';
+import { loadHistory } from '../workout/workoutStorage';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
+
+const MAX_RECENT = 8;
+
+type PickerTab = 'templates' | 'recent';
+
+interface RecentWorkout {
+  workout: WorkoutDefinition;
+  completedAt: number;
+}
 
 interface WorkoutPickerModalProps {
   visible: boolean;
@@ -69,6 +77,29 @@ function formatDateDisplay(dateStr: string): string {
   });
 }
 
+function formatCompletedDate(ts: number): string {
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/** Most recent completed workouts with a replayable configuration, one per workout name. */
+async function loadRecentWorkouts(): Promise<RecentWorkout[]> {
+  const history = await loadHistory();
+  const seen = new Set<string>();
+  const recent: RecentWorkout[] = [];
+  for (const entry of history) {
+    if (!entry.configuration || entry.configuration.blocks.length === 0) continue;
+    const key = entry.workoutName.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recent.push({
+      workout: { ...entry.configuration, id: generateId(), name: entry.workoutName },
+      completedAt: entry.completedAt,
+    });
+    if (recent.length >= MAX_RECENT) break;
+  }
+  return recent;
+}
+
 // ── Component ────────────────────────────────────────────────
 
 export function WorkoutPickerModal({
@@ -80,9 +111,10 @@ export function WorkoutPickerModal({
   onDateChange,
   onClose,
 }: WorkoutPickerModalProps) {
-  const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
+  const templates = useMemo(() => createPresets(), []);
+  const [recent, setRecent] = useState<RecentWorkout[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [tab, setTab] = useState<PickerTab>('templates');
   const [activeCategory, setActiveCategory] = useState<WorkoutCategory | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -101,39 +133,22 @@ export function WorkoutPickerModal({
   useEffect(() => {
     if (!visible) return;
     setLoading(true);
-    setSearch('');
+    setTab('templates');
     setActiveCategory(null);
     setShowDatePicker(false);
-    loadWorkouts().then((data) => {
-      setWorkouts(data);
-      setLoading(false);
-    });
+    loadRecentWorkouts()
+      .then(setRecent)
+      .catch(() => setRecent([]))
+      .finally(() => setLoading(false));
   }, [visible]);
 
-  const filtered = useMemo(() => {
-    let list = workouts;
+  const filteredTemplates = useMemo(
+    () => (activeCategory ? templates.filter((w) => categorizeWorkout(w) === activeCategory) : templates),
+    [templates, activeCategory],
+  );
 
-    if (activeCategory) {
-      list = list.filter((w) => categorizeWorkout(w) === activeCategory);
-    }
-
-    const q = search.trim().toLowerCase();
-    if (q) {
-      list = list.filter((w) => w.name.toLowerCase().includes(q));
-    }
-
-    return list;
-  }, [workouts, activeCategory, search]);
-
-  // Count per category for the chip badges
-  const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const w of workouts) {
-      const cat = categorizeWorkout(w);
-      counts[cat] = (counts[cat] ?? 0) + 1;
-    }
-    return counts;
-  }, [workouts]);
+  const listData: { workout: WorkoutDefinition; completedAt?: number }[] =
+    tab === 'recent' ? recent : filteredTemplates.map((workout) => ({ workout }));
 
   const handleCategoryToggle = (cat: WorkoutCategory) => {
     setActiveCategory((prev) => (prev === cat ? null : cat));
@@ -198,78 +213,67 @@ export function WorkoutPickerModal({
             </View>
           ) : (
             <>
-              {/* Search bar */}
-              <View style={styles.searchRow}>
-                <View style={styles.searchBar}>
-                  <Ionicons name="search" size={16} color={Colors.textMuted} />
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search workouts…"
-                    placeholderTextColor={Colors.textMuted}
-                    value={search}
-                    onChangeText={setSearch}
-                    autoCorrect={false}
-                    returnKeyType="search"
-                    onSubmitEditing={() => Keyboard.dismiss()}
-                  />
-                  {search.length > 0 && (
-                    <TouchableOpacity onPress={() => setSearch('')} hitSlop={8}>
-                      <Ionicons name="close-circle" size={16} color={Colors.textMuted} />
-                    </TouchableOpacity>
-                  )}
+              {/* Templates / Recent toggle — only when there is history to show */}
+              {recent.length > 0 && (
+                <View style={styles.tabRow}>
+                  {([
+                    { key: 'templates', label: 'Templates' },
+                    { key: 'recent', label: 'Recent' },
+                  ] as const).map((t) => {
+                    const isActive = tab === t.key;
+                    return (
+                      <TouchableOpacity
+                        key={t.key}
+                        style={[styles.tab, isActive && styles.tabActive]}
+                        onPress={() => setTab(t.key)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
+                          {t.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
-              </View>
+              )}
 
               {/* Category filter chips */}
-              <View style={styles.chipRow}>
-                {CATEGORIES.map((cat) => {
-                  const isActive = activeCategory === cat.key;
-                  const count = categoryCounts[cat.key] ?? 0;
-                  return (
-                    <TouchableOpacity
-                      key={cat.key}
-                      style={[
-                        styles.chip,
-                        isActive && { backgroundColor: cat.color + '22', borderColor: cat.color },
-                      ]}
-                      onPress={() => handleCategoryToggle(cat.key)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name={cat.icon}
-                        size={13}
-                        color={isActive ? cat.color : Colors.textMuted}
-                      />
-                      <Text
+              {tab === 'templates' && (
+                <View style={styles.chipRow}>
+                  {CATEGORIES.map((cat) => {
+                    const isActive = activeCategory === cat.key;
+                    return (
+                      <TouchableOpacity
+                        key={cat.key}
                         style={[
-                          styles.chipLabel,
-                          isActive && { color: cat.color },
+                          styles.chip,
+                          isActive && { backgroundColor: cat.color + '22', borderColor: cat.color },
                         ]}
+                        onPress={() => handleCategoryToggle(cat.key)}
+                        activeOpacity={0.7}
                       >
-                        {cat.label}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.chipCount,
-                          isActive && { color: cat.color },
-                        ]}
-                      >
-                        {count}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+                        <Ionicons
+                          name={cat.icon}
+                          size={13}
+                          color={isActive ? cat.color : Colors.textMuted}
+                        />
+                        <Text style={[styles.chipLabel, isActive && { color: cat.color }]}>
+                          {cat.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
 
               {/* Workout list */}
               <FlatList
-                data={filtered}
-                keyExtractor={(item) => item.id}
-                keyboardShouldPersistTaps="handled"
+                data={listData}
+                keyExtractor={(item) => item.workout.id}
                 contentContainerStyle={styles.listContent}
                 showsVerticalScrollIndicator={false}
                 ListHeaderComponent={
-                  !search && !activeCategory ? (
+                  tab === 'templates' && !activeCategory ? (
                     <>
                       {/* Voice workout builder */}
                       {onVoiceBuilder && (
@@ -313,31 +317,28 @@ export function WorkoutPickerModal({
                 ListEmptyComponent={
                   <View style={styles.emptyContainer}>
                     <Ionicons name="search-outline" size={32} color={Colors.textMuted} />
-                    <Text style={styles.emptyText}>
-                      {search || activeCategory
-                        ? 'No workouts match your filters'
-                        : 'No saved workouts yet'}
-                    </Text>
+                    <Text style={styles.emptyText}>No templates in this category</Text>
                   </View>
                 }
-                renderItem={({ item }) => {
-                  const cat = categorizeWorkout(item);
-                  const flat = flattenWorkout(item);
-                  const totalSec = totalWorkoutSeconds(item);
+                renderItem={({ item: { workout, completedAt } }) => {
+                  const cat = categorizeWorkout(workout);
+                  const flat = flattenWorkout(workout);
+                  const totalSec = totalWorkoutSeconds(workout);
 
                   return (
                     <TouchableOpacity
                       style={styles.workoutRow}
-                      onPress={() => onSelect(item)}
+                      onPress={() => onSelect(workout)}
                       activeOpacity={0.7}
                     >
                       <View style={[styles.workoutIcon, { backgroundColor: categoryColor(cat) + '22' }]}>
                         <Ionicons name={categoryIcon(cat)} size={18} color={categoryColor(cat)} />
                       </View>
                       <View style={styles.workoutInfo}>
-                        <Text style={styles.workoutName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={styles.workoutName} numberOfLines={1}>{workout.name}</Text>
                         <Text style={styles.workoutMeta}>
                           {formatTime(totalSec)} · {flat.length} interval{flat.length !== 1 ? 's' : ''}
+                          {completedAt !== undefined ? ` · Ran ${formatCompletedDate(completedAt)}` : ''}
                         </Text>
                       </View>
                       <Ionicons name="add-circle" size={24} color={Colors.primary} />
@@ -435,27 +436,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  // Search
-  searchRow: {
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.sm,
-  },
-  searchBar: {
+  // Templates / Recent toggle
+  tabRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+    padding: 3,
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.sm + 2,
-    paddingVertical: Spacing.sm,
-    gap: Spacing.xs + 2,
     borderWidth: 1,
     borderColor: Colors.surfaceLight,
   },
-  searchInput: {
+  tab: {
     flex: 1,
+    alignItems: 'center',
+    paddingVertical: Spacing.xs + 2,
+    borderRadius: BorderRadius.sm,
+  },
+  tabActive: {
+    backgroundColor: Colors.surfaceLight,
+  },
+  tabLabel: {
     fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  tabLabelActive: {
     color: Colors.textPrimary,
-    padding: 0,
   },
 
   // Category chips
@@ -481,12 +488,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.textMuted,
   },
-  chipCount: {
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    color: Colors.textMuted,
-  },
-
   // List
   listContent: {
     paddingHorizontal: Spacing.lg,

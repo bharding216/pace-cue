@@ -12,10 +12,11 @@ import {
   dismissAnnouncement,
 } from '../src/announcements/announcementService';
 import { track } from '../src/analytics/track';
+import { reportDevice } from '../src/analytics/deviceReport';
 import { decodeWorkoutLink, resolveShareCode } from '../src/sharing/shareWorkout';
 import { saveWorkout, clearAllUserData } from '../src/workout/workoutStorage';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
-import { SubscriptionProvider } from '../src/contexts/SubscriptionContext';
+import { SubscriptionProvider, useSubscription } from '../src/contexts/SubscriptionContext';
 import { TrainingPlanProvider } from '../src/contexts/TrainingPlanContext';
 import { syncAll } from '../src/sync/cloudSync';
 import {
@@ -27,6 +28,7 @@ import {
 function RootLayoutInner() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const { tier, loading: subscriptionLoading } = useSubscription();
   const prevUserIdRef = useRef<string | null>(null);
 
   // End any Live Activities orphaned by a force-kill during a workout.
@@ -38,6 +40,18 @@ function RootLayoutInner() {
   useEffect(() => {
     track('app_opened');
   }, []);
+
+  // Keep the analytics device row current. Foregrounding picks up permission
+  // changes made in the system Settings app.
+  useEffect(() => {
+    if (authLoading || subscriptionLoading) return;
+    const userId = user?.id ?? null;
+    reportDevice(userId, tier);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') reportDevice(userId, tier);
+    });
+    return () => subscription.remove();
+  }, [authLoading, subscriptionLoading, user?.id, tier]);
 
   // Open an in-app path when the user taps a push notification.
   useEffect(() => {

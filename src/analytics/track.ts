@@ -11,6 +11,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { supabase } from './supabaseClient';
+import { eventDeviceFields } from './deviceInfo';
 
 /** Cached authenticated user ID, updated when auth state changes. */
 let cachedUserId: string | null = null;
@@ -73,7 +74,7 @@ function normalizeCountry(code: string | null | undefined): string | null {
  * so a JS update still records a country on binaries that don't include
  * expo-localization yet.
  */
-function deviceCountry(): string | null {
+export function deviceCountry(): string | null {
   if (cachedCountry !== undefined) return cachedCountry;
 
   let country: string | null = null;
@@ -107,24 +108,27 @@ export function track(
   const appVersion = Constants.expoConfig?.version ?? 'unknown';
   const environment = (Constants.expoConfig?.extra?.appVariant as string) ?? 'production';
   const country = deviceCountry();
+  const device = eventDeviceFields();
 
   getAnonymousId()
     .then(async (anonymousUserId) => {
-      const row = {
+      const baseRow = {
         anonymous_user_id: anonymousUserId,
         user_id: cachedUserId,
         event_name: eventName,
         app_version: appVersion,
         environment,
         metadata: metadata ?? {},
-        ...(country ? { country } : {}),
       };
+      const withCountry = { ...baseRow, ...(country ? { country } : {}) };
 
-      const { error } = await supabase.from('events').insert(row);
-      // Keep recording events if the country column isn't migrated yet.
-      if (error && country) {
-        const { country: _country, ...withoutCountry } = row;
-        await supabase.from('events').insert(withoutCountry);
+      const { error } = await supabase.from('events').insert({ ...withCountry, ...device });
+      // Keep recording events if the newer columns aren't migrated yet.
+      if (error) {
+        const { error: retryError } = await supabase.from('events').insert(withCountry);
+        if (retryError && country) {
+          await supabase.from('events').insert(baseRow);
+        }
       }
     })
     .catch(() => {

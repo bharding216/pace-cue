@@ -108,17 +108,17 @@ export function usePaceTracker(
   const start = useCallback(async () => {
     if (trackingRef.current) return;
 
-    // Request foreground permission first
+    // Never prompt here: the workout timer is already running. Permission is
+    // requested from the pre-run screen and the post-run background offer.
     const { status: fgStatus } =
-      await Location.requestForegroundPermissionsAsync();
+      await Location.getForegroundPermissionsAsync();
     if (fgStatus !== 'granted') {
       setPermissionStatus('denied');
       return;
     }
 
-    // Request background permission (iOS will prompt for "Always")
     const { status: bgStatus } =
-      await Location.requestBackgroundPermissionsAsync();
+      await Location.getBackgroundPermissionsAsync();
     // Background permission is optional — foreground still works
     if (bgStatus !== 'granted') {
       console.warn('Background location not granted — pace tracking will pause when backgrounded');
