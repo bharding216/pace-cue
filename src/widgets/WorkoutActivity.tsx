@@ -13,7 +13,6 @@ import {
   foregroundStyle,
   padding,
   monospacedDigit,
-  frame,
   activityBackgroundTint,
 } from '@expo/ui/swift-ui/modifiers';
 import {
@@ -62,14 +61,17 @@ const WorkoutActivity = (
           ? 'sun.max.fill'
           : 'wind';
 
-  // Build the timer interval for SwiftUI's auto-updating Text.
-  // When paused, we show a frozen time by setting pauseTime.
-  const now = new Date();
+  // Timer display: use `date` + `dateStyle="timer"` for the countdown.
+  // This is simpler and more reliable in widget extensions than `timerInterval`
+  // (which requires a ClosedRangeDate record that can fail to deserialize).
+  // When paused, we render a static formatted string instead.
   const endsAt = new Date(props.intervalEndsAt);
-  const startedAt = new Date(props.intervalStartedAt);
 
-  // For the paused state, we set pauseTime to "now" so the timer freezes.
-  const pauseTime = props.isPaused ? now : undefined;
+  // Pre-format the paused remaining time as M:SS
+  const pausedTotalSec = Math.ceil(props.pausedRemainingMs / 1000);
+  const pausedMin = Math.floor(pausedTotalSec / 60);
+  const pausedSec = pausedTotalSec % 60;
+  const pausedText = pausedMin + ':' + (pausedSec < 10 ? '0' : '') + pausedSec;
 
   return {
     // ── Lock Screen Banner ──────────────────────────────────────────
@@ -97,16 +99,27 @@ const WorkoutActivity = (
         </VStack>
         <Spacer />
         <VStack>
-          <Text
-            timerInterval={{ lower: startedAt, upper: endsAt }}
-            countsDown={true}
-            pauseTime={pauseTime}
-            modifiers={[
-              font({ weight: 'bold', size: 32, design: 'monospaced' }),
-              monospacedDigit(),
-              foregroundStyle(color),
-            ]}
-          />
+          {props.isPaused ? (
+            <Text
+              modifiers={[
+                font({ weight: 'bold', size: 32, design: 'monospaced' }),
+                monospacedDigit(),
+                foregroundStyle(color),
+              ]}
+            >
+              {pausedText}
+            </Text>
+          ) : (
+            <Text
+              date={endsAt}
+              dateStyle="timer"
+              modifiers={[
+                font({ weight: 'bold', size: 32, design: 'monospaced' }),
+                monospacedDigit(),
+                foregroundStyle(color),
+              ]}
+            />
+          )}
           <Text
             modifiers={[
               font({ size: 11 }),
@@ -135,11 +148,20 @@ const WorkoutActivity = (
     ),
 
     // ── Dynamic Island: Compact Trailing ────────────────────────────
-    compactTrailing: (
+    compactTrailing: props.isPaused ? (
       <Text
-        timerInterval={{ lower: startedAt, upper: endsAt }}
-        countsDown={true}
-        pauseTime={pauseTime}
+        modifiers={[
+          font({ weight: 'bold', size: 12, design: 'monospaced' }),
+          monospacedDigit(),
+          foregroundStyle(color),
+        ]}
+      >
+        {pausedText}
+      </Text>
+    ) : (
+      <Text
+        date={endsAt}
+        dateStyle="timer"
         modifiers={[
           font({ weight: 'bold', size: 12, design: 'monospaced' }),
           monospacedDigit(),
@@ -171,16 +193,27 @@ const WorkoutActivity = (
     // ── Dynamic Island: Expanded Trailing ───────────────────────────
     expandedTrailing: (
       <VStack modifiers={[padding({ trailing: 4 })]}>
-        <Text
-          timerInterval={{ lower: startedAt, upper: endsAt }}
-          countsDown={true}
-          pauseTime={pauseTime}
-          modifiers={[
-            font({ weight: 'bold', size: 28, design: 'monospaced' }),
-            monospacedDigit(),
-            foregroundStyle(color),
-          ]}
-        />
+        {props.isPaused ? (
+          <Text
+            modifiers={[
+              font({ weight: 'bold', size: 28, design: 'monospaced' }),
+              monospacedDigit(),
+              foregroundStyle(color),
+            ]}
+          >
+            {pausedText}
+          </Text>
+        ) : (
+          <Text
+            date={endsAt}
+            dateStyle="timer"
+            modifiers={[
+              font({ weight: 'bold', size: 28, design: 'monospaced' }),
+              monospacedDigit(),
+              foregroundStyle(color),
+            ]}
+          />
+        )}
         <Text
           modifiers={[
             font({ size: 11 }),

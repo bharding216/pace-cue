@@ -1,13 +1,14 @@
 /**
- * Terrain pace summary — shows uphill / flat / downhill aggregate stats.
+ * Terrain pace summary — three-column layout comparing uphill / flat / downhill.
  *
- * Renders a compact card for each terrain type with average pace, distance,
- * and elevation change. Matches the SplitCue dark-theme design language.
+ * Shows a single card with SVG slope indicators, pace for each terrain type,
+ * distance + elevation metadata, and a proportional distance bar.
+ * Color scheme matches the ElevationProfile chart.
  */
 
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import Svg, { Line } from 'react-native-svg';
 import type { TerrainAggregate, TerrainType } from '../pace/elevationAnalysis';
 import type { PaceUnit } from '../pace/paceTypes';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
@@ -19,14 +20,15 @@ interface Props {
 
 const METERS_PER_MILE = 1_609.344;
 
-const TERRAIN_META: Record<
-  TerrainType,
-  { label: string; icon: keyof typeof Ionicons.glyphMap; color: string }
-> = {
-  uphill: { label: 'Uphill', icon: 'arrow-up', color: '#F87171' },
-  flat: { label: 'Flat', icon: 'remove', color: '#60A5FA' },
-  downhill: { label: 'Downhill', icon: 'arrow-down', color: '#4ADE80' },
+const TERRAIN_META: Record<TerrainType, { label: string; color: string }> = {
+  uphill: { label: 'Uphill', color: '#F87171' },
+  flat: { label: 'Flat', color: '#60A5FA' },
+  downhill: { label: 'Downhill', color: '#4ADE80' },
 };
+
+const TERRAIN_ORDER: TerrainType[] = ['uphill', 'flat', 'downhill'];
+
+// ── Helpers ──────────────────────────────────────────────────────
 
 function formatPace(paceMinutes: number | null): string {
   if (paceMinutes == null || !isFinite(paceMinutes)) return '--:--';
@@ -37,11 +39,9 @@ function formatPace(paceMinutes: number | null): string {
 
 function formatDist(meters: number, unit: PaceUnit): string {
   if (unit === 'minPerMile') {
-    const miles = meters / METERS_PER_MILE;
-    return `${miles.toFixed(2)} mi`;
+    return `${(meters / METERS_PER_MILE).toFixed(2)} mi`;
   }
-  const km = meters / 1000;
-  return `${km.toFixed(2)} km`;
+  return `${(meters / 1000).toFixed(2)} km`;
 }
 
 function formatElev(meters: number, unit: PaceUnit): string {
@@ -51,60 +51,169 @@ function formatElev(meters: number, unit: PaceUnit): string {
   return `${Math.round(meters)} m`;
 }
 
+// ── Slope indicator SVG ─────────────────────────────────────────
+
+function SlopeIndicator({
+  type,
+  color,
+  size = 28,
+}: {
+  type: TerrainType;
+  color: string;
+  size?: number;
+}) {
+  const h = Math.round(size * 0.55);
+  const pad = 3;
+
+  let y1: number;
+  let y2: number;
+  switch (type) {
+    case 'uphill':
+      y1 = h - pad;
+      y2 = pad;
+      break;
+    case 'downhill':
+      y1 = pad;
+      y2 = h - pad;
+      break;
+    default:
+      y1 = h / 2;
+      y2 = h / 2;
+  }
+
+  return (
+    <Svg width={size} height={h}>
+      <Line
+        x1={pad}
+        y1={y1}
+        x2={size - pad}
+        y2={y2}
+        stroke={color}
+        strokeWidth={2.5}
+        strokeLinecap="round"
+      />
+    </Svg>
+  );
+}
+
+// ── Main component ──────────────────────────────────────────────
+
 export function TerrainSummary({ aggregates, paceUnit }: Props) {
   if (aggregates.length === 0) return null;
 
   const paceLabel = paceUnit === 'minPerMile' ? '/mi' : '/km';
 
+  const aggMap = new Map<TerrainType, TerrainAggregate>();
+  for (const agg of aggregates) aggMap.set(agg.type, agg);
+
+  const totalDist = aggregates.reduce(
+    (s, a) => s + a.totalDistanceMeters,
+    0,
+  );
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Terrain Pace</Text>
-      <View style={styles.cards}>
-        {aggregates.map((agg) => {
-          const meta = TERRAIN_META[agg.type];
-          const pace =
-            paceUnit === 'minPerMile'
-              ? agg.avgPaceMinPerMile
-              : agg.avgPaceMinPerKm;
 
-          return (
-            <View
-              key={agg.type}
-              style={[styles.card, { borderLeftColor: meta.color }]}
-            >
-              <View style={styles.cardHeader}>
-                <Ionicons
-                  name={meta.icon}
-                  size={14}
-                  color={meta.color}
-                />
-                <Text style={[styles.cardLabel, { color: meta.color }]}>
-                  {meta.label}
-                </Text>
-              </View>
+      <View style={styles.card}>
+        {/* Three-column comparison */}
+        <View style={styles.columns}>
+          {TERRAIN_ORDER.map((type, i) => {
+            const agg = aggMap.get(type);
+            const meta = TERRAIN_META[type];
+            const hasData = agg != null;
+            const pace = hasData
+              ? paceUnit === 'minPerMile'
+                ? agg.avgPaceMinPerMile
+                : agg.avgPaceMinPerKm
+              : null;
 
-              <Text style={styles.paceValue}>
-                {formatPace(pace)}
-                <Text style={styles.paceUnit}>{paceLabel}</Text>
-              </Text>
+            return (
+              <React.Fragment key={type}>
+                {i > 0 && <View style={styles.divider} />}
+                <View
+                  style={[styles.column, !hasData && styles.columnDimmed]}
+                >
+                  <SlopeIndicator
+                    type={type}
+                    color={hasData ? meta.color : Colors.textMuted + '55'}
+                    size={28}
+                  />
+                  <Text
+                    style={[
+                      styles.typeLabel,
+                      { color: hasData ? meta.color : Colors.textMuted + '55' },
+                    ]}
+                  >
+                    {meta.label}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.paceValue,
+                      !hasData && styles.paceValueDimmed,
+                    ]}
+                  >
+                    {formatPace(pace)}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.paceUnitText,
+                      !hasData && styles.paceUnitDimmed,
+                    ]}
+                  >
+                    {paceLabel}
+                  </Text>
+                  {hasData ? (
+                    <View style={styles.meta}>
+                      <Text style={styles.metaText}>
+                        {formatDist(agg.totalDistanceMeters, paceUnit)}
+                      </Text>
+                      <Text style={styles.metaText}>
+                        {type === 'downhill' ? '↓' : '↑'}{' '}
+                        {formatElev(
+                          Math.abs(agg.totalElevationChange),
+                          paceUnit,
+                        )}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.meta}>
+                      <Text style={styles.metaPlaceholder}>—</Text>
+                    </View>
+                  )}
+                </View>
+              </React.Fragment>
+            );
+          })}
+        </View>
 
-              <View style={styles.cardMeta}>
-                <Text style={styles.metaText}>
-                  {formatDist(agg.totalDistanceMeters, paceUnit)}
-                </Text>
-                <Text style={styles.metaSep}>{' · '}</Text>
-                <Text style={styles.metaText}>
-                  {agg.type === 'downhill' ? '↓' : '↑'}{' '}
-                  {formatElev(Math.abs(agg.totalElevationChange), paceUnit)}
-                </Text>
-              </View>
+        {/* Proportional distance bar */}
+        {totalDist > 0 && (
+          <View style={styles.distBarWrap}>
+            <View style={styles.distBar}>
+              {TERRAIN_ORDER.map((type) => {
+                const agg = aggMap.get(type);
+                if (!agg || agg.totalDistanceMeters < 1) return null;
+                return (
+                  <View
+                    key={type}
+                    style={{
+                      flex: agg.totalDistanceMeters / totalDist,
+                      backgroundColor: TERRAIN_META[type].color,
+                      height: '100%' as const,
+                    }}
+                  />
+                );
+              })}
             </View>
-          );
-        })}
+          </View>
+        )}
       </View>
     </View>
   );
 }
+
+// ── Styles ───────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
@@ -117,50 +226,77 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
     paddingHorizontal: Spacing.xs,
   },
-  cards: {
-    gap: Spacing.sm,
-  },
   card: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    borderLeftWidth: 3,
+    overflow: 'hidden',
   },
-  cardHeader: {
+  columns: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: Spacing.xs,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
   },
-  cardLabel: {
+  column: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+  },
+  columnDimmed: {
+    opacity: 0.3,
+  },
+  divider: {
+    width: 1,
+    backgroundColor: Colors.surfaceLight,
+    marginVertical: Spacing.xs,
+  },
+  typeLabel: {
     fontSize: FontSize.xs,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
+    marginTop: 2,
   },
   paceValue: {
     fontSize: FontSize.xl,
     fontWeight: '700',
     color: Colors.textPrimary,
     fontVariant: ['tabular-nums'],
+    marginTop: 2,
   },
-  paceUnit: {
-    fontSize: FontSize.sm,
-    fontWeight: '400',
+  paceValueDimmed: {
     color: Colors.textMuted,
   },
-  cardMeta: {
-    flexDirection: 'row',
+  paceUnitText: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    marginTop: -2,
+  },
+  paceUnitDimmed: {
+    color: Colors.textMuted + '55',
+  },
+  meta: {
     alignItems: 'center',
     marginTop: 4,
+    gap: 1,
   },
   metaText: {
-    fontSize: FontSize.xs,
+    fontSize: 11,
     color: Colors.textSecondary,
     fontVariant: ['tabular-nums'],
   },
-  metaSep: {
-    color: Colors.textMuted,
-    fontSize: FontSize.xs,
+  metaPlaceholder: {
+    fontSize: 11,
+    color: Colors.textMuted + '44',
+  },
+  distBarWrap: {
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.md,
+  },
+  distBar: {
+    height: 4,
+    borderRadius: 2,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    backgroundColor: Colors.surfaceLight,
   },
 });

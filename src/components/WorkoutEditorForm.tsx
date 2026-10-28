@@ -36,6 +36,8 @@ import {
   segmentToIntervalType,
   createSegment,
   createRepeatGroup,
+  intensityToEffort,
+  effortToIntensity,
 } from '../workout/workoutTypes';
 import { loadSettings } from '../workout/workoutStorage';
 import type { PaceUnit } from '../pace/paceTypes';
@@ -586,7 +588,11 @@ function SegmentEditor({
               style={[segStyles.intensityChip, isActive && { backgroundColor: il.color + '22', borderColor: il.color }]}
               onPress={() => {
                 hapticTap();
-                update({ intensity: isActive ? undefined : il.value, targetPace: isActive ? segment.targetPace : undefined });
+                if (isActive) {
+                  update({ intensity: undefined, effort: undefined, targetPace: segment.targetPace });
+                } else {
+                  update({ intensity: il.value, effort: intensityToEffort(il.value), targetPace: undefined });
+                }
               }}
               activeOpacity={0.7}
             >
@@ -596,16 +602,38 @@ function SegmentEditor({
         })}
       </View>
 
+      {/* Intensity 1-10 number picker */}
+      <View style={segStyles.effortNumberRow}>
+        {([1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const).map((n) => {
+          const currentEffort = segment.effort ?? intensityToEffort(segment.intensity);
+          const isActive = currentEffort === n;
+          const effortColor = n <= 3 ? Colors.accent : n <= 6 ? '#F59E0B' : Colors.danger;
+          return (
+            <TouchableOpacity
+              key={n}
+              style={[segStyles.effortNumBtn, isActive && { backgroundColor: effortColor + '22', borderColor: effortColor }]}
+              onPress={() => {
+                hapticTap();
+                update({ effort: n, intensity: effortToIntensity(n), targetPace: undefined });
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[segStyles.effortNumText, isActive && { color: effortColor, fontWeight: '800' }]}>{n}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       {/* Pace — alternative to named intensity */}
-      {!segment.intensity && (
+      {!segment.intensity && !segment.effort && (
         <PacePicker
           targetPace={segment.targetPace}
           onChange={(p) => update({ targetPace: p })}
         />
       )}
-      {segment.intensity && segment.targetPace == null && (
+      {(segment.intensity || segment.effort) && segment.targetPace == null && (
         <TouchableOpacity
-          onPress={() => { hapticTap(); update({ intensity: undefined }); }}
+          onPress={() => { hapticTap(); update({ intensity: undefined, effort: undefined }); }}
           style={segStyles.addLabelBtn}
         >
           <Ionicons name="speedometer-outline" size={12} color={Colors.textMuted} />
@@ -1084,6 +1112,9 @@ const segStyles = StyleSheet.create({
   intensityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: Spacing.sm },
   intensityChip: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: BorderRadius.sm, borderWidth: 1.5, borderColor: Colors.surfaceLight, backgroundColor: Colors.surfaceLight },
   intensityText: { fontSize: FontSize.xs - 1, fontWeight: '700', color: Colors.textMuted },
+  effortNumberRow: { flexDirection: 'row', gap: 3, marginTop: Spacing.sm },
+  effortNumBtn: { flex: 1, aspectRatio: 1, maxWidth: 32, borderRadius: BorderRadius.sm, borderWidth: 1.5, borderColor: Colors.surfaceLight, backgroundColor: Colors.surfaceLight, justifyContent: 'center', alignItems: 'center' },
+  effortNumText: { fontSize: FontSize.xs, fontWeight: '600', color: Colors.textMuted },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.sm },
   labelInput: { flex: 1, backgroundColor: Colors.surfaceLight, color: Colors.textPrimary, fontSize: FontSize.sm, paddingVertical: Spacing.xs, paddingHorizontal: Spacing.sm, borderRadius: BorderRadius.sm },
   addLabelBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: Spacing.xs, paddingVertical: 2 },

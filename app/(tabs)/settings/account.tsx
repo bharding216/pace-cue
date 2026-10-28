@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { useSubscription } from '../../../src/contexts/SubscriptionContext';
+import { useStrava } from '../../../src/strava/useStrava';
 import { getSyncStatus, onSyncStatusChange, SyncStatus } from '../../../src/sync/cloudSync';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 import { hapticTap } from '../../../src/audio/haptics';
@@ -27,6 +28,8 @@ export default function AccountScreen() {
   const [deleting, setDeleting] = useState(false);
   const { tier, subscription, aiWorkoutsUsed, aiWorkoutsLimit, manageSubscription } =
     useSubscription();
+
+  const strava = useStrava();
 
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(getSyncStatus());
 
@@ -185,6 +188,56 @@ export default function AccountScreen() {
           </Text>
         </View>
       )}
+
+      {/* Connected Apps */}
+      <View style={styles.connectedAppsSection}>
+        <Text style={styles.connectedAppsTitle}>Connected Apps</Text>
+        <View style={styles.stravaCard}>
+          <View style={styles.stravaInfo}>
+            <View style={styles.stravaBrand}>
+              <Ionicons name="fitness-outline" size={22} color="#FC4C02" />
+              <Text style={styles.stravaName}>Strava</Text>
+            </View>
+            {strava.isConnected ? (
+              <Text style={styles.stravaStatus}>
+                Connected{strava.athleteName ? ` as ${strava.athleteName}` : ''}
+              </Text>
+            ) : (
+              <Text style={styles.stravaStatus}>
+                Push completed workouts to Strava
+              </Text>
+            )}
+          </View>
+          {strava.isConnected ? (
+            <TouchableOpacity
+              style={styles.stravaDisconnectBtn}
+              onPress={() => {
+                hapticTap();
+                strava.disconnect();
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.stravaDisconnectText}>Disconnect</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.stravaConnectBtn}
+              onPress={() => {
+                hapticTap();
+                strava.connect();
+              }}
+              disabled={strava.connecting}
+              activeOpacity={0.8}
+            >
+              {strava.connecting ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Text style={styles.stravaConnectText}>Connect</Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
 
       {/* Upgrade to Pro */}
       {tier === 'free' && (
@@ -385,5 +438,64 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginTop: Spacing.xs,
     marginLeft: Spacing.sm,
+  },
+  connectedAppsSection: {
+    marginTop: Spacing.lg,
+  },
+  connectedAppsTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.sm,
+  },
+  stravaCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+  },
+  stravaInfo: {
+    flex: 1,
+  },
+  stravaBrand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  stravaName: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  stravaStatus: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
+    marginLeft: 22 + Spacing.sm,
+  },
+  stravaConnectBtn: {
+    backgroundColor: '#FC4C02',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    minWidth: 90,
+    alignItems: 'center',
+  },
+  stravaConnectText: {
+    color: '#FFFFFF',
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  stravaDisconnectBtn: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+  },
+  stravaDisconnectText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textMuted,
   },
 });

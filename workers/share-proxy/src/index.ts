@@ -137,6 +137,26 @@ export default {
       });
     }
 
+    // ── Strava OAuth callback — redirect into the app ────────────
+    if (pathname === '/strava/callback') {
+      const query = url.search; // preserves ?code=...&state=...&scope=...
+      // Determine the app scheme from the state param (which carries the
+      // variant), defaulting to the production scheme.
+      const scheme = 'pacecue';
+      const deepLink = `${scheme}://strava/callback${query}`;
+      return new Response(
+        `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=${deepLink}"></head><body>Redirecting to SplitCue…</body></html>`,
+        {
+          status: 302,
+          headers: {
+            Location: deepLink,
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+          },
+        },
+      );
+    }
+
     // ── iOS Universal Links ──────────────────────────────────────
     if (pathname === '/.well-known/apple-app-site-association') {
       return new Response(AASA, {

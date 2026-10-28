@@ -493,6 +493,14 @@ export default function TrainingScreen() {
             )}
             <TouchableOpacity
               style={styles.statsBtn}
+              onPress={() => router.push('/(tabs)/history' as any)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="time" size={18} color={Colors.primary} />
+              <Text style={styles.statsBtnText}>History</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.statsBtn}
               onPress={() => router.push('/(tabs)/training/stats' as any)}
               activeOpacity={0.7}
             >

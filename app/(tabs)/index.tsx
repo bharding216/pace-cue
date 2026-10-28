@@ -529,7 +529,17 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
 
   const todayEntry = dayEntries[todayDateKey()];
-  const todayPlanWorkout = todayEntry?.planWorkouts?.[0] ?? null;
+  const todayPlanWorkoutRaw = todayEntry?.planWorkouts?.[0] ?? null;
+  // Hide the "Today's Workout" card when:
+  // 1. The plan workout is already completed (it's in "Recently Used")
+  // 2. It's a rest day but the user already ran today (calendar shows completed)
+  const todayPlanWorkout = (() => {
+    if (!todayPlanWorkoutRaw) return null;
+    if (todayPlanWorkoutRaw.status === 'completed') return null;
+    const isRest = todayPlanWorkoutRaw.day_label?.toLowerCase().includes('rest');
+    if (isRest && (todayEntry?.completedRuns?.length ?? 0) > 0) return null;
+    return todayPlanWorkoutRaw;
+  })();
   const [expanded, setExpanded] = useState<Set<WorkoutCategory>>(new Set());
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0);

@@ -33,6 +33,7 @@ export interface Segment {
   label?: string;
   target: SegmentTarget;
   intensity?: Intensity;
+  effort?: number; // 1-10 numeric intensity
   targetPace?: number; // min/mile target pace
 }
 
@@ -296,8 +297,8 @@ function segmentDistance(seg: Segment): number | undefined {
   return seg.target.type === 'distance' ? seg.target.distanceMeters : undefined;
 }
 
-/** Map named intensity to a numeric effort (1-10) for legacy compat. */
-function intensityToEffort(intensity?: Intensity): number | undefined {
+/** Map named intensity to a numeric effort (1-10). */
+export function intensityToEffort(intensity?: Intensity): number | undefined {
   if (!intensity) return undefined;
   switch (intensity) {
     case 'recovery': return 2;
@@ -307,6 +308,16 @@ function intensityToEffort(intensity?: Intensity): number | undefined {
     case 'hard': return 8;
     case 'sprint': return 10;
   }
+}
+
+/** Map a numeric effort (1-10) to the nearest named intensity. */
+export function effortToIntensity(effort: number): Intensity {
+  if (effort <= 2) return 'recovery';
+  if (effort <= 3) return 'easy';
+  if (effort <= 5) return 'moderate';
+  if (effort <= 7) return 'tempo';
+  if (effort <= 9) return 'hard';
+  return 'sprint';
 }
 
 // ── Speech helpers ───────────────────────────────────────────────────
@@ -450,7 +461,7 @@ function flattenBlockTree(
         durationSeconds: segmentDuration(seg),
         distanceMeters: segmentDistance(seg),
         label: seg.label || defaultSegmentLabel(seg.segmentType),
-        effort: seg.intensity ? intensityToEffort(seg.intensity) : undefined,
+        effort: seg.effort ?? (seg.intensity ? intensityToEffort(seg.intensity) : undefined),
         targetPace: seg.targetPace,
         index: idx++,
         blockName: undefined,
@@ -487,7 +498,7 @@ function flattenBlockTree(
               durationSeconds: segmentDuration(seg),
               distanceMeters: segmentDistance(seg),
               label: seg.label || defaultSegmentLabel(seg.segmentType),
-              effort: seg.intensity ? intensityToEffort(seg.intensity) : undefined,
+              effort: seg.effort ?? (seg.intensity ? intensityToEffort(seg.intensity) : undefined),
               targetPace: seg.targetPace,
               index: idx++,
               blockName: rg.name,

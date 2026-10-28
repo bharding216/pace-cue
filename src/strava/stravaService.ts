@@ -1,0 +1,318 @@
+/**
+ * Strava integration service.
+ *
+ * Handles OAuth connection, disconnection, status checks, GPX generation,
+ * and workout upload. All Strava API calls go through Supabase Edge
+ * Functions (strava-auth, strava-push) so the client secret stays
+ * server-side.
+ */
+
+import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
+import { supabase } from '../analytics/supabaseClient';
+import { track } from '../analytics/track';
+import type { CompletedWorkout, RoutePoint } from '../workout/workoutTypes';
+
+// ── Redirect URI ─────────────────────────────────────────────
+// Strava's callback domain field only accepts a bare domain, so we
+// redirect through splitcue.app which then bounces into the app via
+// the custom URL scheme.
+
+const IS_DEV = process.env.APP_VARIANT === 'development';
+const IS_PREVIEW = process.env.APP_VARIANT === 'preview';
+const SCHEME = IS_DEV ? 'pacecue-dev' : IS_PREVIEW ? 'pacecue-preview' : 'pacecue';
+
+/** The HTTPS URL Strava redirects to (must match the registered callback domain). */
+const STRAVA_REDIRECT_URI = 'https://splitcue.app/strava/callback';
+
+/** The custom-scheme URI the Cloudflare Worker bounces into (what openAuthSessionAsync listens for). */
+const APP_REDIRECT_URI = `${SCHEME}://strava/callback`;
+
+// ── Connection status ────────────────────────────────────────
+
+export interface StravaConnection {
+  connected: boolean;
+  athleteName: string | null;
+  stravaAthleteId: number | null;
+}
+
+/**
+ * Check whether the current user has a connected Strava account.
+ * Returns { connected: false } if not authenticated or not connected.
+ */
+export async function getStravaStatus(): Promise<StravaConnection> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      return { connected: false, athleteName: null, stravaAthleteId: null };
+    }
+
+    const { data, error } = await supabase
+      .from('strava_connections')
+      .select('athlete_name, strava_athlete_id')
+      .single();
+
+    if (error || !data) {
+      return { connected: false, athleteName: null, stravaAthleteId: null };
+    }
+
+    return {
+      connected: true,
+      athleteName: data.athlete_name,
+      stravaAthleteId: data.strava_athlete_id,
+    };
+  } catch {
+    return { connected: false, athleteName: null, stravaAthleteId: null };
+  }
+}
+
+// ── OAuth connect ────────────────────────────────────────────
+
+export interface ConnectResult {
+  success: boolean;
+  athleteName?: string;
+  error?: string;
+}
+
+/**
+ * Initiate the Strava OAuth flow.
+ *
+ * 1. Asks the Edge Function for the authorize URL
+ * 2. Opens an in-app browser for the user to approve
+ * 3. Captures the redirect with the authorization code
+ * 4. Sends the code back to the Edge Function for token exchange
+ */
+export async function connectStrava(): Promise<ConnectResult> {
+  try {
+    // Step 1: Get the authorize URL from the Edge Function
+    const { data: urlData, error: urlError } = await supabase.functions.invoke(
+      'strava-auth',
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        body: undefined,
+        // Pass redirect_uri as a query param — supabase.functions.invoke
+        // doesn't support query params natively, so we encode it manually
+      },
+    );
+
+    // supabase.functions.invoke doesn't support GET query params cleanly,
+    // so we call the function URL directly
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      return { success: false, error: 'Please sign in first' };
+    }
+
+    const fnUrl = `${Constants.expoConfig?.extra?.supabaseUrl ?? 'https://oakhqqrxsavmoeqlzcny.supabase.co'}/functions/v1/strava-auth?redirect_uri=${encodeURIComponent(STRAVA_REDIRECT_URI)}`;
+    const getRes = await fetch(fnUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        apikey: session.access_token,
+      },
+    });
+
+    if (!getRes.ok) {
+      const errBody = await getRes.json().catch(() => ({}));
+      return { success: false, error: errBody.error ?? 'Failed to start Strava connection' };
+    }
+
+    const { url: authorizeUrl } = await getRes.json();
+    if (!authorizeUrl) {
+      return { success: false, error: 'No authorize URL returned' };
+    }
+
+    // Step 2: Open the browser for user authorization.
+    // Strava redirects to splitcue.app, which bounces into the app
+    // via the custom scheme. We listen for the custom-scheme URL.
+    const result = await WebBrowser.openAuthSessionAsync(
+      authorizeUrl,
+      APP_REDIRECT_URI,
+    );
+
+    if (result.type !== 'success' || !result.url) {
+      // User cancelled or browser failed — not an error
+      return { success: false };
+    }
+
+    // Step 3: Extract the authorization code from the redirect URL
+    const redirectUrl = new URL(result.url);
+    const code = redirectUrl.searchParams.get('code');
+    if (!code) {
+      return { success: false, error: 'No authorization code received from Strava' };
+    }
+
+    // Step 4: Exchange the code for tokens via the Edge Function
+    const { data, error } = await supabase.functions.invoke('strava-auth', {
+      body: { code },
+    });
+
+    if (error) {
+      const message = typeof error === 'object' && 'message' in error
+        ? (error as any).message
+        : 'Failed to connect Strava';
+      return { success: false, error: message };
+    }
+
+    track('strava_connected', {
+      strava_athlete_id: data?.stravaAthleteId,
+    });
+
+    return {
+      success: true,
+      athleteName: data?.athleteName,
+    };
+  } catch (e: any) {
+    console.warn('Strava connect error:', e);
+    return { success: false, error: e.message ?? 'Connection failed' };
+  }
+}
+
+// ── Disconnect ───────────────────────────────────────────────
+
+/**
+ * Disconnect the user's Strava account.
+ * Revokes the token and removes the DB record via the Edge Function.
+ */
+export async function disconnectStrava(): Promise<{ error?: string }> {
+  try {
+    const { error } = await supabase.functions.invoke('strava-auth', {
+      method: 'DELETE',
+    });
+
+    if (error) {
+      return { error: 'Failed to disconnect Strava' };
+    }
+
+    track('strava_disconnected');
+    return {};
+  } catch (e: any) {
+    return { error: e.message ?? 'Disconnect failed' };
+  }
+}
+
+// ── GPX builder ──────────────────────────────────────────────
+
+/**
+ * Build a GPX 1.1 XML string from SplitCue route points.
+ *
+ * The RoutePoint type already stores lat, lng, alt (nullable), and ts
+ * (epoch ms), which maps perfectly to GPX <trkpt> elements.
+ */
+export function buildGpx(
+  route: RoutePoint[],
+  name: string,
+  startTime: number,
+): string {
+  const lines: string[] = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<gpx xmlns="http://www.topografix.com/GPX/1/1"',
+    '     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
+    '     xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd"',
+    '     version="1.1"',
+    '     creator="SplitCue">',
+    '  <metadata>',
+    `    <name>${escapeXml(name)}</name>`,
+    `    <time>${new Date(startTime).toISOString()}</time>`,
+    '  </metadata>',
+    '  <trk>',
+    `    <name>${escapeXml(name)}</name>`,
+    '    <type>running</type>',
+    '    <trkseg>',
+  ];
+
+  for (const pt of route) {
+    lines.push(`      <trkpt lat="${pt.lat}" lon="${pt.lng}">`);
+    if (pt.alt != null) {
+      lines.push(`        <ele>${pt.alt.toFixed(1)}</ele>`);
+    }
+    lines.push(`        <time>${new Date(pt.ts).toISOString()}</time>`);
+    lines.push('      </trkpt>');
+  }
+
+  lines.push('    </trkseg>');
+  lines.push('  </trk>');
+  lines.push('</gpx>');
+
+  return lines.join('\n');
+}
+
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// ── Push workout ─────────────────────────────────────────────
+
+export interface PushResult {
+  success: boolean;
+  activityId?: number;
+  activityUrl?: string;
+  error?: string;
+}
+
+/**
+ * Push a completed workout to the user's Strava account.
+ *
+ * Builds a GPX from the route (if available), then sends everything
+ * to the strava-push Edge Function which handles the Strava API call.
+ */
+export async function pushWorkoutToStrava(
+  completed: CompletedWorkout,
+): Promise<PushResult> {
+  try {
+    let gpx: string | undefined;
+
+    if (completed.route && completed.route.length >= 2) {
+      const startTime = completed.completedAt - completed.totalDurationMs;
+      gpx = buildGpx(completed.route, completed.workoutName, startTime);
+    }
+
+    const { data, error } = await supabase.functions.invoke('strava-push', {
+      body: {
+        workoutName: completed.workoutName,
+        completedAt: completed.completedAt,
+        totalDurationMs: completed.totalDurationMs,
+        totalDistanceMeters: completed.totalDistanceMeters,
+        gpx,
+      },
+    });
+
+    if (error) {
+      // Try to extract the error message from the Edge Function response
+      let message = 'Failed to push workout to Strava';
+      if (typeof error === 'object' && error !== null) {
+        const ctx = error as any;
+        if (ctx.context?.body) {
+          try {
+            const body = JSON.parse(ctx.context.body);
+            if (body.error) message = body.error;
+          } catch {}
+        } else if (ctx.message) {
+          message = ctx.message;
+        }
+      }
+      return { success: false, error: message };
+    }
+
+    const activityId = data?.activityId;
+    const activityUrl = activityId
+      ? `https://www.strava.com/activities/${activityId}`
+      : undefined;
+
+    track('strava_workout_pushed', {
+      workout_id: completed.workoutId,
+      has_gpx: !!gpx,
+      activity_id: activityId,
+    });
+
+    return { success: true, activityId, activityUrl };
+  } catch (e: any) {
+    console.warn('Strava push error:', e);
+    return { success: false, error: e.message ?? 'Push failed' };
+  }
+}

@@ -27,6 +27,7 @@ import { TagBadges } from '../../src/components/TagPicker';
 import { analyzeElevation, aggregateByTerrain } from '../../src/pace/elevationAnalysis';
 import { computeStats, detectNewRecords, detectNewAwards } from '../../src/stats/personalRecords';
 import { NewRecordsBanner } from '../../src/components/PersonalBests';
+import { StravaPushButton } from '../../src/strava/StravaPushButton';
 import { shareWorkoutResults } from '../../src/sharing/shareWorkout';
 import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../../src/constants/theme';
 
@@ -348,6 +349,19 @@ export default function RunDetailsScreen() {
             <Text style={styles.actionBtnSecondaryText}>Share</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Push to Strava */}
+        <StravaPushButton
+          completedEntryId={run.id}
+          workoutName={run.workoutName}
+          workoutId={run.workoutId}
+          completedAt={run.completedAt}
+          totalDurationMs={run.totalDurationMs}
+          totalDistanceMeters={run.totalDistanceMeters}
+          route={run.route}
+          splits={run.splits}
+          configuration={run.configuration}
+        />
 
         <TouchableOpacity
           style={styles.templateBtn}

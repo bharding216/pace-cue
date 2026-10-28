@@ -18,6 +18,7 @@ import {
   ScrollView,
   Switch,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import {
@@ -54,10 +55,11 @@ import { hapticTap } from '../../../src/audio/haptics';
 import { setDuckingEnabled, setVoiceIdentifier } from '../../../src/audio/audioManager';
 import { TagPicker } from '../../../src/components/TagPicker';
 import { PreRunSettings } from '../../../src/components/PreRunSettings';
-import { ContextualProPrompt } from '../../../src/components/ContextualProPrompt';
+
 import { ChallengeFriendCard } from '../../../src/components/ChallengeFriendCard';
 import { RouteMap } from '../../../src/components/RouteMap';
 import { NewRecordsBanner } from '../../../src/components/PersonalBests';
+import { StravaPushButton } from '../../../src/strava/StravaPushButton';
 import { updateHistoryEntry, loadHistory } from '../../../src/workout/workoutStorage';
 import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
 import { detectNewRecords, detectNewAwards, computeStats } from '../../../src/stats/personalRecords';
@@ -134,6 +136,7 @@ function ActiveWorkoutInner({
   sessionMeta?: SessionMeta;
 }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const runner = useWorkoutRunner(workout, settings, sessionMeta);
   const { completeWorkout: completePlanWorkout } = useTrainingPlan();
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -401,6 +404,26 @@ function ActiveWorkoutInner({
           </View>
         )}
 
+        {/* Push to Strava */}
+        <StravaPushButton
+          completedEntryId={runner.completedEntryId}
+          workoutName={workout.name}
+          workoutId={workout.id}
+          completedAt={Date.now()}
+          totalDurationMs={state.totalElapsedMs}
+          totalDistanceMeters={
+            (settings.paceTrackingEnabled ||
+              hasDistanceFeature(workout) ||
+              distanceProgressCuesNeedGps(settings)) &&
+            runner.paceState.totalDistanceMeters > 0
+              ? runner.paceState.totalDistanceMeters
+              : undefined
+          }
+          route={runner.completedRoute ?? undefined}
+          splits={runner.completedSplits ?? undefined}
+          configuration={workout}
+        />
+
         <ChallengeFriendCard
           workout={workout}
           totalDurationMs={state.totalElapsedMs}
@@ -424,12 +447,6 @@ function ActiveWorkoutInner({
           <TagPicker selected={selectedTags} onChange={setSelectedTags} />
         </View>
 
-        {/* Post-workout AI analysis teaser */}
-        <ContextualProPrompt
-          momentId="post_workout_analysis"
-          onUpgrade={() => router.push('/paywall' as any)}
-        />
-
         <TouchableOpacity
           style={styles.doneBtn}
           onPress={handleFinishedDone}
@@ -446,7 +463,7 @@ function ActiveWorkoutInner({
 
   // ── RUNNING / PAUSED state ──
   return (
-    <View style={[styles.container, { borderTopColor: color, borderTopWidth: 4 }]}>
+    <View style={[styles.container, { borderTopColor: color, borderTopWidth: 4, paddingTop: insets.top + Spacing.md }]}>
       {/* Top info bar */}
       <View style={styles.topBar}>
         <Text style={styles.topBarText}>{workout.name}</Text>
@@ -554,7 +571,7 @@ function ActiveWorkoutInner({
       </Text>
 
       {/* Controls */}
-      <View style={styles.controls}>
+      <View style={[styles.controls, { paddingBottom: Math.max(Spacing.xxl, insets.bottom + Spacing.md) }]}>
         {/* Stop */}
         <TouchableOpacity
           style={[styles.controlBtn, styles.stopBtn]}
@@ -1394,7 +1411,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    paddingTop: 60,
   },
   // ── Idle ──
   idleContainer: {
@@ -1632,7 +1648,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: Spacing.lg,
-    paddingBottom: Spacing.xxl,
   },
   controlBtn: {
     justifyContent: 'center',
