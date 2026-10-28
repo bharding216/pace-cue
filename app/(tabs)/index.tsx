@@ -640,7 +640,7 @@ export default function HomeScreen() {
           />
           <View>
             <Text style={styles.heroTitle}>SplitCue</Text>
-            <Text style={styles.heroSub}>Interval running, your way.</Text>
+            <Text style={styles.heroSub}>Run hard. We'll call the splits.</Text>
           </View>
         </View>
 
