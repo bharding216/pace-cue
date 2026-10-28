@@ -286,6 +286,14 @@ export default function RunDetailsScreen() {
           </View>
         )}
 
+        {/* Notes */}
+        {run.notes ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Notes</Text>
+            <Text style={styles.notesText}>{run.notes}</Text>
+          </View>
+        ) : null}
+
         {/* Route map */}
         {run.route && run.route.length >= 2 && (
           <View style={styles.section}>
@@ -509,6 +517,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.textPrimary,
     marginBottom: Spacing.sm,
+  },
+  notesText: {
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
   },
   actionRow: {
     flexDirection: 'row',

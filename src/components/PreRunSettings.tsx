@@ -18,12 +18,18 @@ interface PreRunSettingsProps {
   hasDistanceFeature: boolean;
 }
 
+const AUDIO_MODES: { value: AudioCueMode; label: string }[] = [
+  { value: 'voice', label: 'Voice' },
+  { value: 'beeps', label: 'Beeps' },
+  { value: 'both', label: 'Voice + Beeps' },
+  { value: 'silent', label: 'Silent' },
+];
+
 export function PreRunSettings({ settings, onUpdate, hasDistanceFeature }: PreRunSettingsProps) {
   const [expanded, setExpanded] = useState(false);
 
   const audioCueLabel =
-    settings.audioCueMode === 'voice' ? 'Voice' :
-    settings.audioCueMode === 'tone' ? 'Tone' : 'Silent';
+    AUDIO_MODES.find((m) => m.value === settings.audioCueMode)?.label ?? 'Silent';
 
   // Build a compact cue-schedule label for the summary chip.
   const cueLabel = (() => {
@@ -107,24 +113,24 @@ export function PreRunSettings({ settings, onUpdate, hasDistanceFeature }: PreRu
           </View>
 
           {/* Audio cues */}
-          <View style={styles.settingRow}>
+          <View style={styles.audioSettingRow}>
             <View style={styles.settingInfo}>
               <Ionicons name="volume-high" size={18} color={Colors.textSecondary} />
               <Text style={styles.settingLabel}>Audio Cues</Text>
             </View>
             <View style={styles.audioModeRow}>
-              {(['voice', 'tone', 'silent'] as AudioCueMode[]).map((mode) => (
+              {AUDIO_MODES.map(({ value, label }) => (
                 <TouchableOpacity
-                  key={mode}
-                  style={[styles.audioChip, settings.audioCueMode === mode && styles.audioChipActive]}
+                  key={value}
+                  style={[styles.audioChip, settings.audioCueMode === value && styles.audioChipActive]}
                   onPress={() => {
                     hapticTap();
-                    onUpdate({ audioCueMode: mode });
+                    onUpdate({ audioCueMode: value });
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.audioChipText, settings.audioCueMode === mode && styles.audioChipTextActive]}>
-                    {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                  <Text style={[styles.audioChipText, settings.audioCueMode === value && styles.audioChipTextActive]}>
+                    {label}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -226,8 +232,13 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontWeight: '500',
   },
+  audioSettingRow: {
+    paddingVertical: Spacing.sm,
+    gap: Spacing.sm,
+  },
   audioModeRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 4,
   },
   audioChip: {

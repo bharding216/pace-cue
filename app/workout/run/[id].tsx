@@ -17,6 +17,7 @@ import {
   Modal,
   ScrollView,
   Switch,
+  TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -32,6 +33,7 @@ import {
   isDistanceInterval,
   formatDistanceShort,
   hasDistanceFeature,
+  WORKOUT_NOTES_MAX_LENGTH,
 } from '../../../src/workout/workoutTypes';
 import type { PaceCueFrequency } from '../../../src/pace/paceTypes';
 import { paceCuesEnabled, distanceProgressCuesNeedGps } from '../../../src/audio/cueSchedule';
@@ -154,6 +156,7 @@ function ActiveWorkoutInner({
   const { completeWorkout: completePlanWorkout } = useTrainingPlan();
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [notes, setNotes] = useState('');
   const [newRecords, setNewRecords] = useState<PersonalRecord[]>([]);
   const [newAwards, setNewAwards] = useState<AwardBadge[]>([]);
   const [allRecords, setAllRecords] = useState<PersonalRecord[]>([]);
@@ -208,19 +211,57 @@ function ActiveWorkoutInner({
     );
   }, [state.phase, runner.completedEntryId, sessionMeta?.planWorkoutId, completePlanWorkout]);
 
-  // Save tags to the completed history entry whenever they change
-  useEffect(() => {
-    if (
-      state.phase !== 'finished' ||
-      !runner.completedEntryId ||
-      selectedTags.length === 0
-    ) return;
+  // Tags and notes are written to the history entry together. Writes are
+  // debounced because each one rewrites the whole history in AsyncStorage,
+  // and any pending write is flushed on blur and unmount so nothing is lost.
+  const annotations = useRef({ tags: [] as string[], notes: '' });
+  const annotationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const completedEntryIdRef = useRef(runner.completedEntryId);
+  completedEntryIdRef.current = runner.completedEntryId;
 
-    updateHistoryEntry(runner.completedEntryId, (entry) => ({
+  const flushAnnotations = useCallback(() => {
+    if (!annotationSaveTimer.current) return;
+    clearTimeout(annotationSaveTimer.current);
+    annotationSaveTimer.current = null;
+
+    const entryId = completedEntryIdRef.current;
+    if (!entryId) return;
+    const { tags, notes: text } = annotations.current;
+    const trimmed = text.trim();
+    updateHistoryEntry(entryId, (entry) => ({
       ...entry,
-      tags: selectedTags,
+      tags: tags.length > 0 ? tags : undefined,
+      notes: trimmed || undefined,
     })).catch(() => {});
-  }, [selectedTags, runner.completedEntryId, state.phase]);
+  }, []);
+
+  const scheduleAnnotationSave = useCallback(
+    (delayMs: number) => {
+      if (annotationSaveTimer.current) clearTimeout(annotationSaveTimer.current);
+      annotationSaveTimer.current = setTimeout(flushAnnotations, delayMs);
+    },
+    [flushAnnotations],
+  );
+
+  useEffect(() => flushAnnotations, [flushAnnotations]);
+
+  const handleTagsChange = useCallback(
+    (tags: string[]) => {
+      setSelectedTags(tags);
+      annotations.current.tags = tags;
+      scheduleAnnotationSave(300);
+    },
+    [scheduleAnnotationSave],
+  );
+
+  const handleNotesChange = useCallback(
+    (text: string) => {
+      setNotes(text);
+      annotations.current.notes = text;
+      scheduleAnnotationSave(800);
+    },
+    [scheduleAnnotationSave],
+  );
 
   // Keep screen awake during workout
   useEffect(() => {
@@ -395,6 +436,9 @@ function ActiveWorkoutInner({
         style={styles.container}
         contentContainerStyle={styles.finishedContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets
       >
         <Ionicons name="trophy" size={64} color={Colors.primary} style={styles.doneIcon} />
         <Text style={styles.doneTitle}>Workout Complete!</Text>
@@ -458,6 +502,7 @@ function ActiveWorkoutInner({
           route={runner.completedRoute ?? undefined}
           splits={runner.completedSplits ?? undefined}
           configuration={workout}
+          allowConnect
         />
 
         <ChallengeFriendCard
@@ -474,13 +519,27 @@ function ActiveWorkoutInner({
           paceUnit={settings.paceUnit}
         />
 
-        {/* Tag picker */}
+        {/* Tags and notes */}
         <View style={styles.tagSection}>
-          <Text style={styles.tagSectionTitle}>Tag this workout</Text>
+          <Text style={styles.tagSectionTitle}>How did it go?</Text>
           <Text style={styles.tagSectionHint}>
-            How was your run? Add tags so you can look back later.
+            Optional. Saved with this run so you can look back later.
           </Text>
-          <TagPicker selected={selectedTags} onChange={setSelectedTags} />
+          <TagPicker selected={selectedTags} onChange={handleTagsChange} />
+
+          <Text style={styles.notesLabel}>Notes</Text>
+          <TextInput
+            style={styles.notesInput}
+            value={notes}
+            onChangeText={handleNotesChange}
+            onBlur={flushAnnotations}
+            placeholder="Weather, how your legs felt, shoes, who you ran with…"
+            placeholderTextColor={Colors.textMuted}
+            multiline
+            maxLength={WORKOUT_NOTES_MAX_LENGTH}
+            textAlignVertical="top"
+            accessibilityLabel="Workout notes"
+          />
         </View>
 
         <TouchableOpacity
@@ -1744,6 +1803,24 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textMuted,
     marginBottom: Spacing.md,
+  },
+  notesLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    color: Colors.textSecondary,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+  notesInput: {
+    minHeight: 88,
+    padding: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surfaceLight,
+    color: Colors.textPrimary,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
   },
   doneIcon: {
     marginBottom: Spacing.lg,

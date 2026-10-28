@@ -1,7 +1,8 @@
 /**
  * Cloud Sync — bidirectional sync of workouts & history with Supabase.
  *
- * Strategy: last-write-wins using `updated_at` timestamps.
+ * Strategy: last-write-wins using `updated_at` timestamps (for history,
+ * the `updatedAt` field inside each entry's JSON).
  * Runs automatically when the app foregrounds for authenticated users.
  *
  * Workouts and history are small JSON blobs, so we store them as JSONB
@@ -180,8 +181,8 @@ async function syncWorkouts(userId: string): Promise<void> {
   // Save merged result locally
   await saveWorkouts(merged);
 
-  // Clear deletion tracking
-  await AsyncStorage.removeItem(DELETED_WORKOUTS_KEY);
+  // Clear the deletions we pushed, keeping any tracked while syncing
+  await clearTrackedDeletions(DELETED_WORKOUTS_KEY, locallyDeleted);
 }
 
 // ── History sync ─────────────────────────────────────────────
@@ -212,73 +213,67 @@ async function syncHistory(userId: string): Promise<void> {
     }
   }
 
-  // Merge: history entries are immutable, so just union by ID
-  const merged: CompletedWorkout[] = [];
-  const seenIds = new Set<string>();
-  const toInsert: { history_id: string; data: CompletedWorkout; completed_at: string }[] = [];
+  // Merge by ID. Runs are fixed once recorded, but tags and notes can be
+  // edited afterwards, so when both sides have an entry the newer edit wins.
+  const merged = new Map<string, CompletedWorkout>();
 
   for (const local of localHistory) {
     if (locallyDeleted.includes(local.id)) continue;
-    if (seenIds.has(local.id)) continue;
-    seenIds.add(local.id);
+    if (merged.has(local.id)) continue;
 
     const remoteRow = remoteMap.get(local.id);
-
-    if (!remoteRow) {
-      toInsert.push({
-        history_id: local.id,
-        data: local,
-        completed_at: new Date(local.completedAt).toISOString(),
-      });
-    }
-
     if (remoteRow?.deleted_at) continue;
 
-    merged.push(local);
+    const remoteEntry = remoteRow?.data as CompletedWorkout | undefined;
+    merged.set(
+      local.id,
+      remoteEntry && editedAt(remoteEntry) > editedAt(local) ? remoteEntry : local,
+    );
   }
 
   // Add remote-only entries
   for (const remoteRow of remote) {
-    if (seenIds.has(remoteRow.history_id)) continue;
+    if (merged.has(remoteRow.history_id)) continue;
     if (remoteRow.deleted_at) continue;
     if (locallyDeleted.includes(remoteRow.history_id)) continue;
 
-    seenIds.add(remoteRow.history_id);
-    merged.push(remoteRow.data as CompletedWorkout);
-  }
-
-  // Insert new entries to remote
-  for (const row of toInsert) {
-    await supabase.from('cloud_history').upsert(
-      {
-        user_id: userId,
-        history_id: row.history_id,
-        data: row.data,
-        completed_at: row.completed_at,
-      },
-      { onConflict: 'user_id,history_id' },
-    );
+    merged.set(remoteRow.history_id, remoteRow.data as CompletedWorkout);
   }
 
   // Write merged result under the history lock. Re-read local history inside
-  // the lock to pick up any entries saved by saveCompletedWorkout while we were
-  // doing network I/O (e.g. workout finished while sync was in progress).
+  // the lock to pick up changes made while we were doing network I/O: new
+  // entries (a workout finished mid-sync), edits (tags or notes typed
+  // mid-sync), and deletions.
+  const startIds = new Set(localHistory.map((h) => h.id));
+  let finalHistory: CompletedWorkout[] = [];
   await withHistoryLock(async () => {
     const freshLocal = await loadHistory();
+    const freshIds = new Set(freshLocal.map((h) => h.id));
+
+    for (const id of startIds) {
+      if (!freshIds.has(id)) merged.delete(id);
+    }
     for (const entry of freshLocal) {
-      if (!seenIds.has(entry.id) && !locallyDeleted.includes(entry.id)) {
-        seenIds.add(entry.id);
-        merged.push(entry);
+      if (locallyDeleted.includes(entry.id)) continue;
+      const current = merged.get(entry.id);
+      if (!current) {
+        if (remoteMap.get(entry.id)?.deleted_at) continue;
+        merged.set(entry.id, entry);
+      } else if (editedAt(entry) > editedAt(current)) {
+        merged.set(entry.id, entry);
       }
     }
 
-    merged.sort((a, b) => b.completedAt - a.completedAt);
-    await AsyncStorage.setItem('@pacecue/history', JSON.stringify(merged));
+    finalHistory = [...merged.values()].sort((a, b) => b.completedAt - a.completedAt);
+    await AsyncStorage.setItem('@pacecue/history', JSON.stringify(finalHistory));
   });
 
-  // Push any late-discovered entries to remote (outside lock to avoid holding it during network I/O)
-  const laterEntries = merged.filter((e) => !toInsert.some((t) => t.history_id === e.id) && !remoteMap.has(e.id));
-  for (const entry of laterEntries) {
+  // Push new and locally edited entries (outside the lock to avoid holding it
+  // during network I/O)
+  for (const entry of finalHistory) {
+    const remoteRow = remoteMap.get(entry.id);
+    if (remoteRow && !localCopyIsNewer(entry, remoteRow.data as CompletedWorkout)) continue;
+
     await supabase.from('cloud_history').upsert(
       {
         user_id: userId,
@@ -290,8 +285,38 @@ async function syncHistory(userId: string): Promise<void> {
     );
   }
 
-  // Clear deletion tracking
-  await AsyncStorage.removeItem(DELETED_HISTORY_KEY);
+  // Clear the deletions we pushed, keeping any tracked while syncing
+  await clearTrackedDeletions(DELETED_HISTORY_KEY, locallyDeleted);
+}
+
+function editedAt(entry: CompletedWorkout): number {
+  return entry.updatedAt ?? 0;
+}
+
+/**
+ * Whether the local copy of a history entry should replace the remote one.
+ * Entries edited before `updatedAt` existed have no timestamp on either
+ * side; for those, differing tags or notes mean the edit only happened on
+ * this device.
+ */
+function localCopyIsNewer(local: CompletedWorkout, remote: CompletedWorkout): boolean {
+  if (editedAt(local) !== editedAt(remote)) return editedAt(local) > editedAt(remote);
+  if (local.updatedAt != null) return false;
+  return (
+    JSON.stringify(local.tags ?? []) !== JSON.stringify(remote.tags ?? []) ||
+    (local.notes ?? '') !== (remote.notes ?? '')
+  );
+}
+
+async function clearTrackedDeletions(key: string, processed: string[]): Promise<void> {
+  const raw = await AsyncStorage.getItem(key);
+  const current: string[] = raw ? JSON.parse(raw) : [];
+  const remaining = current.filter((id) => !processed.includes(id));
+  if (remaining.length > 0) {
+    await AsyncStorage.setItem(key, JSON.stringify(remaining));
+  } else {
+    await AsyncStorage.removeItem(key);
+  }
 }
 
 // ── Types ────────────────────────────────────────────────────

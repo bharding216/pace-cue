@@ -29,8 +29,8 @@ export interface UseStravaReturn {
   pushing: boolean;
   /** Whether we're still loading the initial connection status. */
   loading: boolean;
-  /** Initiate the Strava OAuth connection flow. */
-  connect: () => Promise<void>;
+  /** Initiate the Strava OAuth connection flow. Resolves true once connected. */
+  connect: () => Promise<boolean>;
   /** Disconnect the linked Strava account. */
   disconnect: () => Promise<void>;
   /** Push a completed workout to Strava. */
@@ -75,7 +75,7 @@ export function useStrava(): UseStravaReturn {
   const connect = useCallback(async () => {
     if (!user) {
       Alert.alert('Sign In Required', 'Please sign in before connecting Strava.');
-      return;
+      return false;
     }
     setConnecting(true);
     try {
@@ -86,10 +86,13 @@ export function useStrava(): UseStravaReturn {
           athleteName: result.athleteName ?? null,
           stravaAthleteId: null,
         });
-      } else if (result.error) {
+        return true;
+      }
+      if (result.error) {
         Alert.alert('Strava Connection Failed', result.error);
       }
       // If !success and no error, user cancelled — do nothing
+      return false;
     } finally {
       setConnecting(false);
     }

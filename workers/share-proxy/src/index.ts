@@ -38,7 +38,7 @@ const SUPABASE_SHARE_FN =
   'https://oakhqqrxsavmoeqlzcny.supabase.co/functions/v1/share';
 
 const BUNDLE_ID = 'com.toddly.runningintervals';
-const TEAM_ID = 'XXXXXXXXXX'; // TODO: Replace with your Apple Team ID
+const TEAM_ID = 'M922P47QNZ';
 
 // ── Apple App Site Association ──────────────────────────────────────
 
@@ -132,7 +132,7 @@ export default {
         status: resp.status,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'public, max-age=3600',
+          'Cache-Control': resp.ok ? 'public, max-age=3600' : 'no-store',
         },
       });
     }

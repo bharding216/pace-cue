@@ -45,6 +45,7 @@ import { hapticTap } from '../../src/audio/haptics';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { useTrainingPlan } from '../../src/contexts/TrainingPlanContext';
 import { TodayWorkoutCard } from '../../src/components/TodayWorkoutCard';
+import { track } from '../../src/analytics/track';
 import { onSyncStatusChange } from '../../src/sync/cloudSync';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 
@@ -654,7 +655,11 @@ export default function HomeScreen() {
                 updatedAt: Date.now(),
               };
               setTempWorkout(workout, { planWorkoutId });
-              router.push({ pathname: '/workout/configure' as any, params: { id: workout.id } });
+              track('workout_session_started', {
+                workout_id: workout.id,
+                plan_workout_id: planWorkoutId,
+              });
+              router.push(`/workout/run/${workout.id}`);
             }}
             onAdjust={() => {
               router.push('/(tabs)/training' as any);

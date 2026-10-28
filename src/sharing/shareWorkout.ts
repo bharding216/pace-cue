@@ -162,6 +162,9 @@ interface ShareableWorkoutV2 {
   v: 2;
   n: string;
   b: WorkoutBlock[];
+  /** Sender's app variant, set only by dev/preview builds. The landing page
+   *  uses it to deep link into the matching build. */
+  a?: 'development' | 'preview';
 }
 
 /**
@@ -249,10 +252,12 @@ export async function createShareLink(
   def: WorkoutDefinition,
   shareType: 'structure' | 'results' | 'challenge' = 'structure',
 ): Promise<string> {
+  const variant = Constants.expoConfig?.extra?.appVariant as string | undefined;
   const shareable: ShareableWorkoutV2 = {
     v: 2,
     n: def.name,
     b: def.blocks,
+    ...(variant === 'development' || variant === 'preview' ? { a: variant } : {}),
   };
 
   const code = generateShortCode();

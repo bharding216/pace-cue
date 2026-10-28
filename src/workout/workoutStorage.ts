@@ -271,7 +271,7 @@ export async function updateHistoryEntry(
     const history = await loadHistory();
     const idx = history.findIndex((h) => h.id === id);
     if (idx >= 0) {
-      history[idx] = updater(history[idx]);
+      history[idx] = { ...updater(history[idx]), updatedAt: Date.now() };
       await AsyncStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history));
     }
     return history;
@@ -308,6 +308,7 @@ export async function clearAllUserData(): Promise<void> {
 
 const CUE_BASES = new Set(['time', 'distance']);
 const CUE_DISTANCE_PRESETS = new Set(['off', 'quarter', 'half', 'full']);
+const AUDIO_CUE_MODES = new Set(['voice', 'beeps', 'both', 'silent']);
 
 /** Fill defaults and drop unknown cue-schedule values from older saves. */
 export function normalizeSettings(raw: Partial<AppSettings> | null | undefined): AppSettings {
@@ -319,6 +320,7 @@ export function normalizeSettings(raw: Partial<AppSettings> | null | undefined):
   if (!CUE_BASES.has(parsed.paceCueBasis)) parsed.paceCueBasis = 'time';
   if (!CUE_DISTANCE_PRESETS.has(parsed.progressCueDistance)) parsed.progressCueDistance = 'full';
   if (!CUE_DISTANCE_PRESETS.has(parsed.paceCueDistance)) parsed.paceCueDistance = 'half';
+  if (!AUDIO_CUE_MODES.has(parsed.audioCueMode)) parsed.audioCueMode = DEFAULT_SETTINGS.audioCueMode;
   if (parsed.voiceEngine !== 'device' && parsed.voiceEngine !== 'premium') parsed.voiceEngine = 'premium';
   if (!PREMIUM_VOICES.some((v) => v.id === parsed.premiumVoiceId)) {
     parsed.premiumVoiceId = DEFAULT_PREMIUM_VOICE_ID;

@@ -144,7 +144,7 @@ export interface IntervalSplit {
 
 // ── Workout Tags ─────────────────────────────────────────────────────
 
-export type WorkoutTagCategory = 'type' | 'feel' | 'effort' | 'weather' | 'social';
+export type WorkoutTagCategory = 'feel' | 'type';
 
 export interface WorkoutTagGroup {
   category: WorkoutTagCategory;
@@ -153,40 +153,26 @@ export interface WorkoutTagGroup {
   tags: readonly string[];
 }
 
+// Tag names match earlier presets so existing history keeps its colors.
+// Anything more specific (weather, company, terrain) belongs in notes.
 export const WORKOUT_TAG_GROUPS: readonly WorkoutTagGroup[] = [
-  {
-    category: 'type',
-    label: 'Run Type',
-    icon: 'footsteps-outline',
-    tags: ['Recovery', 'Easy Day', 'Long Run', 'Tempo', 'Speed Work', 'Race', 'Stroller Run', 'Trail', 'Treadmill', 'Track', 'Hill Training'],
-  },
   {
     category: 'feel',
     label: 'How It Felt',
     icon: 'heart-outline',
-    tags: ['Amazing', 'Strong', 'Good', 'OK', 'Tough', 'Sluggish', 'Exhausted'],
+    tags: ['Strong', 'Good', 'OK', 'Tough'],
   },
   {
-    category: 'effort',
-    label: 'Overall Effort',
-    icon: 'flame-outline',
-    tags: ['Easy', 'Moderate', 'Hard', 'All-Out'],
-  },
-  {
-    category: 'weather',
-    label: 'Weather',
-    icon: 'partly-sunny-outline',
-    tags: ['Hot', 'Cold', 'Windy', 'Rainy', 'Humid', 'Perfect'],
-  },
-  {
-    category: 'social',
-    label: 'Social',
-    icon: 'people-outline',
-    tags: ['Solo', 'With Group', 'With Partner', 'Race Day'],
+    category: 'type',
+    label: 'Run Type',
+    icon: 'footsteps-outline',
+    tags: ['Easy Day', 'Long Run', 'Tempo', 'Speed Work', 'Race', 'Trail', 'Treadmill'],
   },
 ] as const;
 
-export const ALL_PRESET_TAGS = WORKOUT_TAG_GROUPS.flatMap((g) => g.tags);
+export const ALL_PRESET_TAGS: readonly string[] = WORKOUT_TAG_GROUPS.flatMap((g) => g.tags);
+
+export const WORKOUT_NOTES_MAX_LENGTH = 1000;
 
 // ── Quick Start & Completed Workout ──────────────────────────────────
 
@@ -197,11 +183,14 @@ export interface CompletedWorkout {
   workoutId: string;
   workoutName: string;
   completedAt: number;
+  /** Last local edit (tags, notes, etc.); used by cloud sync to pick the newer copy. */
+  updatedAt?: number;
   totalDurationMs: number;
   splits?: IntervalSplit[];
   totalDistanceMeters?: number;
   route?: RoutePoint[];
   tags?: string[];
+  notes?: string;
   configuration?: WorkoutDefinition;
   templateId?: string;
   planWorkoutId?: string;

@@ -677,6 +677,11 @@ export default function HistoryScreen() {
                         {item.tags && item.tags.length > 0 ? (
                           <TagBadges tags={item.tags} />
                         ) : null}
+                        {item.notes ? (
+                          <Text style={styles.notesText} numberOfLines={4}>
+                            {item.notes}
+                          </Text>
+                        ) : null}
                         <TouchableOpacity
                           style={styles.tagEditBtn}
                           onPress={() => setEditingTagsId(item.id)}
@@ -960,6 +965,12 @@ const styles = StyleSheet.create({
   },
   tagDisplayRow: {
     marginBottom: Spacing.md,
+  },
+  notesText: {
+    marginTop: Spacing.xs,
+    fontSize: FontSize.sm,
+    lineHeight: 20,
+    color: Colors.textSecondary,
   },
   tagEditBtn: {
     flexDirection: 'row',

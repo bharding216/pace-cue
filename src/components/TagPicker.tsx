@@ -1,25 +1,31 @@
 /**
  * TagPicker — grouped tag chips for labeling completed workouts.
  *
- * Renders each tag group (Run Type, How It Felt, etc.) with tappable chips.
+ * Renders each tag group (How It Felt, Run Type) with tappable chips.
  * Supports multi-select and fires onChange with the updated tag array.
  * Can render in full (post-workout) or compact (inline history) mode.
+ *
+ * Selected tags that are no longer presets (from older app versions) are
+ * shown under "Other" so they can still be removed.
  */
 
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { WORKOUT_TAG_GROUPS, type WorkoutTagCategory } from '../workout/workoutTypes';
+import {
+  WORKOUT_TAG_GROUPS,
+  ALL_PRESET_TAGS,
+  type WorkoutTagCategory,
+} from '../workout/workoutTypes';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import { hapticTap } from '../audio/haptics';
 
 const CATEGORY_COLORS: Record<WorkoutTagCategory, string> = {
-  type: Colors.accent,
   feel: Colors.danger,
-  effort: '#F59E0B',
-  weather: Colors.primary,
-  social: '#A78BFA',
+  type: Colors.accent,
 };
+
+const OTHER_COLOR = Colors.textSecondary;
 
 interface TagPickerProps {
   selected: string[];
@@ -38,6 +44,20 @@ export function TagPicker({ selected, onChange, compact }: TagPickerProps) {
     }
   };
 
+  const otherTags = selected.filter((t) => !ALL_PRESET_TAGS.includes(t));
+  const groups = [
+    ...WORKOUT_TAG_GROUPS.map((group) => ({
+      key: group.category,
+      label: group.label,
+      icon: group.icon,
+      tags: group.tags,
+      color: CATEGORY_COLORS[group.category],
+    })),
+    ...(otherTags.length > 0
+      ? [{ key: 'other', label: 'Other', icon: 'pricetag-outline', tags: otherTags, color: OTHER_COLOR }]
+      : []),
+  ];
+
   if (compact) {
     return (
       <ScrollView
@@ -45,10 +65,10 @@ export function TagPicker({ selected, onChange, compact }: TagPickerProps) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.compactRow}
       >
-        {WORKOUT_TAG_GROUPS.flatMap((group) =>
+        {groups.flatMap((group) =>
           group.tags.map((tag) => {
             const isActive = selected.includes(tag);
-            const color = CATEGORY_COLORS[group.category];
+            const color = group.color;
             return (
               <TouchableOpacity
                 key={tag}
@@ -77,10 +97,10 @@ export function TagPicker({ selected, onChange, compact }: TagPickerProps) {
 
   return (
     <View style={styles.container}>
-      {WORKOUT_TAG_GROUPS.map((group) => {
-        const color = CATEGORY_COLORS[group.category];
+      {groups.map((group) => {
+        const color = group.color;
         return (
-          <View key={group.category} style={styles.group}>
+          <View key={group.key} style={styles.group}>
             <View style={styles.groupHeader}>
               <Ionicons
                 name={group.icon as any}
