@@ -32,9 +32,15 @@ import {
   configureAudio,
   getAvailableVoices,
   setVoiceIdentifier,
+  setPremiumVoice,
   setDuckingEnabled,
   speak,
+  speakCuePhrases,
 } from '../../../src/audio/audioManager';
+import { paceCue, VOICE_PREVIEW_TEXT } from '../../../src/audio/cuePhrases';
+import { prepareVoicePack } from '../../../src/audio/prepareVoice';
+import type { EnsureProgress } from '../../../src/audio/premiumVoice';
+import { PREMIUM_VOICES } from '../../../src/audio/voiceCatalog';
 import VoicePickerSheet from '../../../src/components/VoicePickerSheet';
 
 const AUDIO_MODES: {
@@ -75,6 +81,31 @@ export default function AudioSettingsScreen() {
   const [voices, setVoices] = useState<Speech.Voice[]>([]);
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [voicePickerVisible, setVoicePickerVisible] = useState(false);
+  const [premiumProgress, setPremiumProgress] = useState<EnsureProgress | null>(null);
+  const [premiumBusy, setPremiumBusy] = useState(false);
+  const [premiumError, setPremiumError] = useState(false);
+
+  const premiumActive = settings.voiceEngine === 'premium';
+  const premiumVoice =
+    PREMIUM_VOICES.find((v) => v.id === settings.premiumVoiceId) ?? PREMIUM_VOICES[0];
+  const premiumReady =
+    !!premiumProgress && premiumProgress.total > 0 && premiumProgress.ready >= premiumProgress.total;
+
+  const downloadPremiumPack = useCallback(async (s: AppSettings, previewWhenDone: boolean) => {
+    setPremiumBusy(true);
+    setPremiumError(false);
+    try {
+      const result = await prepareVoicePack(s.premiumVoiceId, s.paceUnit, setPremiumProgress);
+      setPremiumProgress(result);
+      if (result.ready < result.total) setPremiumError(true);
+      else if (previewWhenDone) speak(VOICE_PREVIEW_TEXT);
+    } catch (e) {
+      console.warn('Failed to download premium voice:', e);
+      setPremiumError(true);
+    } finally {
+      setPremiumBusy(false);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -82,6 +113,9 @@ export default function AudioSettingsScreen() {
         setSettings(s);
         configureAudio();
         setDuckingEnabled(s.duckOtherAudio);
+        const premium = s.voiceEngine === 'premium';
+        setPremiumVoice(premium ? s.premiumVoiceId : null);
+        if (premium) downloadPremiumPack(s, false);
       });
       setVoicesLoading(true);
       getAvailableVoices('en').then((v) => {
@@ -99,6 +133,23 @@ export default function AudioSettingsScreen() {
       setDuckingEnabled(next.duckOtherAudio);
     }
   };
+
+  const selectPremiumVoice = () => {
+    if (premiumBusy) return;
+    setPremiumVoice(settings.premiumVoiceId);
+    update({ voiceEngine: 'premium' });
+    downloadPremiumPack({ ...settings, voiceEngine: 'premium' }, true);
+  };
+
+  const premiumStatusText = premiumBusy
+    ? premiumProgress
+      ? `Downloading voice… ${premiumProgress.ready} of ${premiumProgress.total}`
+      : 'Preparing voice…'
+    : premiumError
+      ? 'Download incomplete · Tap to retry'
+      : premiumActive
+        ? 'Natural AI voice · Works offline during runs'
+        : 'Natural AI voice · Tap to use';
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -167,6 +218,53 @@ export default function AudioSettingsScreen() {
           <Text style={styles.sectionSub}>
             Choose a voice for spoken cues. Enhanced voices sound more natural.
           </Text>
+
+          <TouchableOpacity
+            style={[styles.voiceSelector, !premiumActive && styles.voiceSelectorInactive]}
+            onPress={() => {
+              hapticTap();
+              selectPremiumVoice();
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name="sparkles"
+              size={20}
+              color={premiumActive ? Colors.primary : Colors.textSecondary}
+              style={{ marginRight: Spacing.sm }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.voiceSelectorName, !premiumActive && styles.voiceSelectorNameInactive]}>
+                {premiumVoice.name} (AI)
+              </Text>
+              <Text style={styles.voiceSelectorSub}>{premiumStatusText}</Text>
+            </View>
+            {premiumBusy ? (
+              <ActivityIndicator color={Colors.primary} size="small" />
+            ) : premiumActive ? (
+              <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />
+            ) : null}
+          </TouchableOpacity>
+
+          {premiumActive && premiumReady && (
+            <TouchableOpacity
+              style={styles.downloadVoicesRow}
+              onPress={() => {
+                hapticTap();
+                speakCuePhrases([paceCue(7 + 39 / 60, settings.paceUnit)], 'voice');
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="play-circle-outline" size={18} color={Colors.textSecondary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.downloadVoicesLabel}>Preview pace announcement</Text>
+                <Text style={styles.downloadVoicesSub}>
+                  Live pace is stitched from short clips — listen for smooth joins
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
           {voicesLoading ? (
             <ActivityIndicator
               color={Colors.primary}
@@ -180,7 +278,7 @@ export default function AudioSettingsScreen() {
           ) : (
             <>
               <TouchableOpacity
-                style={styles.voiceSelector}
+                style={[styles.voiceSelector, premiumActive && styles.voiceSelectorInactive]}
                 onPress={() => {
                   hapticTap();
                   setVoicePickerVisible(true);
@@ -188,7 +286,7 @@ export default function AudioSettingsScreen() {
                 activeOpacity={0.7}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.voiceSelectorName}>
+                  <Text style={[styles.voiceSelectorName, premiumActive && styles.voiceSelectorNameInactive]}>
                     {settings.voiceIdentifier === null
                       ? 'System Default'
                       : (() => {
@@ -199,8 +297,9 @@ export default function AudioSettingsScreen() {
                         })()}
                   </Text>
                   <Text style={styles.voiceSelectorSub}>
-                    {voices.length} voice{voices.length !== 1 ? 's' : ''} available ·
-                    Tap to change
+                    {premiumActive
+                      ? 'Device voice · Tap to switch'
+                      : `${voices.length} voice${voices.length !== 1 ? 's' : ''} available · Tap to change`}
                   </Text>
                 </View>
                 <Text style={styles.chevron}>›</Text>
@@ -209,14 +308,20 @@ export default function AudioSettingsScreen() {
               <VoicePickerSheet
                 visible={voicePickerVisible}
                 voices={voices}
-                selectedId={settings.voiceIdentifier}
+                selectedId={premiumActive ? undefined : settings.voiceIdentifier}
+                premiumOption={{
+                  label: `${premiumVoice.name} (AI)`,
+                  selected: premiumActive,
+                  onSelect: selectPremiumVoice,
+                }}
                 onSelect={(id) => {
                   setVoiceIdentifier(id);
-                  update({ voiceIdentifier: id });
+                  setPremiumVoice(null);
+                  update({ voiceIdentifier: id, voiceEngine: 'device' });
                 }}
                 onPreview={(id) => {
                   setVoiceIdentifier(id);
-                  speak('Starting warmup.');
+                  speak(VOICE_PREVIEW_TEXT);
                 }}
                 onClose={() => setVoicePickerVisible(false)}
               />
@@ -399,7 +504,9 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: Colors.primary + '44',
   },
+  voiceSelectorInactive: { borderColor: Colors.surfaceLight },
   voiceSelectorName: { fontSize: FontSize.md, fontWeight: '600', color: Colors.primary },
+  voiceSelectorNameInactive: { color: Colors.textPrimary },
   voiceSelectorSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
   chevron: { fontSize: 24, fontWeight: '300', color: Colors.textMuted, marginLeft: Spacing.sm },
   downloadVoicesRow: {

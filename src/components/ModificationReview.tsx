@@ -147,7 +147,7 @@ export function ModificationReview({ items, coachMessage, onApply, onKeepOrigina
     } else if (seg.target.type === 'time' && seg.target.durationSeconds) {
       duration = formatDurationForSpeech(seg.target.durationSeconds);
     } else {
-      duration = 'manual';
+      duration = 'open-ended';
     }
     const parts = [`${duration} ${label}`];
     if (seg.intensity) parts.push(seg.intensity);

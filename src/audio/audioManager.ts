@@ -1,8 +1,10 @@
 /**
  * Audio cue manager for SplitCue.
  *
- * Uses expo-audio for beep tones and expo-speech for voice announcements.
- * Configured for background playback so cues work with the phone locked.
+ * Uses expo-audio for beep tones and voice announcements. Announcements
+ * play from cached premium voice clips when available and fall back to
+ * expo-speech otherwise. Configured for background playback so cues work
+ * with the phone locked.
  */
 
 import {
@@ -11,9 +13,17 @@ import {
   type AudioPlayer,
 } from 'expo-audio';
 import * as Speech from 'expo-speech';
-import { AudioCueMode, formatDurationForSpeech, formatDistanceForSpeech, formatCueDistanceForSpeech } from '../workout/workoutTypes';
-import type { PaceUnit } from '../pace/paceTypes';
-import { formatPaceForSpeech } from '../pace/paceTracker';
+import type { AudioCueMode } from '../workout/workoutTypes';
+import {
+  type CueContext,
+  type CuePhrase,
+  intervalStartText,
+  warningText,
+  warningSecondsText,
+  WORKOUT_COMPLETE_TEXT,
+} from './cuePhrases';
+import { type Clip, getLocalClipUri, loadVoiceIndex } from './premiumVoice';
+import { playClipSequence, stopClips } from './clipPlayer';
 
 let isAudioConfigured = false;
 
@@ -93,6 +103,14 @@ let selectedVoiceId: string | null = null;
 /** Set the voice identifier used by all subsequent speak() calls. */
 export function setVoiceIdentifier(id: string | null): void {
   selectedVoiceId = id;
+}
+
+/** Premium voice used for cues, or null for device text-to-speech. */
+let premiumVoiceId: string | null = null;
+
+export function setPremiumVoice(id: string | null): void {
+  premiumVoiceId = id;
+  if (id) loadVoiceIndex(id);
 }
 
 /**
@@ -269,202 +287,125 @@ export async function playDoubleBeep(): Promise<void> {
 
 // ── Voice announcements ──────────────────────────────────────────────
 
-/** Speak a phrase using the device's text-to-speech engine. */
-export function speak(text: string): void {
-  try {
-    // Activate ducking right before speaking — cancels any pending unduck
-    // so rapid-fire announcements stay ducked without gaps.
-    activateDucking();
+// Transition cues (interval start, warnings, completion) interrupt whatever
+// is playing. Routine cues (progress, pace) replace other routine cues but
+// wait behind a transition, and are dropped if they can't start promptly.
 
+type CuePriority = 'transition' | 'routine';
+
+const STALE_ROUTINE_MS = 3000;
+
+interface Utterance {
+  clips: Clip[];
+  text: string;
+  priority: CuePriority;
+  requestedAt: number;
+}
+
+let activeUtterance: { priority: CuePriority; token: number } | null = null;
+let pendingUtterance: Utterance | null = null;
+let utteranceToken = 0;
+
+function stopActiveUtterance(): void {
+  activeUtterance = null;
+  stopClips();
+  Speech.stop();
+}
+
+function startUtterance(u: Utterance): void {
+  stopActiveUtterance();
+  if (u.priority === 'routine' && Date.now() - u.requestedAt > STALE_ROUTINE_MS) {
+    scheduleUnduck();
+    return;
+  }
+
+  const token = ++utteranceToken;
+  activeUtterance = { priority: u.priority, token };
+  const isCurrent = () => activeUtterance?.token === token;
+  const done = () => {
+    if (!isCurrent()) return;
+    activeUtterance = null;
+    const next = pendingUtterance;
+    pendingUtterance = null;
+    if (next) startUtterance(next);
+    else scheduleUnduck();
+  };
+
+  // Activate ducking right before speaking — cancels any pending unduck
+  // so rapid-fire announcements stay ducked without gaps.
+  activateDucking();
+
+  if (premiumVoiceId) {
+    const uris = u.clips.map((clip) => getLocalClipUri(premiumVoiceId!, clip));
+    if (uris.length > 0 && uris.every((uri): uri is string => uri != null)) {
+      playClipSequence(uris, done);
+      return;
+    }
+  }
+
+  try {
     const opts: Speech.SpeechOptions = {
       language: 'en-US',
       rate: 1.05,
       pitch: 1.0,
-      onDone: () => scheduleUnduck(),
-      onStopped: () => scheduleUnduck(),
-      onError: (_error: Error) => scheduleUnduck(),
+      onDone: done,
+      onStopped: done,
+      onError: (_error: Error) => done(),
     };
     // Only override the OS default voice when the user has explicitly chosen one
     if (selectedVoiceId) {
       opts.voice = selectedVoiceId;
     }
-    // Stop any in-progress speech first, then give iOS a moment to
-    // finish tearing down the previous utterance before starting a new one.
-    Speech.stop();
+    // Give iOS a moment to finish tearing down the previous utterance
+    // before starting a new one.
     setTimeout(() => {
-      Speech.speak(text, opts);
+      if (isCurrent()) Speech.speak(u.text, opts);
     }, 50);
   } catch (e) {
     console.warn('Failed to speak:', e);
-    scheduleUnduck();
+    done();
   }
+}
+
+/** Queue an announcement made of premium voice clips, with device TTS text as the fallback. */
+function say(clips: Clip[], text: string, priority: CuePriority): void {
+  const u: Utterance = { clips, text, priority, requestedAt: Date.now() };
+  if (priority === 'routine' && activeUtterance?.priority === 'transition') {
+    pendingUtterance = u;
+    return;
+  }
+  pendingUtterance = null;
+  startUtterance(u);
+}
+
+/** Speak a single phrase, interrupting anything currently playing. */
+export function speak(text: string): void {
+  say([text], text, 'transition');
+}
+
+/** Speak the announcement for an interval transition, warning, or completion. */
+function announceInterval(cue: CueType, ctx: CueContext = {}): void {
+  const text =
+    cue === 'intervalStart' ? intervalStartText(ctx)
+    : cue === 'warning' ? warningText(ctx)
+    : cue === 'workoutComplete' ? WORKOUT_COMPLETE_TEXT
+    : null;
+  if (text) speak(text);
 }
 
 /**
- * Build verbose voice announcements for interval transitions.
- *
- * Examples:
- *   Block start: "Beginning Sprint. 3 minutes hard, 2 minutes easy. 4 sets. Starting hard for 3 minutes."
- *   Set start:   "Beginning set 2 of 4. Starting hard for 3 minutes."
- *   Interval:    "Starting easy for 2 minutes."
- *   Warning:     "10 seconds. Next up, easy for 2 minutes."
- *   Complete:    "Workout complete. Great job."
+ * Speak one or more routine cue phrases (progress, pace) as a single
+ * utterance so they don't cancel each other.
  */
-function announceInterval(
-  cue: CueType,
-  currentLabel?: string,
-  _previousLabel?: string,
-  ctx?: CueContext,
-): void {
-  switch (cue) {
-    case 'intervalStart': {
-      const hasDuration = ctx?.currentDuration && ctx.currentDuration > 0;
-      const hasDistance = ctx?.currentDistanceMeters && ctx.currentDistanceMeters > 0;
-      if (!hasDuration && !hasDistance) {
-        if (currentLabel) speak(`Beginning ${currentLabel}`);
-        return;
-      }
-      const parts: string[] = [];
-      const measure = hasDistance && !hasDuration
-        ? formatDistanceForSpeech(ctx!.currentDistanceMeters!)
-        : hasDuration
-          ? formatDurationForSpeech(ctx!.currentDuration!)
-          : '';
-      const effortSuffix = ctx?.effort ? `, ${ctx.effort} out of 10 effort` : '';
-
-      if (ctx?.isFirstInBlock && ctx.totalSets && ctx.totalSets > 1) {
-        const name = ctx.blockName || `interval ${ctx.blockNumber}`;
-        parts.push(`Beginning ${name}`);
-        if (ctx.blockSummary) parts.push(ctx.blockSummary);
-        parts.push(`${ctx.totalSets} sets`);
-      } else if (ctx?.isFirstInBlock && (ctx.blockIntervalCount ?? 0) > 1) {
-        const name = ctx.blockName || `interval ${ctx.blockNumber}`;
-        parts.push(`Beginning ${name}`);
-      } else if (ctx?.isFirstInSet && ctx.totalSets && ctx.totalSets > 1) {
-        parts.push(
-          `Beginning set ${ctx.setNumber} of ${ctx.totalSets}`,
-        );
-      }
-
-      parts.push(`Starting ${currentLabel} for ${measure}${effortSuffix}`);
-
-      // Announce target pace at the start of each interval/set
-      if (ctx?.targetPace != null && isFinite(ctx.targetPace)) {
-        const tgtStr = formatPaceForSpeech(ctx.targetPace);
-        const unitLabel = ctx.paceUnit === 'minPerKm' ? 'per K' : 'per mile';
-        parts.push(`Target pace ${tgtStr} ${unitLabel}`);
-      }
-
-      speak(parts.join('. ') + '.');
-      break;
-    }
-    case 'warning': {
-      const parts: string[] = [];
-      if (ctx?.warningSeconds) {
-        parts.push(`${ctx.warningSeconds} seconds`);
-      }
-      const nextHasDuration = ctx?.nextDuration && ctx.nextDuration > 0;
-      const nextHasDistance = ctx?.nextDistanceMeters && ctx.nextDistanceMeters > 0;
-      if (ctx?.nextLabel && (nextHasDuration || nextHasDistance)) {
-        const nextMeasure = nextHasDistance && !nextHasDuration
-          ? formatDistanceForSpeech(ctx.nextDistanceMeters!)
-          : nextHasDuration
-            ? formatDurationForSpeech(ctx.nextDuration!)
-            : '';
-        const nextEffort = ctx?.nextEffort ? `, ${ctx.nextEffort} out of 10` : '';
-        parts.push(`Next up, ${ctx.nextLabel} for ${nextMeasure}${nextEffort}`);
-        if (ctx.nextTargetPace != null && isFinite(ctx.nextTargetPace)) {
-          const tgtStr = formatPaceForSpeech(ctx.nextTargetPace);
-          const unitLabel = ctx.paceUnit === 'minPerKm' ? 'per K' : 'per mile';
-          parts.push(`Target pace ${tgtStr} ${unitLabel}`);
-        }
-      } else if (!ctx?.nextLabel) {
-        parts.push('almost done');
-      } else if (currentLabel) {
-        parts.push(`Ending ${currentLabel}`);
-      }
-      if (parts.length > 0) {
-        speak(parts.join('. ') + '.');
-      }
-      break;
-    }
-    case 'workoutComplete':
-      speak('Workout complete. Great job.');
-      break;
-  }
-}
-
-// ── Interval progress announcements ──────────────────────────────────
-
-/** "1 minute passed", "1 minute 30 seconds passed", "45 seconds passed". */
-export function intervalProgressPhrase(elapsedSeconds: number): string {
-  const mins = Math.floor(elapsedSeconds / 60);
-  const secs = elapsedSeconds % 60;
-
-  if (mins > 0 && secs > 0) {
-    const minWord = mins === 1 ? 'minute' : 'minutes';
-    return `${mins} ${minWord} ${secs} seconds passed`;
-  }
-  if (mins > 0) {
-    const minWord = mins === 1 ? 'minute' : 'minutes';
-    return `${mins} ${minWord} passed`;
-  }
-  return `${secs} seconds passed`;
-}
-
-/** "half mile passed", "1 kilometer passed", "500 meters passed". */
-export function distanceProgressPhrase(meters: number, unit: PaceUnit): string {
-  return `${formatCueDistanceForSpeech(meters, unit)} passed`;
-}
-
-/**
- * Speak elapsed time within the current interval.
- * Only fires when audio mode includes voice.
- */
-export function speakIntervalProgress(
-  elapsedSeconds: number,
-  mode: AudioCueMode
-): void {
+export function speakCuePhrases(phrases: CuePhrase[], mode: AudioCueMode): void {
   if (mode !== 'voice' && mode !== 'both') return;
-  speak(intervalProgressPhrase(elapsedSeconds));
-}
-
-/** Speak one or more cue phrases as a single utterance so they don't cancel each other. */
-export function speakCuePhrases(phrases: string[], mode: AudioCueMode): void {
-  if (mode !== 'voice' && mode !== 'both') return;
-  const cleaned = phrases.map((p) => p.trim().replace(/\.$/, '')).filter(Boolean);
-  if (cleaned.length === 0) return;
-  speak(cleaned.join('. ') + '.');
+  const used = phrases.filter((p) => p.text.trim());
+  if (used.length === 0) return;
+  const text = used.map((p) => p.text.trim().replace(/\.$/, '')).join('. ') + '.';
+  say(used.flatMap((p) => p.clips), text, 'routine');
 }
 
 // ── Unified cue dispatcher ───────────────────────────────────────────
-
-export interface CueContext {
-  /** The label of the interval that just started (e.g. "Hard", "Easy", "Warm Up"). */
-  currentLabel?: string;
-  /** The label of the interval that just ended. */
-  previousLabel?: string;
-  // Verbose cue fields
-  currentDuration?: number; // seconds (0 for distance-based)
-  currentDistanceMeters?: number; // set for distance-based intervals
-  effort?: number; // 1-10 perceived effort rating
-  blockName?: string;
-  blockNumber?: number;
-  setNumber?: number;
-  totalSets?: number;
-  isFirstInBlock?: boolean;
-  isFirstInSet?: boolean;
-  blockSummary?: string;
-  blockIntervalCount?: number;
-  nextLabel?: string;
-  nextDuration?: number;
-  nextDistanceMeters?: number; // distance for next interval (if distance-based)
-  nextEffort?: number; // effort for the next interval
-  nextTargetPace?: number; // target pace in min/unit for the next interval
-  warningSeconds?: number;
-  targetPace?: number; // target pace in min/unit for current interval
-  paceUnit?: PaceUnit; // unit for target pace announcement
-}
 
 /**
  * Play the appropriate cue(s) based on user's audio preference.
@@ -498,23 +439,9 @@ export async function playCue(
     // Small delay when in 'both' mode so the beep finishes before speech
     const delay = mode === 'both' ? 300 : 0;
     if (delay > 0) {
-      setTimeout(
-        () =>
-          announceInterval(
-            cue,
-            context?.currentLabel,
-            context?.previousLabel,
-            context,
-          ),
-        delay,
-      );
+      setTimeout(() => announceInterval(cue, context), delay);
     } else {
-      announceInterval(
-        cue,
-        context?.currentLabel,
-        context?.previousLabel,
-        context,
-      );
+      announceInterval(cue, context);
     }
   }
 
@@ -522,7 +449,7 @@ export async function playCue(
   // can tell which countdown triggered (e.g. "30 seconds" vs "10 seconds").
   if (mode === 'beeps' && cue === 'warning' && context?.warningSeconds) {
     setTimeout(() => {
-      speak(`${context.warningSeconds} seconds`);
+      speak(warningSecondsText(context.warningSeconds!));
     }, 300);
   }
 
@@ -532,42 +459,4 @@ export async function playCue(
   // The fallback covers pure-beep cues and edge-cases where no speech
   // fires (e.g. countdown).
   scheduleUnduck(willSpeak || (mode === 'beeps' && cue === 'warning') ? 2000 : 500);
-}
-
-// ── Pace cue announcements ───────────────────────────────────────────
-
-/**
- * Speak a factual pace cue — just the current pace, no judgment.
- *
- * The target pace is announced once at the start of each interval
- * (see announceInterval), so the periodic cue only needs to report
- * the runner's actual pace.
- *
- * Examples:
- *   "Current pace 7 minutes 35 seconds per mile."
- *   "Current pace 4 minutes 12 seconds per K."
- *   "Pace unavailable."
- */
-export function paceCuePhrase(
-  currentPaceMinutes: number | null,
-  unit: PaceUnit,
-): string {
-  const unitLabel = unit === 'minPerMile' ? 'per mile' : 'per K';
-
-  if (currentPaceMinutes == null || !isFinite(currentPaceMinutes)) {
-    return 'Pace unavailable';
-  }
-
-  const currentStr = formatPaceForSpeech(currentPaceMinutes);
-  return `Current pace ${currentStr} ${unitLabel}`;
-}
-
-export function speakPaceCue(
-  currentPaceMinutes: number | null,
-  _targetPaceMinutes: number | undefined,
-  unit: PaceUnit,
-  mode: AudioCueMode,
-): void {
-  if (mode !== 'voice' && mode !== 'both') return;
-  speak(paceCuePhrase(currentPaceMinutes, unit) + '.');
 }

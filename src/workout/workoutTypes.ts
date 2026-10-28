@@ -7,6 +7,8 @@
  * purpose, and intensity.
  */
 
+import { DEFAULT_PREMIUM_VOICE_ID } from '../audio/voiceCatalog';
+
 // ── Segment model ────────────────────────────────────────────────────
 
 /** The purpose of a segment within a workout. */
@@ -210,6 +212,7 @@ export interface CompletedWorkout {
 
 export type AudioCueMode = 'voice' | 'beeps' | 'both' | 'silent';
 export type TimeRemainingInterval = 0 | 15 | 30 | 45 | 60 | 120;
+export type VoiceEngine = 'device' | 'premium';
 
 import type {
   CueBasis,
@@ -230,6 +233,9 @@ export interface AppSettings {
   /** Distance step for interval-progress cues. Used when progressCueBasis is 'distance'. */
   progressCueDistance: CueDistancePreset;
   voiceIdentifier: string | null;
+  /** Speak cues with the device's TTS voice or the premium AI voice. */
+  voiceEngine: VoiceEngine;
+  premiumVoiceId: string;
   duckOtherAudio: boolean;
   paceTrackingEnabled: boolean;
   paceCueFrequency: PaceCueFrequency;
@@ -251,6 +257,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   progressCueBasis: 'time',
   progressCueDistance: 'full',
   voiceIdentifier: null,
+  voiceEngine: 'device',
+  premiumVoiceId: DEFAULT_PREMIUM_VOICE_ID,
   duckOtherAudio: true,
   paceTrackingEnabled: true,
   paceCueFrequency: 30,
@@ -671,6 +679,25 @@ export function createSegment(
     target: { type: 'time', durationSeconds: segmentType === 'rest' ? 60 : 180 },
     ...overrides,
   };
+}
+
+/** Starting values for a newly added segment of each type. */
+export const SEGMENT_DEFAULTS: Record<SegmentType, { durationSeconds: number; intensity?: Intensity }> = {
+  warmup: { durationSeconds: 600, intensity: 'easy' },
+  run: { durationSeconds: 300, intensity: 'moderate' },
+  recovery: { durationSeconds: 120, intensity: 'recovery' },
+  rest: { durationSeconds: 60, intensity: 'recovery' },
+  cooldown: { durationSeconds: 300, intensity: 'easy' },
+};
+
+/** Create a new Segment using the per-type smart defaults. */
+export function createDefaultSegment(segmentType: SegmentType): Segment {
+  const d = SEGMENT_DEFAULTS[segmentType];
+  return createSegment(segmentType, {
+    target: { type: 'time', durationSeconds: d.durationSeconds },
+    intensity: d.intensity,
+    effort: intensityToEffort(d.intensity),
+  });
 }
 
 /** Create a new RepeatGroup with default run + recovery. */

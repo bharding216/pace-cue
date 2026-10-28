@@ -43,10 +43,19 @@ function formatVoiceName(voice: Speech.Voice): string {
   return `${name}${quality}`;
 }
 
+interface PremiumOption {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+}
+
 interface Props {
   visible: boolean;
   voices: Speech.Voice[];
-  selectedId: string | null;
+  /** Selected device voice; null is System Default, undefined means no device voice is selected. */
+  selectedId: string | null | undefined;
+  /** AI voice shown above the device voices. */
+  premiumOption?: PremiumOption;
   onSelect: (id: string | null) => void;
   onPreview: (id: string | null) => void;
   onClose: () => void;
@@ -56,6 +65,7 @@ export default function VoicePickerSheet({
   visible,
   voices,
   selectedId,
+  premiumOption,
   onSelect,
   onPreview,
   onClose,
@@ -161,6 +171,28 @@ export default function VoicePickerSheet({
 
   const ListHeader = useMemo(
     () => (
+      <>
+      {premiumOption && (
+        <TouchableOpacity
+          style={[styles.voiceRow, premiumOption.selected && styles.voiceRowActive]}
+          onPress={() => {
+            hapticTap();
+            premiumOption.onSelect();
+          }}
+          activeOpacity={0.7}
+        >
+          <View style={styles.voiceInfo}>
+            <Text style={[styles.voiceName, premiumOption.selected && styles.voiceNameActive]}>
+              {premiumOption.label}
+            </Text>
+            <Text style={styles.voiceSub}>Natural AI voice · Works offline during runs</Text>
+          </View>
+          <View style={styles.enhancedBadge}>
+            <Text style={styles.enhancedBadgeText}>AI</Text>
+          </View>
+          {premiumOption.selected && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} style={styles.checkmark} />}
+        </TouchableOpacity>
+      )}
       <TouchableOpacity
         style={[styles.voiceRow, selectedId === null && styles.voiceRowActive]}
         onPress={() => handleSelect(null)}
@@ -181,8 +213,9 @@ export default function VoicePickerSheet({
         </View>
         {selectedId === null && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} style={styles.checkmark} />}
       </TouchableOpacity>
+      </>
     ),
-    [selectedId, handleSelect],
+    [selectedId, handleSelect, premiumOption],
   );
 
   return (

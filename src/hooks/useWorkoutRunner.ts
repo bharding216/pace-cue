@@ -44,15 +44,20 @@ import {
   playCue,
   configureAudio,
   speakCuePhrases,
-  intervalProgressPhrase,
-  distanceProgressPhrase,
-  paceCuePhrase,
   startBackgroundLoop,
   stopBackgroundLoop,
   setVoiceIdentifier,
+  setPremiumVoice,
   setDuckingEnabled,
-  type CueContext,
 } from '../audio/audioManager';
+import {
+  buildCueContext,
+  intervalProgressPhrase,
+  distanceProgressPhrase,
+  paceCue,
+  type CueContext,
+  type CuePhrase,
+} from '../audio/cuePhrases';
 import { cueDistanceMeters, nextCueMark, distanceProgressCuesNeedGps } from '../audio/cueSchedule';
 import { usePaceTracker, type PaceTrackerResult } from './usePaceTracker';
 import type { GpsSample, PaceState } from '../pace/paceTypes';
@@ -81,30 +86,11 @@ function buildVerboseCueContext(
   settings?: AppSettings,
 ): CueContext {
   const ci = currentInterval(state);
-  const ni = nextInterval(state);
   if (!ci) return {};
   return {
-    currentLabel: ci.label,
-    currentDuration: ci.durationSeconds,
-    currentDistanceMeters: ci.distanceMeters,
-    effort: ci.effort,
-    blockName: ci.blockName,
-    blockNumber: ci.blockNumber,
-    setNumber: ci.setNumber,
-    totalSets: ci.totalSets,
-    isFirstInBlock: ci.isFirstInBlock,
-    isFirstInSet: ci.isFirstInSet,
-    blockSummary: ci.blockSummary,
-    blockIntervalCount: ci.blockIntervalCount,
-    nextLabel: ni?.label,
-    nextDuration: ni?.durationSeconds,
-    nextDistanceMeters: ni?.distanceMeters,
-    nextEffort: ni?.effort,
-    nextTargetPace: ni?.targetPace,
+    ...buildCueContext(ci, nextInterval(state), settings?.paceUnit),
     warningSeconds:
       cueType === 'warning' ? remainingSeconds(state) : undefined,
-    targetPace: ci.targetPace,
-    paceUnit: settings?.paceUnit,
   };
 }
 
@@ -510,21 +496,22 @@ export function useWorkoutRunner(
             : Math.floor(intervalElapsedMsRef.current / 1000);
           const intervalDist =
             paceTrackerRef.current.paceState.totalDistanceMeters - intervalStartDistanceRef.current;
-          const phrases: string[] = [];
+          const phrases: CuePhrase[] = [];
+          const textPhrase = (text: string): CuePhrase => ({ clips: [text], text });
 
           if (settingsNow.progressCueBasis === 'distance') {
             const step = cueDistanceMeters(settingsNow.progressCueDistance, settingsNow.paceUnit);
             const mark = nextCueMark(intervalDist, step, lastProgressMark.current);
             if (mark != null) {
               lastProgressMark.current = mark;
-              phrases.push(distanceProgressPhrase(mark * step, settingsNow.paceUnit));
+              phrases.push(textPhrase(distanceProgressPhrase(mark * step, settingsNow.paceUnit)));
             }
           } else if (!suppressTimeCues && settingsNow.timeRemainingInterval > 0) {
             const step = settingsNow.timeRemainingInterval;
             const mark = nextCueMark(elapsedSec, step, lastProgressMark.current);
             if (mark != null) {
               lastProgressMark.current = mark;
-              phrases.push(intervalProgressPhrase(mark * step));
+              phrases.push(textPhrase(intervalProgressPhrase(mark * step)));
             }
           }
 
@@ -542,7 +529,7 @@ export function useWorkoutRunner(
                   settingsNow.paceUnit === 'minPerMile'
                     ? ps.currentPaceMinPerMile
                     : ps.currentPaceMinPerKm;
-                phrases.push(paceCuePhrase(currentPace, settingsNow.paceUnit));
+                phrases.push(paceCue(currentPace, settingsNow.paceUnit));
               }
             } else if (!suppressTimeCues && settingsNow.paceCueFrequency > 0) {
               const step = settingsNow.paceCueFrequency;
@@ -554,7 +541,7 @@ export function useWorkoutRunner(
                   settingsNow.paceUnit === 'minPerMile'
                     ? ps.currentPaceMinPerMile
                     : ps.currentPaceMinPerKm;
-                phrases.push(paceCuePhrase(currentPace, settingsNow.paceUnit));
+                phrases.push(paceCue(currentPace, settingsNow.paceUnit));
               }
             }
           }
@@ -645,7 +632,8 @@ export function useWorkoutRunner(
     configureAudio();
     setDuckingEnabled(settings.duckOtherAudio);
     setVoiceIdentifier(settings.voiceIdentifier);
-  }, [settings.voiceIdentifier, settings.duckOtherAudio]);
+    setPremiumVoice(settings.voiceEngine === 'premium' ? settings.premiumVoiceId : null);
+  }, [settings.voiceIdentifier, settings.duckOtherAudio, settings.voiceEngine, settings.premiumVoiceId]);
 
   // Clean up Live Activity and background loop on unmount
   useEffect(() => {
@@ -698,6 +686,7 @@ export function useWorkoutRunner(
       interval_count: next.intervals.length,
       total_duration_seconds: next.intervals.reduce((s, i) => s + i.durationSeconds, 0),
       gps_enabled: needsGps,
+      settings: settingsRef.current,
     };
     getPowerSnapshot().then((power) => {
       batteryAtStartRef.current = power.batteryLevel;

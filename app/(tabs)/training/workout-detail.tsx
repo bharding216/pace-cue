@@ -5,7 +5,7 @@
  * Accessed via query params: ?workoutId=<plan_workout_id>
  */
 
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import { MoveWorkoutModal } from '../../../src/components/MoveWorkoutModal';
 import { WorkoutDefinition, generateId, totalWorkoutSeconds, flattenWorkout } from '../../../src/workout/workoutTypes';
 import { setTempWorkout } from '../../../src/workout/tempWorkoutCache';
 import { generateWorkoutDetails } from '../../../src/ai/planService';
+import { prepareWorkoutAudio } from '../../../src/audio/prepareVoice';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -61,6 +62,10 @@ export default function WorkoutDetailScreen() {
 
   const workoutData = planWorkout?.workout_data as WorkoutDefinition | null;
   const intensity = getIntensityTag(planWorkout?.day_label ?? null);
+
+  useEffect(() => {
+    if (workoutData?.blocks?.length) prepareWorkoutAudio(workoutData);
+  }, [workoutData]);
 
   const duration = useMemo(() => {
     if (!workoutData) return null;

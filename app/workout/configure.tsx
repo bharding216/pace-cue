@@ -39,6 +39,7 @@ import { WorkoutEditorForm } from '../../src/components/WorkoutEditorForm';
 import { quickStartFactory, loadQuickStartDefault, saveQuickStartDefault } from '../../src/workout/quickStartDefaults';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 import { track } from '../../src/analytics/track';
+import { prepareWorkoutAudio } from '../../src/audio/prepareVoice';
 
 export default function ConfigureWorkoutScreen() {
   const { id, quickStart } = useLocalSearchParams<{
@@ -82,6 +83,15 @@ export default function ConfigureWorkoutScreen() {
       });
     }
   }, [id, quickStart]);
+
+  // Prepare voice clips for the workout as loaded; the run screen
+  // prepares again with any edits made here.
+  const preparedRef = useRef(false);
+  useEffect(() => {
+    if (!workout || preparedRef.current) return;
+    preparedRef.current = true;
+    prepareWorkoutAudio(workout);
+  }, [workout]);
 
   const handleChange = useCallback((updated: WorkoutDefinition) => {
     setWorkout(updated);

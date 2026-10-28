@@ -17,6 +17,7 @@ import {
   type Intensity,
   type SegmentTarget,
 } from './workoutTypes';
+import { PREMIUM_VOICES, DEFAULT_PREMIUM_VOICE_ID } from '../audio/voiceCatalog';
 
 const STORAGE_KEYS = {
   WORKOUTS: '@pacecue/workouts',
@@ -318,6 +319,10 @@ export function normalizeSettings(raw: Partial<AppSettings> | null | undefined):
   if (!CUE_BASES.has(parsed.paceCueBasis)) parsed.paceCueBasis = 'time';
   if (!CUE_DISTANCE_PRESETS.has(parsed.progressCueDistance)) parsed.progressCueDistance = 'full';
   if (!CUE_DISTANCE_PRESETS.has(parsed.paceCueDistance)) parsed.paceCueDistance = 'half';
+  if (parsed.voiceEngine !== 'device' && parsed.voiceEngine !== 'premium') parsed.voiceEngine = 'device';
+  if (!PREMIUM_VOICES.some((v) => v.id === parsed.premiumVoiceId)) {
+    parsed.premiumVoiceId = DEFAULT_PREMIUM_VOICE_ID;
+  }
   return parsed;
 }
 
@@ -327,9 +332,18 @@ export async function loadSettings(): Promise<AppSettings> {
   return normalizeSettings(JSON.parse(raw));
 }
 
+const settingsSavedListeners = new Set<() => void>();
+
+/** Called after every successful saveSettings(). Returns an unsubscribe function. */
+export function onSettingsSaved(listener: () => void): () => void {
+  settingsSavedListeners.add(listener);
+  return () => settingsSavedListeners.delete(listener);
+}
+
 export async function saveSettings(settings: AppSettings): Promise<void> {
   await AsyncStorage.setItem(
     STORAGE_KEYS.SETTINGS,
     JSON.stringify(normalizeSettings(settings))
   );
+  settingsSavedListeners.forEach((listener) => listener());
 }

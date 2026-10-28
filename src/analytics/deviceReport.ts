@@ -12,14 +12,19 @@ import * as Notifications from 'expo-notifications';
 import { supabase } from './supabaseClient';
 import { deviceCountry, getAnonymousId } from './track';
 import { getInstallReferrer, getInstallationTime, staticDeviceInfo } from './deviceInfo';
-import { loadSettings } from '../workout/workoutStorage';
+import { loadSettings, onSettingsSaved } from '../workout/workoutStorage';
 import type { SubscriptionTier } from '../types/database';
 
 const LAST_REPORT_KEY = '@pacecue/device_report';
 const INSTALL_REFERRER_KEY = '@pacecue/install_referrer';
 const REPORT_EVERY_MS = 24 * 60 * 60 * 1000;
+const SETTINGS_DEBOUNCE_MS = 5000;
 
 let inFlight: Promise<void> | null = null;
+let rerunAfterFlight = false;
+let settingsTimer: ReturnType<typeof setTimeout> | null = null;
+/** Set by the first reportDevice() call, once auth and subscription state are known. */
+let lastArgs: { userId: string | null; subscriptionTier: SubscriptionTier | null } | null = null;
 
 async function locationPermissions() {
   try {
@@ -75,9 +80,7 @@ async function buildSnapshot(subscriptionTier: SubscriptionTier | null) {
     country: deviceCountry(),
     ...location,
     notifications,
-    pace_unit: settings?.paceUnit ?? null,
-    audio_cue_mode: settings?.audioCueMode ?? null,
-    pace_tracking: settings?.paceTrackingEnabled ?? null,
+    settings,
     subscription_tier: subscriptionTier,
     installed_at: installedAt,
     install_referrer: installReferrer,
@@ -115,10 +118,27 @@ export function reportDevice(
   userId: string | null,
   subscriptionTier: SubscriptionTier | null,
 ): void {
-  if (inFlight) return;
+  lastArgs = { userId, subscriptionTier };
+  if (inFlight) {
+    rerunAfterFlight = true;
+    return;
+  }
   inFlight = report(userId, subscriptionTier)
     .catch(() => {})
     .finally(() => {
       inFlight = null;
+      if (rerunAfterFlight && lastArgs) {
+        rerunAfterFlight = false;
+        reportDevice(lastArgs.userId, lastArgs.subscriptionTier);
+      }
     });
 }
+
+// Settings screens save on every toggle, so wait for changes to settle.
+onSettingsSaved(() => {
+  if (settingsTimer) clearTimeout(settingsTimer);
+  settingsTimer = setTimeout(() => {
+    settingsTimer = null;
+    if (lastArgs) reportDevice(lastArgs.userId, lastArgs.subscriptionTier);
+  }, SETTINGS_DEBOUNCE_MS);
+});

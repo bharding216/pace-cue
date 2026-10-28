@@ -41,10 +41,9 @@ create table if not exists public.devices (
   location_precise     boolean,
   notifications        text,
 
-  -- App preferences
-  pace_unit            text,
-  audio_cue_mode       text,
-  pace_tracking        boolean,
+  -- App preferences. settings is the app's AppSettings object as saved on device,
+  -- e.g. settings->>'audioCueMode'.
+  settings             jsonb,
   subscription_tier    text,
 
   -- Lifecycle
@@ -125,9 +124,7 @@ begin
     location_background,
     location_precise,
     notifications,
-    pace_unit,
-    audio_cue_mode,
-    pace_tracking,
+    settings,
     subscription_tier,
     installed_at,
     install_referrer,
@@ -171,10 +168,8 @@ begin
     case when jsonb_typeof(p_info->'location_precise') = 'boolean'
       then (p_info->>'location_precise')::boolean end,
     left(p_info->>'notifications', max_len),
-    left(p_info->>'pace_unit', max_len),
-    left(p_info->>'audio_cue_mode', max_len),
-    case when jsonb_typeof(p_info->'pace_tracking') = 'boolean'
-      then (p_info->>'pace_tracking')::boolean end,
+    case when jsonb_typeof(p_info->'settings') = 'object'
+      then p_info->'settings' end,
     left(p_info->>'subscription_tier', max_len),
     case when p_info->>'installed_at' ~ '^\d{4}-\d{2}-\d{2}T'
       then (p_info->>'installed_at')::timestamptz end,
@@ -213,9 +208,7 @@ begin
     location_background = excluded.location_background,
     location_precise = excluded.location_precise,
     notifications = excluded.notifications,
-    pace_unit = excluded.pace_unit,
-    audio_cue_mode = excluded.audio_cue_mode,
-    pace_tracking = excluded.pace_tracking,
+    settings = coalesce(excluded.settings, d.settings),
     subscription_tier = excluded.subscription_tier,
     installed_at = coalesce(d.installed_at, excluded.installed_at),
     install_referrer = coalesce(d.install_referrer, excluded.install_referrer),

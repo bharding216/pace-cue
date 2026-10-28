@@ -53,6 +53,7 @@ import {
 } from '../../../src/constants/theme';
 import { hapticTap } from '../../../src/audio/haptics';
 import { setDuckingEnabled, setVoiceIdentifier } from '../../../src/audio/audioManager';
+import { prepareWorkoutAudio } from '../../../src/audio/prepareVoice';
 import { TagPicker } from '../../../src/components/TagPicker';
 import { PreRunSettings } from '../../../src/components/PreRunSettings';
 import { PreRunLocationCard, BackgroundLocationCard } from '../../../src/components/LocationPermissionCards';
@@ -74,6 +75,7 @@ export default function ActiveWorkoutScreen() {
   const router = useRouter();
   const [workout, setWorkout] = useState<WorkoutDefinition | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [sessionMeta, setSessionMeta] = useState<SessionMeta | undefined>();
 
   useEffect(() => {
@@ -83,7 +85,10 @@ export default function ActiveWorkoutScreen() {
       clearTempWorkout(id!);
       setWorkout(cached);
       setSessionMeta(meta ? { ...meta } : undefined);
-      loadSettings().then(setSettings);
+      loadSettings().then((s) => {
+        setSettings(s);
+        setSettingsLoaded(true);
+      });
     } else {
       Promise.all([loadWorkouts(), loadSettings()]).then(([workouts, s]) => {
         const found = workouts.find((w) => w.id === id);
@@ -92,9 +97,15 @@ export default function ActiveWorkoutScreen() {
           setSessionMeta({ templateId: found.id });
         }
         setSettings(s);
+        setSettingsLoaded(true);
       });
     }
   }, [id]);
+
+  // Settings start as defaults until loaded, so only prepare once both are real.
+  useEffect(() => {
+    if (workout && settingsLoaded) prepareWorkoutAudio(workout, settings);
+  }, [workout, settings, settingsLoaded]);
 
   const updateSettings = useCallback(async (partial: Partial<AppSettings>) => {
     const next = { ...settings, ...partial };

@@ -78,7 +78,7 @@ function targetString(seg: Segment): string {
   if (seg.target.type === 'time' && seg.target.durationSeconds) {
     return formatTime(seg.target.durationSeconds);
   }
-  return 'manual';
+  return 'open-ended';
 }
 
 function appendTarget(label: string, seg: Segment): string {
