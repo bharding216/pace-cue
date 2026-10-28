@@ -14,7 +14,7 @@ import React, {
 } from 'react';
 import { useAuth } from './AuthContext';
 import type { TrainingPlan, PlanWorkout } from '../types/database';
-import type { CompletedWorkout } from '../workout/workoutTypes';
+import type { CompletedWorkout, WorkoutDefinition } from '../workout/workoutTypes';
 import {
   loadActivePlans,
   loadArchivedPlans,
@@ -24,6 +24,7 @@ import {
   removePlanWorkout as removePlanWorkoutApi,
   movePlanWorkout as movePlanWorkoutApi,
   completePlanWorkout as completePlanWorkoutApi,
+  updatePlanWorkoutData as updatePlanWorkoutDataApi,
   archivePlan as archivePlanApi,
   restorePlan as restorePlanApi,
   updateTrainingPlan as updateTrainingPlanApi,
@@ -62,6 +63,8 @@ interface TrainingPlanContextType {
   moveWorkout: (workoutId: string, newDate: string) => Promise<void>;
   /** Mark a planned workout as completed */
   completeWorkout: (workoutId: string, completedWorkoutId: string) => Promise<void>;
+  /** Replace the intervals/details of a planned workout */
+  updateWorkoutData: (workoutId: string, workout: WorkoutDefinition) => Promise<void>;
   /** Archive a specific plan */
   archivePlan: (planId?: string) => Promise<void>;
   /** Restore an archived plan back to active */
@@ -240,6 +243,22 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
     [],
   );
 
+  const updateWorkoutData = useCallback(async (workoutId: string, workout: WorkoutDefinition) => {
+    const existing = planWorkouts.find((w) => w.id === workoutId);
+    const previousName = (existing?.workout_data as WorkoutDefinition | null)?.name;
+    // Custom calendar entries use the workout name as their label; keep them in sync on rename
+    const dayLabel = existing && existing.day_label === previousName ? workout.name : undefined;
+    const workoutData = { ...workout, updatedAt: Date.now() };
+    await updatePlanWorkoutDataApi(workoutId, workoutData, dayLabel);
+    setPlanWorkouts((prev) =>
+      prev.map((w) =>
+        w.id === workoutId
+          ? { ...w, workout_data: workoutData, ...(dayLabel !== undefined ? { day_label: dayLabel } : {}) }
+          : w
+      )
+    );
+  }, [planWorkouts]);
+
   const archivePlanFn = useCallback(async (planId?: string) => {
     const targetId = planId ?? plan?.id;
     if (!targetId) return;
@@ -301,6 +320,7 @@ export function TrainingPlanProvider({ children }: { children: React.ReactNode }
         removeWorkout,
         moveWorkout,
         completeWorkout,
+        updateWorkoutData,
         archivePlan: archivePlanFn,
         restorePlan: restorePlanFn,
         updatePlan: updatePlanFn,

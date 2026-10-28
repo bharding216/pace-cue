@@ -4,24 +4,28 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { WorkoutDefinition, generateId } from '../../src/workout/workoutTypes';
 import { loadWorkouts, saveWorkout } from '../../src/workout/workoutStorage';
-import { getTempWorkout, clearTempWorkout } from '../../src/workout/tempWorkoutCache';
+import { getTempWorkout, getTempWorkoutMeta, clearTempWorkout } from '../../src/workout/tempWorkoutCache';
 import { WorkoutEditorForm } from '../../src/components/WorkoutEditorForm';
+import { useTrainingPlan } from '../../src/contexts/TrainingPlanContext';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 import { track } from '../../src/analytics/track';
 
 export default function EditWorkoutScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { updateWorkoutData } = useTrainingPlan();
   const [workout, setWorkout] = useState<WorkoutDefinition | null>(null);
   const [fromPlan, setFromPlan] = useState(false);
+  const [planWorkoutId, setPlanWorkoutId] = useState<string | undefined>();
 
   useEffect(() => {
     const cached = getTempWorkout(id!);
     if (cached) {
+      setPlanWorkoutId(getTempWorkoutMeta(id!)?.planWorkoutId);
       clearTempWorkout(id!);
       setWorkout(cached);
       setFromPlan(true);
@@ -61,6 +65,16 @@ export default function EditWorkoutScreen() {
         autoSave={!fromPlan}
         isPlanWorkout={fromPlan}
         onSave={async (updated) => {
+          if (planWorkoutId) {
+            try {
+              await updateWorkoutData(planWorkoutId, updated);
+            } catch (e) {
+              Alert.alert('Save Failed', e instanceof Error ? e.message : 'Could not update this workout.');
+              return;
+            }
+            router.back();
+            return;
+          }
           await saveWorkout({ ...updated, updatedAt: Date.now() });
           track('workout_saved', {
             workout_id: updated.id,
@@ -72,10 +86,13 @@ export default function EditWorkoutScreen() {
         onSaveAsNew={async (updated) => {
           const now = Date.now();
           const newId = generateId();
+          const name = planWorkoutId
+            ? updated.name
+            : updated.name.replace(/\s*\(copy\)$/i, '') + ' (Copy)';
           await saveWorkout({
             ...updated,
             id: newId,
-            name: updated.name.replace(/\s*\(copy\)$/i, '') + ' (Copy)',
+            name,
             createdAt: now,
             updatedAt: now,
           });
@@ -84,6 +101,10 @@ export default function EditWorkoutScreen() {
             workout_name: updated.name,
             is_copy: true,
           });
+          if (planWorkoutId) {
+            Alert.alert('Saved to Templates', `"${name}" was added to your templates.`);
+            return;
+          }
           router.back();
         }}
         onCancel={() => router.back()}

@@ -208,7 +208,13 @@ export function DayDetail({
     );
   };
 
-  const planWorkouts = (entry?.planWorkouts ?? []).filter((pw) => pw.day_label !== 'Rest Day');
+  const runIds = new Set((entry?.completedRuns ?? []).map((run) => run.id));
+  // A completed plan workout whose run is listed below would be shown twice
+  const planWorkouts = (entry?.planWorkouts ?? []).filter(
+    (pw) =>
+      pw.day_label !== 'Rest Day' &&
+      !(pw.status === 'completed' && pw.completed_workout_id && runIds.has(pw.completed_workout_id)),
+  );
 
   // Empty day
   if (!entry || (planWorkouts.length === 0 && entry.completedRuns.length === 0)) {

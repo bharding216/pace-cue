@@ -537,13 +537,19 @@ export function WorkoutEditorForm({ initial, onSave, onSaveAsNew, onCancel, auto
           </View>
         )}
 
-        {/* Actions — plan workout → save as template */}
+        {/* Actions — plan workout → update the calendar entry, optionally copy to templates */}
         {isPlanWorkout && !sessionMode && (
           <View style={styles.actions}>
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.8}>
-              <Ionicons name="bookmark-outline" size={18} color={Colors.black} />
-              <Text style={styles.saveBtnText}>Save to Templates</Text>
+              <Ionicons name="checkmark" size={18} color={Colors.black} />
+              <Text style={styles.saveBtnText}>Save Changes</Text>
             </TouchableOpacity>
+            {onSaveAsNew && (
+              <TouchableOpacity style={styles.saveAsNewBtn} onPress={handleSaveAsNew} activeOpacity={0.8}>
+                <Ionicons name="bookmark-outline" size={18} color={Colors.accent} />
+                <Text style={styles.saveAsNewBtnText}>Save to Templates</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.cancelBtn} onPress={onCancel} activeOpacity={0.8}>
               <Text style={styles.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>

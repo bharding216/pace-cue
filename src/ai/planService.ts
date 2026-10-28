@@ -828,6 +828,26 @@ export async function movePlanWorkout(
   }
 }
 
+/** Replace the workout definition (and optionally the label) of a plan workout. */
+export async function updatePlanWorkoutData(
+  workoutId: string,
+  workoutData: import('../workout/workoutTypes').WorkoutDefinition,
+  dayLabel?: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('plan_workouts')
+    .update({
+      workout_data: workoutData,
+      ...(dayLabel !== undefined ? { day_label: dayLabel } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', workoutId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 /** Remove a plan workout from the calendar entirely. */
 export async function removePlanWorkout(workoutId: string): Promise<void> {
   const { error } = await supabase

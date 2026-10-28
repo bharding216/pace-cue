@@ -13,6 +13,7 @@ import {
   StyleSheet,
   Modal,
   FlatList,
+  ScrollView,
   ActivityIndicator,
   Platform,
 } from 'react-native';
@@ -239,7 +240,12 @@ export function WorkoutPickerModal({
 
               {/* Category filter chips */}
               {tab === 'templates' && (
-                <View style={styles.chipRow}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.chipScroll}
+                  contentContainerStyle={styles.chipRow}
+                >
                   {CATEGORIES.map((cat) => {
                     const isActive = activeCategory === cat.key;
                     return (
@@ -263,11 +269,12 @@ export function WorkoutPickerModal({
                       </TouchableOpacity>
                     );
                   })}
-                </View>
+                </ScrollView>
               )}
 
               {/* Workout list */}
               <FlatList
+                style={styles.list}
                 data={listData}
                 keyExtractor={(item) => item.workout.id}
                 contentContainerStyle={styles.listContent}
@@ -373,7 +380,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     borderTopLeftRadius: BorderRadius.xl,
     borderTopRightRadius: BorderRadius.xl,
-    maxHeight: '80%',
+    height: '80%',
     borderTopWidth: 1,
     borderTopColor: Colors.surfaceLight,
   },
@@ -466,6 +473,10 @@ const styles = StyleSheet.create({
   },
 
   // Category chips
+  chipScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   chipRow: {
     flexDirection: 'row',
     paddingHorizontal: Spacing.lg,
@@ -489,6 +500,9 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
   // List
+  list: {
+    flex: 1,
+  },
   listContent: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.xxl,
