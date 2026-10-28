@@ -1,9 +1,9 @@
 /**
- * Plays a sequence of local voice clips back to back using an
- * expo-audio playlist (gapless between tracks).
+ * Plays a sequence of voice clips (bundled assets or downloaded files)
+ * back to back using an expo-audio playlist (gapless between tracks).
  */
 
-import { createAudioPlaylist, type AudioPlaylist } from 'expo-audio';
+import { createAudioPlaylist, type AudioPlaylist, type AudioSource } from 'expo-audio';
 
 /** Upper bound for one cue so a missed finish event can't leave the queue stuck. */
 const MAX_SEQUENCE_MS = 20000;
@@ -30,7 +30,7 @@ export function stopClips(): void {
 }
 
 /** Play the clips in order and call onDone once the last one finishes. */
-export function playClipSequence(uris: string[], onDone: () => void): void {
+export function playClipSequence(sources: AudioSource[], onDone: () => void): void {
   stopClips();
 
   let finished = false;
@@ -42,10 +42,7 @@ export function playClipSequence(uris: string[], onDone: () => void): void {
   };
 
   try {
-    const pl = createAudioPlaylist({
-      sources: uris.map((uri) => ({ uri })),
-      updateInterval: 100,
-    });
+    const pl = createAudioPlaylist({ sources, updateInterval: 100 });
     playlist = pl;
     subscription = pl.addListener('playlistStatusUpdate', (status) => {
       const onLastTrack = status.currentIndex >= status.trackCount - 1;

@@ -257,7 +257,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   progressCueBasis: 'time',
   progressCueDistance: 'full',
   voiceIdentifier: null,
-  voiceEngine: 'device',
+  voiceEngine: 'premium',
   premiumVoiceId: DEFAULT_PREMIUM_VOICE_ID,
   duckOtherAudio: true,
   paceTrackingEnabled: true,

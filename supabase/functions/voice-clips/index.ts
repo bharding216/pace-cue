@@ -23,7 +23,8 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const BUCKET = "voice-clips";
 const MODEL_ID = "eleven_multilingual_v2";
-const OUTPUT_FORMAT = "mp3_44100_128";
+/** 64 kbps keeps speech clear while halving the size of clips bundled with the app. */
+const OUTPUT_FORMAT = "mp3_44100_64";
 const VOICE_SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true };
 /** Bump to regenerate every clip after changing the model or voice settings. */
 const SETTINGS_VERSION = "1";
@@ -153,7 +154,9 @@ Deno.serve(async (req) => {
 
     const results = await mapLimit(clips as ClipRequest[], CONCURRENCY, async (clip) => {
       const key = clipKey(clip);
-      const hash = await sha256([voiceId, elevenVoiceId, MODEL_ID, SETTINGS_VERSION, key].join("|"));
+      const hash = await sha256(
+        [voiceId, elevenVoiceId, MODEL_ID, OUTPUT_FORMAT, SETTINGS_VERSION, key].join("|"),
+      );
       const path = `${voiceId}/${hash}.mp3`;
       const url = storage.getPublicUrl(path).data.publicUrl;
 

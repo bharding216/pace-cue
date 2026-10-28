@@ -38,8 +38,6 @@ import {
   speakCuePhrases,
 } from '../../../src/audio/audioManager';
 import { paceCue, VOICE_PREVIEW_TEXT } from '../../../src/audio/cuePhrases';
-import { prepareVoicePack } from '../../../src/audio/prepareVoice';
-import type { EnsureProgress } from '../../../src/audio/premiumVoice';
 import { PREMIUM_VOICES } from '../../../src/audio/voiceCatalog';
 import VoicePickerSheet from '../../../src/components/VoicePickerSheet';
 
@@ -81,31 +79,9 @@ export default function AudioSettingsScreen() {
   const [voices, setVoices] = useState<Speech.Voice[]>([]);
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [voicePickerVisible, setVoicePickerVisible] = useState(false);
-  const [premiumProgress, setPremiumProgress] = useState<EnsureProgress | null>(null);
-  const [premiumBusy, setPremiumBusy] = useState(false);
-  const [premiumError, setPremiumError] = useState(false);
-
   const premiumActive = settings.voiceEngine === 'premium';
   const premiumVoice =
     PREMIUM_VOICES.find((v) => v.id === settings.premiumVoiceId) ?? PREMIUM_VOICES[0];
-  const premiumReady =
-    !!premiumProgress && premiumProgress.total > 0 && premiumProgress.ready >= premiumProgress.total;
-
-  const downloadPremiumPack = useCallback(async (s: AppSettings, previewWhenDone: boolean) => {
-    setPremiumBusy(true);
-    setPremiumError(false);
-    try {
-      const result = await prepareVoicePack(s.premiumVoiceId, s.paceUnit, setPremiumProgress);
-      setPremiumProgress(result);
-      if (result.ready < result.total) setPremiumError(true);
-      else if (previewWhenDone) speak(VOICE_PREVIEW_TEXT);
-    } catch (e) {
-      console.warn('Failed to download premium voice:', e);
-      setPremiumError(true);
-    } finally {
-      setPremiumBusy(false);
-    }
-  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -113,9 +89,7 @@ export default function AudioSettingsScreen() {
         setSettings(s);
         configureAudio();
         setDuckingEnabled(s.duckOtherAudio);
-        const premium = s.voiceEngine === 'premium';
-        setPremiumVoice(premium ? s.premiumVoiceId : null);
-        if (premium) downloadPremiumPack(s, false);
+        setPremiumVoice(s.voiceEngine === 'premium' ? s.premiumVoiceId : null);
       });
       setVoicesLoading(true);
       getAvailableVoices('en').then((v) => {
@@ -135,21 +109,10 @@ export default function AudioSettingsScreen() {
   };
 
   const selectPremiumVoice = () => {
-    if (premiumBusy) return;
     setPremiumVoice(settings.premiumVoiceId);
     update({ voiceEngine: 'premium' });
-    downloadPremiumPack({ ...settings, voiceEngine: 'premium' }, true);
+    speak(VOICE_PREVIEW_TEXT);
   };
-
-  const premiumStatusText = premiumBusy
-    ? premiumProgress
-      ? `Downloading voice… ${premiumProgress.ready} of ${premiumProgress.total}`
-      : 'Preparing voice…'
-    : premiumError
-      ? 'Download incomplete · Tap to retry'
-      : premiumActive
-        ? 'Natural AI voice · Works offline during runs'
-        : 'Natural AI voice · Tap to use';
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -216,7 +179,7 @@ export default function AudioSettingsScreen() {
         <>
           <Text style={styles.sectionTitle}>Voice</Text>
           <Text style={styles.sectionSub}>
-            Choose a voice for spoken cues. Enhanced voices sound more natural.
+            Your AI coach voice is built in. You can switch to a device voice anytime.
           </Text>
 
           <TouchableOpacity
@@ -237,16 +200,16 @@ export default function AudioSettingsScreen() {
               <Text style={[styles.voiceSelectorName, !premiumActive && styles.voiceSelectorNameInactive]}>
                 {premiumVoice.name} (AI)
               </Text>
-              <Text style={styles.voiceSelectorSub}>{premiumStatusText}</Text>
+              <Text style={styles.voiceSelectorSub}>
+                {premiumActive ? 'Ready · Works offline' : 'Natural AI coaching voice · Tap to use'}
+              </Text>
             </View>
-            {premiumBusy ? (
-              <ActivityIndicator color={Colors.primary} size="small" />
-            ) : premiumActive ? (
+            {premiumActive && (
               <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />
-            ) : null}
+            )}
           </TouchableOpacity>
 
-          {premiumActive && premiumReady && (
+          {premiumActive && (
             <TouchableOpacity
               style={styles.downloadVoicesRow}
               onPress={() => {
@@ -287,19 +250,19 @@ export default function AudioSettingsScreen() {
               >
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.voiceSelectorName, premiumActive && styles.voiceSelectorNameInactive]}>
-                    {settings.voiceIdentifier === null
-                      ? 'System Default'
-                      : (() => {
-                          const v = voices.find(
-                            (v) => v.identifier === settings.voiceIdentifier,
-                          );
-                          return v ? formatVoiceName(v) : 'Selected voice';
-                        })()}
+                    {premiumActive
+                      ? 'Use a device voice instead'
+                      : settings.voiceIdentifier === null
+                        ? 'System Default'
+                        : (() => {
+                            const v = voices.find(
+                              (v) => v.identifier === settings.voiceIdentifier,
+                            );
+                            return v ? formatVoiceName(v) : 'Selected voice';
+                          })()}
                   </Text>
                   <Text style={styles.voiceSelectorSub}>
-                    {premiumActive
-                      ? 'Device voice · Tap to switch'
-                      : `${voices.length} voice${voices.length !== 1 ? 's' : ''} available · Tap to change`}
+                    {`${voices.length} device voice${voices.length !== 1 ? 's' : ''} available · Tap to ${premiumActive ? 'choose' : 'change'}`}
                   </Text>
                 </View>
                 <Text style={styles.chevron}>›</Text>
@@ -326,7 +289,7 @@ export default function AudioSettingsScreen() {
                 onClose={() => setVoicePickerVisible(false)}
               />
 
-              {Platform.OS === 'ios' && (
+              {Platform.OS === 'ios' && !premiumActive && (
                 <TouchableOpacity
                   style={styles.downloadVoicesRow}
                   onPress={() => {

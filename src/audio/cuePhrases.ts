@@ -17,7 +17,7 @@ import {
   formatCueDistanceForSpeech,
 } from '../workout/workoutTypes';
 import { cueDistanceMeters } from './cueSchedule';
-import type { Clip } from './premiumVoice';
+import type { Clip } from './clipKey';
 
 export interface CueContext {
   /** The label of the interval that just started (e.g. "Hard", "Easy", "Warm Up"). */

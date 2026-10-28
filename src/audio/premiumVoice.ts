@@ -1,39 +1,24 @@
 /**
  * Premium (AI) voice clip cache.
  *
- * Clips are generated server-side by the voice-clips edge function,
- * cached globally in Supabase Storage, and downloaded once to the
- * device so cues play offline during a run.
+ * Shared clips ship inside the app (see bundledClips.ts). Workout-specific
+ * clips are generated server-side by the voice-clips edge function, cached
+ * globally in Supabase Storage, and downloaded once to the device so cues
+ * play offline during a run.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Directory, File, Paths } from 'expo-file-system';
+import type { AudioSource } from 'expo-audio';
 import { supabase } from '../analytics/supabaseClient';
+import { BUNDLED_CLIPS } from './bundledClips';
+import { type Clip, clipKey, toClipRequest } from './clipKey';
 
-/** A clip is a phrase, optionally generated with surrounding text for smoother joins. */
-export type Clip = string | { text: string; previousText?: string; nextText?: string };
+export type { Clip };
 
 const BATCH_SIZE = 50;
 const DOWNLOAD_CONCURRENCY = 6;
 const indexStorageKey = (voiceId: string) => `@pacecue/voice_clips/${voiceId}`;
-
-/** Must match normalize in supabase/functions/voice-clips/index.ts. */
-export function normalizeClipText(text: string | undefined): string {
-  return (text ?? '').replace(/\s+/g, ' ').trim();
-}
-
-/** Must match clipKey in supabase/functions/voice-clips/index.ts. */
-export function clipKey(clip: Clip): string {
-  if (typeof clip === 'string') return normalizeClipText(clip);
-  const text = normalizeClipText(clip.text);
-  const prev = normalizeClipText(clip.previousText);
-  const next = normalizeClipText(clip.nextText);
-  return prev || next ? `${text}|${prev}|${next}` : text;
-}
-
-function toRequest(clip: Clip) {
-  return typeof clip === 'string' ? { text: clip } : clip;
-}
 
 function voiceDir(voiceId: string): Directory {
   return new Directory(Paths.document, 'voice-clips', voiceId);
@@ -63,12 +48,26 @@ async function saveVoiceIndex(voiceId: string): Promise<void> {
   if (index) await AsyncStorage.setItem(indexStorageKey(voiceId), JSON.stringify(index));
 }
 
-/** Local file URI for a clip, or null if it hasn't been downloaded. Synchronous for use at cue time. */
-export function getLocalClipUri(voiceId: string, clip: Clip): string | null {
+function isBundled(voiceId: string, clip: Clip): boolean {
+  return BUNDLED_CLIPS[voiceId]?.[clipKey(clip)] != null;
+}
+
+function getDownloadedClipUri(voiceId: string, clip: Clip): string | null {
   const fileName = indexes.get(voiceId)?.[clipKey(clip)];
   if (!fileName) return null;
   const file = new File(voiceDir(voiceId), fileName);
   return file.exists ? file.uri : null;
+}
+
+/**
+ * Playable source for a clip: the bundled asset, else the downloaded file,
+ * else null. Synchronous for use at cue time.
+ */
+export function getClipSource(voiceId: string, clip: Clip): AudioSource | null {
+  const bundled = BUNDLED_CLIPS[voiceId]?.[clipKey(clip)];
+  if (bundled != null) return bundled;
+  const uri = getDownloadedClipUri(voiceId, clip);
+  return uri ? { uri } : null;
 }
 
 async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
@@ -116,7 +115,9 @@ async function ensureClipsNow(
     if (key) unique.set(key, clip);
   }
   const total = unique.size;
-  const missing = [...unique.entries()].filter(([, clip]) => !getLocalClipUri(voiceId, clip));
+  const missing = [...unique.entries()].filter(
+    ([, clip]) => !isBundled(voiceId, clip) && !getDownloadedClipUri(voiceId, clip),
+  );
   let ready = total - missing.length;
   onProgress?.({ ready, total });
   if (missing.length === 0) return { ready, total };
@@ -127,7 +128,7 @@ async function ensureClipsNow(
   for (let i = 0; i < missing.length; i += BATCH_SIZE) {
     const batch = missing.slice(i, i + BATCH_SIZE);
     const { data, error } = await supabase.functions.invoke('voice-clips', {
-      body: { voiceId, clips: batch.map(([, clip]) => toRequest(clip)) },
+      body: { voiceId, clips: batch.map(([, clip]) => toClipRequest(clip)) },
     });
     if (error || data?.error) {
       throw new Error(data?.error ?? error?.message ?? 'Voice clip request failed');

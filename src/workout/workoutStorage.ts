@@ -319,7 +319,7 @@ export function normalizeSettings(raw: Partial<AppSettings> | null | undefined):
   if (!CUE_BASES.has(parsed.paceCueBasis)) parsed.paceCueBasis = 'time';
   if (!CUE_DISTANCE_PRESETS.has(parsed.progressCueDistance)) parsed.progressCueDistance = 'full';
   if (!CUE_DISTANCE_PRESETS.has(parsed.paceCueDistance)) parsed.paceCueDistance = 'half';
-  if (parsed.voiceEngine !== 'device' && parsed.voiceEngine !== 'premium') parsed.voiceEngine = 'device';
+  if (parsed.voiceEngine !== 'device' && parsed.voiceEngine !== 'premium') parsed.voiceEngine = 'premium';
   if (!PREMIUM_VOICES.some((v) => v.id === parsed.premiumVoiceId)) {
     parsed.premiumVoiceId = DEFAULT_PREMIUM_VOICE_ID;
   }

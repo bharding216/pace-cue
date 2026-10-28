@@ -22,7 +22,7 @@ import {
   warningSecondsText,
   WORKOUT_COMPLETE_TEXT,
 } from './cuePhrases';
-import { type Clip, getLocalClipUri, loadVoiceIndex } from './premiumVoice';
+import { type Clip, getClipSource, loadVoiceIndex } from './premiumVoice';
 import { playClipSequence, stopClips } from './clipPlayer';
 
 let isAudioConfigured = false;
@@ -336,9 +336,9 @@ function startUtterance(u: Utterance): void {
   activateDucking();
 
   if (premiumVoiceId) {
-    const uris = u.clips.map((clip) => getLocalClipUri(premiumVoiceId!, clip));
-    if (uris.length > 0 && uris.every((uri): uri is string => uri != null)) {
-      playClipSequence(uris, done);
+    const sources = u.clips.map((clip) => getClipSource(premiumVoiceId!, clip));
+    if (sources.length > 0 && sources.every((s) => s != null)) {
+      playClipSequence(sources, done);
       return;
     }
   }

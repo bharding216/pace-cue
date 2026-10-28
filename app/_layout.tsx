@@ -17,7 +17,8 @@ import { decodeWorkoutLink, resolveShareCode } from '../src/sharing/shareWorkout
 import { saveWorkout, clearAllUserData } from '../src/workout/workoutStorage';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { SubscriptionProvider, useSubscription } from '../src/contexts/SubscriptionContext';
-import { TrainingPlanProvider } from '../src/contexts/TrainingPlanContext';
+import { TrainingPlanProvider, useTrainingPlan } from '../src/contexts/TrainingPlanContext';
+import { initVoice, prepareUpcomingPlanWorkouts } from '../src/audio/prepareVoice';
 import { syncAll } from '../src/sync/cloudSync';
 import {
   maybePromptForFeatureUpdates,
@@ -29,12 +30,22 @@ function RootLayoutInner() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { tier, loading: subscriptionLoading } = useSubscription();
+  const { planWorkouts } = useTrainingPlan();
   const prevUserIdRef = useRef<string | null>(null);
 
   // End any Live Activities orphaned by a force-kill during a workout.
   useEffect(() => {
     cleanupStaleLiveActivities();
   }, []);
+
+  // Activate the AI coach voice and prepare upcoming workouts' cues in the background.
+  useEffect(() => {
+    initVoice();
+  }, []);
+
+  useEffect(() => {
+    prepareUpcomingPlanWorkouts(planWorkouts);
+  }, [planWorkouts]);
 
   // Track app open
   useEffect(() => {
