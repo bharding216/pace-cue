@@ -193,6 +193,7 @@ export default function VoicePickerSheet({
           {premiumOption.selected && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} style={styles.checkmark} />}
         </TouchableOpacity>
       )}
+      {premiumOption && <Text style={styles.groupLabel}>Device voices</Text>}
       <TouchableOpacity
         style={[styles.voiceRow, selectedId === null && styles.voiceRowActive]}
         onPress={() => handleSelect(null)}
@@ -344,6 +345,16 @@ const styles = StyleSheet.create({
     fontSize: FontSize.lg,
     fontWeight: '700',
     color: Colors.textPrimary,
+  },
+  groupLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xs,
   },
   doneBtn: {
     fontSize: FontSize.md,

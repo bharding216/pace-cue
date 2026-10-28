@@ -178,141 +178,99 @@ export default function AudioSettingsScreen() {
       {(settings.audioCueMode === 'voice' || settings.audioCueMode === 'both') && (
         <>
           <Text style={styles.sectionTitle}>Voice</Text>
-          <Text style={styles.sectionSub}>
-            Your AI coach voice is built in. You can switch to a device voice anytime.
-          </Text>
-
           <TouchableOpacity
-            style={[styles.voiceSelector, !premiumActive && styles.voiceSelectorInactive]}
+            style={styles.voiceSelector}
             onPress={() => {
               hapticTap();
-              selectPremiumVoice();
+              setVoicePickerVisible(true);
             }}
             activeOpacity={0.7}
           >
             <Ionicons
-              name="sparkles"
+              name={premiumActive ? 'sparkles' : 'phone-portrait-outline'}
               size={20}
-              color={premiumActive ? Colors.primary : Colors.textSecondary}
+              color={Colors.primary}
               style={{ marginRight: Spacing.sm }}
             />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.voiceSelectorName, !premiumActive && styles.voiceSelectorNameInactive]}>
-                {premiumVoice.name} (AI)
+              <Text style={styles.voiceSelectorName}>
+                {premiumActive
+                  ? premiumVoice.name
+                  : settings.voiceIdentifier === null
+                    ? 'System Default'
+                    : (() => {
+                        const v = voices.find((v) => v.identifier === settings.voiceIdentifier);
+                        return v ? formatVoiceName(v) : 'Device voice';
+                      })()}
               </Text>
               <Text style={styles.voiceSelectorSub}>
-                {premiumActive ? 'Ready · Works offline' : 'Natural AI coaching voice · Tap to use'}
+                {premiumActive ? 'AI coaching voice · Works offline' : 'Device voice'}
               </Text>
             </View>
-            {premiumActive && (
-              <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />
+            {voicesLoading ? (
+              <ActivityIndicator color={Colors.textSecondary} size="small" />
+            ) : (
+              <Text style={styles.chevron}>›</Text>
             )}
           </TouchableOpacity>
 
-          {premiumActive && (
+          <TouchableOpacity
+            style={styles.downloadVoicesRow}
+            onPress={() => {
+              hapticTap();
+              speakCuePhrases([paceCue(7 + 39 / 60, settings.paceUnit)], 'voice');
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="play-circle-outline" size={18} color={Colors.textSecondary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.downloadVoicesLabel}>Preview pace announcement</Text>
+            </View>
+          </TouchableOpacity>
+
+          <VoicePickerSheet
+            visible={voicePickerVisible}
+            voices={voices}
+            selectedId={premiumActive ? undefined : settings.voiceIdentifier}
+            premiumOption={{
+              label: premiumVoice.name,
+              selected: premiumActive,
+              onSelect: selectPremiumVoice,
+            }}
+            onSelect={(id) => {
+              setVoiceIdentifier(id);
+              setPremiumVoice(null);
+              update({ voiceIdentifier: id, voiceEngine: 'device' });
+            }}
+            onPreview={(id) => {
+              setVoiceIdentifier(id);
+              speak(VOICE_PREVIEW_TEXT);
+            }}
+            onClose={() => setVoicePickerVisible(false)}
+          />
+
+          {Platform.OS === 'ios' && !premiumActive && (
             <TouchableOpacity
               style={styles.downloadVoicesRow}
               onPress={() => {
-                hapticTap();
-                speakCuePhrases([paceCue(7 + 39 / 60, settings.paceUnit)], 'voice');
+                Linking.openURL('App-prefs:').catch(() =>
+                  Linking.openURL('app-settings:').catch(() => {}),
+                );
               }}
               activeOpacity={0.7}
             >
-              <Ionicons name="play-circle-outline" size={18} color={Colors.textSecondary} />
+              <Ionicons name="download-outline" size={18} color={Colors.textSecondary} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.downloadVoicesLabel}>Preview pace announcement</Text>
+                <Text style={styles.downloadVoicesLabel}>
+                  Download Enhanced Device Voices — Free
+                </Text>
                 <Text style={styles.downloadVoicesSub}>
-                  Live pace is stitched from short clips — listen for smooth joins
+                  Apple includes high-quality voices at no cost — we recommend Zoe.
+                  Opens Settings › Accessibility › Read & Speak › Voices › English
                 </Text>
               </View>
+              <Text style={styles.chevron}>›</Text>
             </TouchableOpacity>
-          )}
-
-          {voicesLoading ? (
-            <ActivityIndicator
-              color={Colors.primary}
-              size="small"
-              style={{ marginTop: Spacing.sm }}
-            />
-          ) : voices.length === 0 ? (
-            <Text style={[styles.sectionSub, { marginTop: Spacing.sm }]}>
-              No English voices found on this device.
-            </Text>
-          ) : (
-            <>
-              <TouchableOpacity
-                style={[styles.voiceSelector, premiumActive && styles.voiceSelectorInactive]}
-                onPress={() => {
-                  hapticTap();
-                  setVoicePickerVisible(true);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.voiceSelectorName, premiumActive && styles.voiceSelectorNameInactive]}>
-                    {premiumActive
-                      ? 'Use a device voice instead'
-                      : settings.voiceIdentifier === null
-                        ? 'System Default'
-                        : (() => {
-                            const v = voices.find(
-                              (v) => v.identifier === settings.voiceIdentifier,
-                            );
-                            return v ? formatVoiceName(v) : 'Selected voice';
-                          })()}
-                  </Text>
-                  <Text style={styles.voiceSelectorSub}>
-                    {`${voices.length} device voice${voices.length !== 1 ? 's' : ''} available · Tap to ${premiumActive ? 'choose' : 'change'}`}
-                  </Text>
-                </View>
-                <Text style={styles.chevron}>›</Text>
-              </TouchableOpacity>
-
-              <VoicePickerSheet
-                visible={voicePickerVisible}
-                voices={voices}
-                selectedId={premiumActive ? undefined : settings.voiceIdentifier}
-                premiumOption={{
-                  label: `${premiumVoice.name} (AI)`,
-                  selected: premiumActive,
-                  onSelect: selectPremiumVoice,
-                }}
-                onSelect={(id) => {
-                  setVoiceIdentifier(id);
-                  setPremiumVoice(null);
-                  update({ voiceIdentifier: id, voiceEngine: 'device' });
-                }}
-                onPreview={(id) => {
-                  setVoiceIdentifier(id);
-                  speak(VOICE_PREVIEW_TEXT);
-                }}
-                onClose={() => setVoicePickerVisible(false)}
-              />
-
-              {Platform.OS === 'ios' && !premiumActive && (
-                <TouchableOpacity
-                  style={styles.downloadVoicesRow}
-                  onPress={() => {
-                    Linking.openURL('App-prefs:').catch(() =>
-                      Linking.openURL('app-settings:').catch(() => {}),
-                    );
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="download-outline" size={18} color={Colors.textSecondary} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.downloadVoicesLabel}>
-                      Download Premium Voices — Free
-                    </Text>
-                    <Text style={styles.downloadVoicesSub}>
-                      Apple includes high-quality voices at no cost — we recommend Zoe.
-                      Opens Settings › Accessibility › Read & Speak › Voices › English
-                    </Text>
-                  </View>
-                  <Text style={styles.chevron}>›</Text>
-                </TouchableOpacity>
-              )}
-            </>
           )}
         </>
       )}
@@ -467,9 +425,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: Colors.primary + '44',
   },
-  voiceSelectorInactive: { borderColor: Colors.surfaceLight },
   voiceSelectorName: { fontSize: FontSize.md, fontWeight: '600', color: Colors.primary },
-  voiceSelectorNameInactive: { color: Colors.textPrimary },
   voiceSelectorSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
   chevron: { fontSize: 24, fontWeight: '300', color: Colors.textMuted, marginLeft: Spacing.sm },
   downloadVoicesRow: {
