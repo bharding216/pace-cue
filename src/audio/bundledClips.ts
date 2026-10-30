@@ -278,6 +278,7 @@ export const BUNDLED_CLIPS: Record<string, Record<string, number>> = {
     "9 seconds|Current pace 7 minutes|per mile.": require('../../assets/voice/coach_1/f98dc5ff94a8d0ed949adb6d0610d6cd5e485a14e824621e8aa3bb680c5fdf34.mp3'),
     "9.25 kilometers passed": require('../../assets/voice/coach_1/a5ac0c291cba0a31f819c3994f26da6d686adc80296dbeb828dd2bd0f097037d.mp3'),
     "9.75 kilometers passed": require('../../assets/voice/coach_1/92536c42d993c64ce93b3c90a723d519760f0a38981da4fa43ee99b947df6308.mp3'),
+    "Acquiring GPS": require('../../assets/voice/coach_1/c05479ca7674df24e421e853a63fda74c15c8d4076b0f7f5e0989cea004b841a.mp3'),
     "Current pace||7 minutes 30 seconds per K.": require('../../assets/voice/coach_1/cc31778dadce00385bb35a577d66425f1db69b88f5dba440bdda67a96271c657.mp3'),
     "Current pace||7 minutes 30 seconds per mile.": require('../../assets/voice/coach_1/4efdae5b69cc90e212dfb4f639a0008c0c85294b36da35e715383ebcc6a39f09.mp3'),
     "Pace unavailable": require('../../assets/voice/coach_1/c55dfd705aecca324d4a490607b403883087e8457acf301fa55f1603bba0661c.mp3'),

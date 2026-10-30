@@ -12,7 +12,7 @@
  * the OAuth entry point and #FC5200 for "View on Strava" links.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -26,6 +26,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useStrava } from './useStrava';
+import { getPendingStravaUpload, stravaActivityUrl, type PushResult } from './stravaService';
 import { hapticTap } from '../audio/haptics';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import type {
@@ -46,6 +47,10 @@ interface StravaPushButtonProps {
   route?: RoutePoint[];
   splits?: IntervalSplit[];
   configuration?: WorkoutDefinition;
+  tags?: string[];
+  notes?: string;
+  /** Strava activity this run was already uploaded as, if any. */
+  stravaActivityId?: number;
   /** Offer sign-in / "Connect with Strava" when Strava isn't linked yet. */
   allowConnect?: boolean;
 }
@@ -62,21 +67,61 @@ export function StravaPushButton({
   route,
   splits,
   configuration,
+  tags,
+  notes,
+  stravaActivityId,
   allowConnect,
 }: StravaPushButtonProps) {
   const router = useRouter();
   const { user } = useAuth();
   const strava = useStrava();
-  const [pushState, setPushState] = useState<PushState>('idle');
-  const [activityUrl, setActivityUrl] = useState<string | null>(null);
+  const [pushState, setPushState] = useState<PushState>(
+    stravaActivityId ? 'success' : 'idle',
+  );
+  const [activityUrl, setActivityUrl] = useState<string | null>(
+    stravaActivityId ? stravaActivityUrl(stravaActivityId) : null,
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const applyResult = (result: PushResult) => {
+    if (result.success) {
+      setPushState('success');
+      if (result.activityUrl) setActivityUrl(result.activityUrl);
+    } else {
+      setPushState('error');
+      setErrorMessage(result.error ?? 'Upload failed');
+    }
+  };
+
+  // An auto-upload started on the completion screen may still be running.
+  useEffect(() => {
+    if (stravaActivityId) {
+      setPushState('success');
+      setActivityUrl(stravaActivityUrl(stravaActivityId));
+      return;
+    }
+    if (!completedEntryId) return;
+    const pending = getPendingStravaUpload(completedEntryId);
+    if (!pending) return;
+    let active = true;
+    setPushState('pushing');
+    pending.then((result) => {
+      if (active) applyResult(result);
+    });
+    return () => {
+      active = false;
+    };
+  }, [completedEntryId, stravaActivityId]);
 
   // Don't render until the workout is saved and Strava status is known,
   // or when Strava isn't connected and connecting isn't offered here
-  if (!completedEntryId || strava.loading) return null;
-  if (!strava.isConnected && !allowConnect) return null;
+  if (!completedEntryId) return null;
+  if (pushState !== 'success') {
+    if (strava.loading) return null;
+    if (!strava.isConnected && !allowConnect) return null;
+  }
 
-  if (!user) {
+  if (!user && pushState !== 'success') {
     return (
       <View style={styles.container}>
         <TouchableOpacity
@@ -120,19 +165,11 @@ export function StravaPushButton({
       route,
       splits,
       configuration,
+      tags: tags && tags.length > 0 ? tags : undefined,
+      notes: notes?.trim() || undefined,
     };
 
-    const result = await strava.pushWorkout(completed);
-
-    if (result.success) {
-      setPushState('success');
-      if (result.activityUrl) {
-        setActivityUrl(result.activityUrl);
-      }
-    } else {
-      setPushState('error');
-      setErrorMessage(result.error ?? 'Upload failed');
-    }
+    applyResult(await strava.pushWorkout(completed, 'manual'));
   };
 
   if (pushState === 'success') {

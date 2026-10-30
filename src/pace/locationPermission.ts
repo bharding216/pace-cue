@@ -2,14 +2,21 @@
  * Location permission helpers for GPS pace tracking.
  *
  * Foreground access is requested from the pre-run screen, never after the
- * workout timer has started. Background ("Always") access is offered once,
- * on the finish screen after a run that used GPS.
+ * workout timer has started. Background ("Always") access is offered once on
+ * the pre-run screen after foreground access is granted, and once on the
+ * finish screen after a run that used GPS.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 
-const BACKGROUND_OFFER_DISMISSED_KEY = '@pacecue/background_location_offer_dismissed';
+/** Where background access is offered: before a run, and again on the finish screen. */
+export type BackgroundOfferPlacement = 'preRun' | 'finished';
+
+const BACKGROUND_OFFER_DISMISSED_KEYS: Record<BackgroundOfferPlacement, string> = {
+  preRun: '@pacecue/background_location_prerun_offer_dismissed',
+  finished: '@pacecue/background_location_offer_dismissed',
+};
 
 /** `askable`: a system prompt can still be shown. `blocked`: only Settings can change it. */
 export type LocationAccess = 'granted' | 'askable' | 'blocked';
@@ -27,20 +34,26 @@ export async function requestForegroundLocationAccess(): Promise<LocationAccess>
   return toAccess(await Location.requestForegroundPermissionsAsync());
 }
 
-export async function shouldOfferBackgroundLocation(): Promise<boolean> {
-  if (await AsyncStorage.getItem(BACKGROUND_OFFER_DISMISSED_KEY)) return false;
+export async function shouldOfferBackgroundLocation(
+  placement: BackgroundOfferPlacement,
+): Promise<boolean> {
+  if (await AsyncStorage.getItem(BACKGROUND_OFFER_DISMISSED_KEYS[placement])) return false;
   const foreground = await Location.getForegroundPermissionsAsync();
   if (!foreground.granted) return false;
   const background = await Location.getBackgroundPermissionsAsync();
   return !background.granted && background.canAskAgain;
 }
 
-export async function requestBackgroundLocationAccess(): Promise<boolean> {
-  await AsyncStorage.setItem(BACKGROUND_OFFER_DISMISSED_KEY, '1');
+export async function requestBackgroundLocationAccess(
+  placement: BackgroundOfferPlacement,
+): Promise<boolean> {
+  await AsyncStorage.setItem(BACKGROUND_OFFER_DISMISSED_KEYS[placement], '1');
   const { granted } = await Location.requestBackgroundPermissionsAsync();
   return granted;
 }
 
-export async function dismissBackgroundLocationOffer(): Promise<void> {
-  await AsyncStorage.setItem(BACKGROUND_OFFER_DISMISSED_KEY, '1');
+export async function dismissBackgroundLocationOffer(
+  placement: BackgroundOfferPlacement,
+): Promise<void> {
+  await AsyncStorage.setItem(BACKGROUND_OFFER_DISMISSED_KEYS[placement], '1');
 }

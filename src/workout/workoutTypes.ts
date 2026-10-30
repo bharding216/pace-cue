@@ -191,6 +191,8 @@ export interface CompletedWorkout {
   route?: RoutePoint[];
   tags?: string[];
   notes?: string;
+  /** Set once the run has been uploaded, so it isn't uploaded twice. */
+  stravaActivityId?: number;
   configuration?: WorkoutDefinition;
   templateId?: string;
   planWorkoutId?: string;
@@ -235,6 +237,8 @@ export interface AppSettings {
   paceWindow: PaceWindowSize;
   paceUnit: PaceUnit;
   paceCueOnlyWithTarget: boolean;
+  /** Upload every finished run to Strava when it's connected. */
+  stravaAutoUpload: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -256,6 +260,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   paceWindow: 30,
   paceUnit: 'minPerMile',
   paceCueOnlyWithTarget: false,
+  stravaAutoUpload: false,
 };
 
 // ── Segment helpers ──────────────────────────────────────────────────

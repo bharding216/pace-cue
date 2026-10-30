@@ -9,7 +9,7 @@
  *   5. User can apply directly or open WorkoutEditorForm to tweak first
  */
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { Component, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -285,9 +285,43 @@ const prevStyles = StyleSheet.create({
   },
 });
 
+// ── Error Boundary ──────────────────────────────────────────
+
+class VoiceWorkoutSheetErrorBoundary extends Component<
+  { onClose: () => void; children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.warn('VoiceWorkoutSheet unavailable:', error.message);
+    Alert.alert(
+      'Voice Not Available',
+      'The microphone could not be started. Please try again in a moment.',
+    );
+    this.props.onClose();
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
+
 // ── Main Component ──────────────────────────────────────────
 
-export function VoiceWorkoutSheet({
+export function VoiceWorkoutSheet(props: Props) {
+  return (
+    <VoiceWorkoutSheetErrorBoundary onClose={props.onClose}>
+      <VoiceWorkoutSheetInner {...props} />
+    </VoiceWorkoutSheetErrorBoundary>
+  );
+}
+
+function VoiceWorkoutSheetInner({
   visible,
   date,
   aiContext,

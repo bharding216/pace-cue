@@ -1,6 +1,6 @@
 /**
- * In-context location permission cards: one on the pre-run screen for
- * foreground access, one on the finish screen offering background access.
+ * In-context location permission cards: foreground access on the pre-run
+ * screen, and background access on both the pre-run and finish screens.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -12,6 +12,7 @@ import {
   shouldOfferBackgroundLocation,
   requestBackgroundLocationAccess,
   dismissBackgroundLocationOffer,
+  type BackgroundOfferPlacement,
   type LocationAccess,
 } from '../pace/locationPermission';
 
@@ -56,12 +57,12 @@ export function PreRunLocationCard({
   );
 }
 
-export function BackgroundLocationCard() {
+export function BackgroundLocationCard({ placement }: { placement: BackgroundOfferPlacement }) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    shouldOfferBackgroundLocation()
+    shouldOfferBackgroundLocation(placement)
       .then((offer) => {
         if (!cancelled) setVisible(offer);
       })
@@ -69,19 +70,20 @@ export function BackgroundLocationCard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [placement]);
 
   if (!visible) return null;
 
   return (
-    <View style={[styles.card, styles.finishedCard]}>
+    <View style={[styles.card, placement === 'finished' && styles.finishedCard]}>
       <View style={styles.header}>
         <Ionicons name="lock-closed" size={18} color={Colors.primary} />
         <Text style={styles.title}>Keep tracking with your screen locked</Text>
       </View>
       <Text style={styles.body}>
-        Allow background location so pace and distance keep recording when your phone is locked
-        or in your pocket.
+        {placement === 'preRun'
+          ? 'Most runs happen with the phone locked or in a pocket. Allow background location so pace cues and distance keep working.'
+          : 'Allow background location so pace and distance keep recording when your phone is locked or in your pocket.'}
       </Text>
       <View style={styles.actions}>
         <TouchableOpacity
@@ -89,7 +91,7 @@ export function BackgroundLocationCard() {
           onPress={() => {
             hapticTap();
             setVisible(false);
-            dismissBackgroundLocationOffer();
+            dismissBackgroundLocationOffer(placement);
           }}
           activeOpacity={0.7}
         >
@@ -100,7 +102,7 @@ export function BackgroundLocationCard() {
           onPress={() => {
             hapticTap();
             setVisible(false);
-            requestBackgroundLocationAccess().catch(() => {});
+            requestBackgroundLocationAccess(placement).catch(() => {});
           }}
           activeOpacity={0.8}
         >

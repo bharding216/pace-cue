@@ -5,10 +5,17 @@
  *   - RecordsGrid: grid of personal record cards (fastest mile, longest run, etc.)
  *   - AwardsList: earned awards/badges in a scrollable row
  *   - NewRecordsBanner: celebratory banner for records broken in the latest workout
+ *   - PrimaryAchievement: a single headline achievement for the workout-complete screen
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+} from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import type { PersonalRecord, AwardBadge } from '../stats/personalRecords';
@@ -248,6 +255,91 @@ const awardStyles = StyleSheet.create({
     color: Colors.textMuted,
     marginTop: Spacing.xs,
     fontWeight: '600',
+  },
+});
+
+// ── Primary Achievement (workout-complete headline) ──────────────────
+
+const TIER_RANK = { gold: 3, silver: 2, bronze: 1 } as const;
+
+interface PrimaryAchievementProps {
+  records: PersonalRecord[];
+  awards: AwardBadge[];
+}
+
+/**
+ * Shows one achievement even when several were earned, so each one still
+ * feels special. Records beat awards; among awards the highest tier wins.
+ */
+export function PrimaryAchievement({ records, awards }: PrimaryAchievementProps) {
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.9);
+
+  const total = records.length + awards.length;
+
+  useEffect(() => {
+    if (total === 0) return;
+    opacity.value = withTiming(1, { duration: 350 });
+    scale.value = withSpring(1, { damping: 12, stiffness: 140 });
+  }, [total, opacity, scale]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+
+  if (total === 0) return null;
+
+  const record = records[0];
+  const award = record
+    ? null
+    : [...awards].sort((a, b) => TIER_RANK[b.tier] - TIER_RANK[a.tier])[0];
+  const more = total - 1;
+
+  return (
+    <Animated.View style={[primaryStyles.container, animatedStyle]}>
+      <Text style={primaryStyles.headline}>
+        {record ? '🏆 NEW PERSONAL BEST!' : '🎖️ AWARD EARNED!'}
+      </Text>
+      {record ? (
+        <Text style={primaryStyles.detail}>
+          {record.label} · {record.displayValue}
+          {record.unit ? record.unit : ''}
+        </Text>
+      ) : award ? (
+        <Text style={primaryStyles.detail}>{award.label}</Text>
+      ) : null}
+      {more > 0 && (
+        <Text style={primaryStyles.more}>+{more} more in workout details</Text>
+      )}
+    </Animated.View>
+  );
+}
+
+const primaryStyles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  headline: {
+    fontSize: FontSize.xl,
+    fontWeight: '900',
+    color: Colors.primary,
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+  detail: {
+    marginTop: Spacing.xs,
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  more: {
+    marginTop: 2,
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textAlign: 'center',
   },
 });
 

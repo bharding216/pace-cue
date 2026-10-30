@@ -125,6 +125,7 @@ async function uploadGpx(
   gpx: string,
   name: string,
   description: string,
+  trainer: boolean,
 ): Promise<{ uploadId: number; activityId?: number }> {
   const formData = new FormData();
   formData.append("file", new Blob([gpx], { type: "application/gpx+xml" }), "workout.gpx");
@@ -132,6 +133,7 @@ async function uploadGpx(
   formData.append("name", name);
   formData.append("description", description);
   formData.append("sport_type", "Run");
+  if (trainer) formData.append("trainer", "1");
 
   const res = await fetch("https://www.strava.com/api/v3/uploads", {
     method: "POST",
@@ -191,6 +193,7 @@ async function createManualActivity(
   elapsedSeconds: number,
   distanceMeters: number | undefined,
   description: string,
+  trainer: boolean,
 ): Promise<{ activityId: number }> {
   const body: Record<string, unknown> = {
     name,
@@ -200,6 +203,10 @@ async function createManualActivity(
     type: "Run",
     description,
   };
+
+  if (trainer) {
+    body.trainer = 1;
+  }
 
   if (distanceMeters != null && distanceMeters > 0) {
     body.distance = distanceMeters;
@@ -232,6 +239,18 @@ interface PushRequest {
   totalDurationMs: number;
   totalDistanceMeters?: number;
   gpx?: string; // GPX XML string (optional)
+  tags?: string[];
+  notes?: string;
+}
+
+/** Notes first, then tags, then the SplitCue credit line. */
+function buildDescription(notes: string | undefined, tags: string[] | undefined): string {
+  const parts: string[] = [];
+  const trimmedNotes = notes?.trim();
+  if (trimmedNotes) parts.push(trimmedNotes);
+  if (tags && tags.length > 0) parts.push(`Tags: ${tags.join(" · ")}`);
+  parts.push("Recorded with SplitCue");
+  return parts.join("\n\n");
 }
 
 Deno.serve(async (req) => {
@@ -251,6 +270,10 @@ Deno.serve(async (req) => {
 
     const body: PushRequest = await req.json();
     const { workoutName, completedAt, totalDurationMs, totalDistanceMeters, gpx } = body;
+    const tags = Array.isArray(body.tags)
+      ? body.tags.filter((t): t is string => typeof t === "string")
+      : undefined;
+    const notes = typeof body.notes === "string" ? body.notes : undefined;
 
     if (!workoutName || !completedAt || !totalDurationMs) {
       return errorResponse("workoutName, completedAt, and totalDurationMs are required", 400);
@@ -273,11 +296,12 @@ Deno.serve(async (req) => {
 
     const elapsedSeconds = Math.round(totalDurationMs / 1000);
     const startDate = new Date(completedAt - totalDurationMs).toISOString();
-    const description = `Recorded with SplitCue`;
+    const description = buildDescription(notes, tags);
+    const trainer = tags?.includes("Treadmill") ?? false;
 
     if (gpx) {
       // Upload with GPS route
-      const result = await uploadGpx(accessToken, gpx, workoutName, description);
+      const result = await uploadGpx(accessToken, gpx, workoutName, description, trainer);
       return jsonResponse({
         success: true,
         uploadId: result.uploadId,
@@ -292,6 +316,7 @@ Deno.serve(async (req) => {
         elapsedSeconds,
         totalDistanceMeters,
         description,
+        trainer,
       );
       return jsonResponse({
         success: true,

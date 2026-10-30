@@ -78,6 +78,27 @@ export function addSample(
   };
 }
 
+/**
+ * Clear the current pace once the newest accepted sample is older than the
+ * window, so a lost GPS signal isn't reported as a frozen pace.
+ * Returns the same object when nothing changes.
+ */
+export function expireStalePace(
+  state: PaceState,
+  now: number,
+  windowSeconds: PaceWindowSize,
+): PaceState {
+  if (state.currentPaceMps == null) return state;
+  const newest = state.samples[state.samples.length - 1];
+  if (newest && now - newest.timestamp <= windowSeconds * 1000) return state;
+  return {
+    ...state,
+    currentPaceMps: null,
+    currentPaceMinPerMile: null,
+    currentPaceMinPerKm: null,
+  };
+}
+
 /** Compute pace over a rolling time window. */
 function computeRollingPace(
   samples: GpsSample[],

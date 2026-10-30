@@ -165,12 +165,6 @@ function CategoryWorkoutList({
   const activeIdSV = useSharedValue<string | null>(null);
   const positionedSV = useSharedValue(false);
 
-  useEffect(() => {
-    if (dragging.current) return;
-    dataRef.current = items;
-    setData(items);
-  }, [items]);
-
   useLayoutEffect(() => {
     if (!positioned) {
       positionedSV.value = false;
@@ -202,6 +196,21 @@ function CategoryWorkoutList({
     setBaseline(nextTops);
     setPositioned(true);
   }, [displayOrder, restingOrder, tops]);
+
+  useEffect(() => {
+    if (dragging.current) return;
+    dataRef.current = items;
+    setData(items);
+    const ids = items.map((workout) => workout.id);
+    const live = new Set(ids);
+    for (const id of Object.keys(heightMap.current)) {
+      if (!live.has(id)) delete heightMap.current[id];
+    }
+    // Remaining rows keep their measured heights, so onLayout won't fire to reposition them.
+    if (ids.length > 0 && ids.every((id) => (heightMap.current[id] ?? 0) > 0)) {
+      syncIdleLayout(ids);
+    }
+  }, [items, syncIdleLayout]);
 
   const applyShift = useCallback((effective: number) => {
     const id = activeDragId.current;

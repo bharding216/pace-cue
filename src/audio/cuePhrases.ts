@@ -54,6 +54,7 @@ export interface CuePhrase {
 
 export const WORKOUT_COMPLETE_TEXT = 'Workout complete. Great job.';
 export const PACE_UNAVAILABLE_TEXT = 'Pace unavailable';
+export const ACQUIRING_GPS_TEXT = 'Acquiring GPS';
 export const VOICE_PREVIEW_TEXT = 'Starting warmup.';
 
 /** Upper bound for untimed intervals when listing time-progress phrases ahead of a run. */
@@ -185,11 +186,16 @@ export function distanceProgressPhrase(meters: number, unit: PaceUnit): string {
 /**
  * Factual pace cue — just the current pace, no judgment.
  *   "Current pace 7 minutes 35 seconds per mile"
- *   "Pace unavailable"
+ *   "Acquiring GPS" (no pace yet this run)
+ *   "Pace unavailable" (pace was available, then lost)
  */
-export function paceCuePhrase(currentPaceMinutes: number | null, unit: PaceUnit): string {
+export function paceCuePhrase(
+  currentPaceMinutes: number | null,
+  unit: PaceUnit,
+  acquiringGps = false,
+): string {
   if (currentPaceMinutes == null || !isFinite(currentPaceMinutes)) {
-    return PACE_UNAVAILABLE_TEXT;
+    return acquiringGps ? ACQUIRING_GPS_TEXT : PACE_UNAVAILABLE_TEXT;
   }
   return `Current pace ${formatPaceForSpeech(currentPaceMinutes)} ${paceUnitLabel(unit)}`;
 }
@@ -221,8 +227,12 @@ function suffixSegment(unit: PaceUnit): Clip {
 }
 
 /** Pace cue as stitched clips: [Current pace] [7 minutes] [39 seconds] [per mile]. */
-export function paceCue(currentPaceMinutes: number | null, unit: PaceUnit): CuePhrase {
-  const text = paceCuePhrase(currentPaceMinutes, unit);
+export function paceCue(
+  currentPaceMinutes: number | null,
+  unit: PaceUnit,
+  acquiringGps = false,
+): CuePhrase {
+  const text = paceCuePhrase(currentPaceMinutes, unit, acquiringGps);
   if (currentPaceMinutes == null || !isFinite(currentPaceMinutes)) {
     return { clips: [text], text };
   }
@@ -242,7 +252,12 @@ export function paceCue(currentPaceMinutes: number | null, unit: PaceUnit): CueP
 
 /** Clips shared by every workout: completion, pace segments, and distance progress. */
 export function globalPackClips(unit: PaceUnit): Clip[] {
-  const clips: Clip[] = [WORKOUT_COMPLETE_TEXT, PACE_UNAVAILABLE_TEXT, VOICE_PREVIEW_TEXT];
+  const clips: Clip[] = [
+    WORKOUT_COMPLETE_TEXT,
+    PACE_UNAVAILABLE_TEXT,
+    ACQUIRING_GPS_TEXT,
+    VOICE_PREVIEW_TEXT,
+  ];
 
   clips.push(prefixSegment(unit), suffixSegment(unit));
   for (let m = 1; m <= PACE_SEGMENT_MAX_MINUTES; m++) clips.push(minutesSegment(m, unit));

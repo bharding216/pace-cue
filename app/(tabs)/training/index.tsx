@@ -21,7 +21,7 @@ import {
   UIManager,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, type ErrorBoundaryProps } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
 import { useAuth } from '../../../src/contexts/AuthContext';
@@ -66,6 +66,23 @@ function formatRaceLabel(raceType: string): string {
     case 'marathon': return 'Marathon';
     default: return 'Training';
   }
+}
+
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  useEffect(() => {
+    console.warn('Training screen error:', error);
+  }, [error]);
+
+  return (
+    <View style={styles.centered}>
+      <Ionicons name="alert-circle-outline" size={36} color={Colors.textMuted} />
+      <Text style={styles.emptyTitle}>Something went wrong</Text>
+      <Text style={styles.emptyText}>The training view couldn't load.</Text>
+      <TouchableOpacity style={styles.retryBtn} onPress={retry} activeOpacity={0.8}>
+        <Text style={styles.retryBtnText}>Try Again</Text>
+      </TouchableOpacity>
+    </View>
+  );
 }
 
 export default function TrainingScreen() {
@@ -552,14 +569,16 @@ export default function TrainingScreen() {
         onClose={() => setPickerDate(null)}
       />
 
-      {/* Voice workout builder */}
-      <VoiceWorkoutSheet
-        visible={voiceDate !== null}
-        date={voiceDate ?? selectedDate}
-        aiContext={aiContext}
-        onAccept={handleVoiceWorkoutAccepted}
-        onClose={handleVoiceClose}
-      />
+      {/* Voice workout builder — mounted only while open so the native recorder isn't created on tab load */}
+      {voiceDate !== null && (
+        <VoiceWorkoutSheet
+          visible
+          date={voiceDate}
+          aiContext={aiContext}
+          onAccept={handleVoiceWorkoutAccepted}
+          onClose={handleVoiceClose}
+        />
+      )}
 
       {/* Move workout modal */}
       {moveTarget && (
@@ -959,5 +978,17 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Colors.textMuted,
     textAlign: 'center',
+  },
+  retryBtn: {
+    marginTop: Spacing.lg,
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.xl,
+  },
+  retryBtnText: {
+    color: Colors.black,
+    fontSize: FontSize.md,
+    fontWeight: '700',
   },
 });

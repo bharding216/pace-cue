@@ -13,12 +13,15 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Switch,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { useSubscription } from '../../../src/contexts/SubscriptionContext';
 import { useStrava } from '../../../src/strava/useStrava';
+import { setStravaAutoUpload } from '../../../src/strava/stravaService';
+import { loadSettings, onSettingsSaved } from '../../../src/workout/workoutStorage';
 import { getSyncStatus, onSyncStatusChange, SyncStatus } from '../../../src/sync/cloudSync';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../src/constants/theme';
 import { hapticTap } from '../../../src/audio/haptics';
@@ -30,6 +33,15 @@ export default function AccountScreen() {
   const { tier, manageSubscription } = useSubscription();
 
   const strava = useStrava();
+  const [autoUpload, setAutoUpload] = useState(false);
+
+  useEffect(() => {
+    const refresh = () => {
+      loadSettings().then((s) => setAutoUpload(s.stravaAutoUpload)).catch(() => {});
+    };
+    refresh();
+    return onSettingsSaved(refresh);
+  }, []);
 
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(getSyncStatus());
 
@@ -205,6 +217,28 @@ export default function AccountScreen() {
               </TouchableOpacity>
             )}
           </View>
+          {strava.isConnected && (
+            <View style={styles.stravaAutoRow}>
+              <View style={styles.stravaInfo}>
+                <Text style={styles.stravaAutoLabel}>Automatically upload workouts</Text>
+                <Text style={styles.stravaAutoHint}>
+                  {autoUpload
+                    ? 'Every finished run goes to Strava.'
+                    : 'Upload runs one at a time when you want to.'}
+                </Text>
+              </View>
+              <Switch
+                value={autoUpload}
+                onValueChange={(v) => {
+                  setAutoUpload(v);
+                  setStravaAutoUpload(v, 'settings').catch(() => {});
+                }}
+                trackColor={{ false: Colors.surfaceLight, true: Colors.primaryDim }}
+                thumbColor={Colors.white}
+                accessibilityLabel="Automatically upload workouts to Strava"
+              />
+            </View>
+          )}
           {!strava.isConnected &&
             (strava.connecting ? (
               <ActivityIndicator color="#FC5200" style={styles.stravaConnecting} />
@@ -466,6 +500,25 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginTop: 2,
     marginLeft: 22 + Spacing.sm,
+  },
+  stravaAutoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceLight,
+  },
+  stravaAutoLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  stravaAutoHint: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
   },
   stravaConnectBtn: {
     alignSelf: 'center',

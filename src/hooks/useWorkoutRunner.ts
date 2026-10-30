@@ -271,7 +271,7 @@ export function useWorkoutRunner(
       ? now - intervalStartedAtRef.current
       : ci.durationSeconds * 1000;
 
-    const ps = paceTrackerRef.current.paceState;
+    const ps = paceTrackerRef.current.getPaceState();
     const distNow = ps.totalDistanceMeters;
     const intervalDist = distNow - intervalStartDistanceRef.current;
     const hasDist = settingsRef.current.paceTrackingEnabled && intervalDist > 1;
@@ -297,7 +297,7 @@ export function useWorkoutRunner(
   /** Mark the start of a new interval for split tracking. */
   const markIntervalStart = useCallback(() => {
     intervalStartedAtRef.current = Date.now();
-    intervalStartDistanceRef.current = paceTrackerRef.current.paceState.totalDistanceMeters;
+    intervalStartDistanceRef.current = paceTrackerRef.current.getPaceState().totalDistanceMeters;
     intervalElapsedMsRef.current = 0;
     lastRunningTickAtRef.current = 0;
     lastProgressMark.current = 0;
@@ -308,7 +308,7 @@ export function useWorkoutRunner(
   const saveHistoryEntry = useCallback((elapsedMs: number) => {
     if (historySaved.current) return;
     historySaved.current = true;
-    const ps = paceTrackerRef.current.paceState;
+    const ps = paceTrackerRef.current.getPaceState();
     const fullTrack = paceTrackerRef.current.getFullTrack();
     const entryId = generateId();
     const entry: CompletedWorkout = {
@@ -367,6 +367,7 @@ export function useWorkoutRunner(
     let s = engineRef.current;
 
     if (s.phase === 'running') {
+      paceTrackerRef.current.sync();
       const nowMs = Date.now();
       if (lastRunningTickAtRef.current > 0) {
         intervalElapsedMsRef.current += nowMs - lastRunningTickAtRef.current;
@@ -422,7 +423,7 @@ export function useWorkoutRunner(
         // ── Distance-based interval completion ──
         const ci_dist = currentInterval(s);
         if (ci_dist && isDistanceInterval(ci_dist)) {
-          const ps = paceTrackerRef.current.paceState;
+          const ps = paceTrackerRef.current.getPaceState();
           const intervalDist = ps.totalDistanceMeters - intervalStartDistanceRef.current;
           if (intervalDist >= ci_dist.distanceMeters!) {
             captureSplit(s);
@@ -459,7 +460,7 @@ export function useWorkoutRunner(
         // ── Workout-level distance target ──
         if (
           workout.targetDistanceMeters &&
-          paceTrackerRef.current.paceState.totalDistanceMeters >= workout.targetDistanceMeters &&
+          paceTrackerRef.current.getPaceState().totalDistanceMeters >= workout.targetDistanceMeters &&
           s.phase === 'running'
         ) {
           captureSplit(s);
@@ -495,7 +496,7 @@ export function useWorkoutRunner(
             ? Math.max(0, ci.durationSeconds - secs)
             : Math.floor(intervalElapsedMsRef.current / 1000);
           const intervalDist =
-            paceTrackerRef.current.paceState.totalDistanceMeters - intervalStartDistanceRef.current;
+            paceTrackerRef.current.getPaceState().totalDistanceMeters - intervalStartDistanceRef.current;
           const phrases: CuePhrase[] = [];
           const textPhrase = (text: string): CuePhrase => ({ clips: [text], text });
 
@@ -518,30 +519,29 @@ export function useWorkoutRunner(
           const wantPace =
             settingsNow.paceTrackingEnabled &&
             (!settingsNow.paceCueOnlyWithTarget || ci.targetPace != null);
+          const currentPaceCue = () => {
+            const tracker = paceTrackerRef.current;
+            const ps = tracker.getPaceState();
+            const currentPace =
+              settingsNow.paceUnit === 'minPerMile'
+                ? ps.currentPaceMinPerMile
+                : ps.currentPaceMinPerKm;
+            return paceCue(currentPace, settingsNow.paceUnit, !tracker.hasHadPace());
+          };
           if (wantPace) {
             if (settingsNow.paceCueBasis === 'distance') {
               const step = cueDistanceMeters(settingsNow.paceCueDistance, settingsNow.paceUnit);
               const mark = nextCueMark(intervalDist, step, lastPaceMark.current);
               if (mark != null) {
                 lastPaceMark.current = mark;
-                const ps = paceTrackerRef.current.paceState;
-                const currentPace =
-                  settingsNow.paceUnit === 'minPerMile'
-                    ? ps.currentPaceMinPerMile
-                    : ps.currentPaceMinPerKm;
-                phrases.push(paceCue(currentPace, settingsNow.paceUnit));
+                phrases.push(currentPaceCue());
               }
             } else if (!suppressTimeCues && settingsNow.paceCueFrequency > 0) {
               const step = settingsNow.paceCueFrequency;
               const mark = nextCueMark(elapsedSec, step, lastPaceMark.current);
               if (mark != null) {
                 lastPaceMark.current = mark;
-                const ps = paceTrackerRef.current.paceState;
-                const currentPace =
-                  settingsNow.paceUnit === 'minPerMile'
-                    ? ps.currentPaceMinPerMile
-                    : ps.currentPaceMinPerKm;
-                phrases.push(paceCue(currentPace, settingsNow.paceUnit));
+                phrases.push(currentPaceCue());
               }
             }
           }

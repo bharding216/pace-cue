@@ -11,7 +11,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  ActivityIndicator,
   LayoutAnimation,
   Platform,
   UIManager,
@@ -26,7 +25,6 @@ import { CompletedWorkout, WorkoutDefinition, IntervalSplit, formatTime, generat
 import { loadHistory, clearHistory, deleteHistoryEntry, updateHistoryEntry, loadWorkouts, loadSettings } from '../../../src/workout/workoutStorage';
 import { setTempWorkout } from '../../../src/workout/tempWorkoutCache';
 import { TagBadges, TagPicker } from '../../../src/components/TagPicker';
-import { exportData, importData } from '../../../src/workout/backupManager';
 import { shareWorkoutResults } from '../../../src/sharing/shareWorkout';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { onSyncStatusChange } from '../../../src/sync/cloudSync';
@@ -35,6 +33,7 @@ import { ElevationProfile } from '../../../src/components/ElevationProfile';
 import { TerrainSummary } from '../../../src/components/TerrainSummary';
 import { RouteMap } from '../../../src/components/RouteMap';
 import { StravaPushButton } from '../../../src/strava/StravaPushButton';
+import { onStravaUploaded } from '../../../src/strava/stravaService';
 import { DEFAULT_SETTINGS } from '../../../src/workout/workoutTypes';
 import type { PaceUnit } from '../../../src/pace/paceTypes';
 import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../../../src/constants/theme';
@@ -60,6 +59,7 @@ function DeleteAction({ onPress }: { onPress: () => void }) {
 }
 
 const METERS_PER_MILE = 1609.344;
+const STRAVA_ORANGE = '#FC5200';
 
 function formatDistanceDisplay(meters: number): string {
   const miles = meters / METERS_PER_MILE;
@@ -286,8 +286,6 @@ export default function HistoryScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const [history, setHistory] = useState<CompletedWorkout[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [exporting, setExporting] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [paceUnit, setPaceUnit] = useState<PaceUnit>(DEFAULT_SETTINGS.paceUnit);
   const [editingTagsId, setEditingTagsId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<HistoryTab>('workouts');
@@ -315,6 +313,14 @@ export default function HistoryScreen() {
       reload();
     }, [user?.id, reload])
   );
+
+  useEffect(() => {
+    return onStravaUploaded((entryId, activityId) => {
+      setHistory((prev) =>
+        prev.map((h) => (h.id === entryId ? { ...h, stravaActivityId: activityId } : h)),
+      );
+    });
+  }, []);
 
   // Reload after cloud sync finishes so new-user data appears immediately
   useEffect(() => {
@@ -354,35 +360,6 @@ export default function HistoryScreen() {
         },
       ]
     );
-  };
-
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      await exportData();
-    } catch (e: any) {
-      Alert.alert('Export Failed', e.message ?? 'Something went wrong.');
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const handleImport = async () => {
-    setImporting(true);
-    try {
-      const result = await importData();
-      if (result) {
-        loadHistory().then(setHistory);
-        Alert.alert(
-          'Import Complete',
-          `Restored ${result.workoutsCount} workout${result.workoutsCount !== 1 ? 's' : ''} and ${result.historyCount} history entr${result.historyCount !== 1 ? 'ies' : 'y'}.`
-        );
-      }
-    } catch (e: any) {
-      Alert.alert('Import Failed', e.message ?? 'Could not read backup file.');
-    } finally {
-      setImporting(false);
-    }
   };
 
   const handleDelete = (item: CompletedWorkout) => {
@@ -549,48 +526,12 @@ export default function HistoryScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <View>
-            {/* Backup / Restore — only for users without an account */}
             {user ? (
               <View style={styles.syncBanner}>
                 <Ionicons name="cloud-done-outline" size={16} color={Colors.primary} />
                 <Text style={styles.syncBannerText}>Your data is synced to your account</Text>
               </View>
-            ) : (
-              <View style={styles.backupSection}>
-                <Text style={styles.backupHint}>
-                  Save a backup before deleting the app so you don't lose your data.
-                </Text>
-                <View style={styles.backupRow}>
-                  <TouchableOpacity
-                    style={styles.backupBtn}
-                    onPress={handleExport}
-                    disabled={exporting}
-                    activeOpacity={0.7}
-                  >
-                    {exporting ? (
-                      <ActivityIndicator color={Colors.primary} size="small" />
-                    ) : (
-                      <Ionicons name="cloud-upload-outline" size={18} color={Colors.textPrimary} />
-                    )}
-                    <Text style={styles.backupBtnLabel}>Back Up Data</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.backupBtn}
-                    onPress={handleImport}
-                    disabled={importing}
-                    activeOpacity={0.7}
-                  >
-                    {importing ? (
-                      <ActivityIndicator color={Colors.accent} size="small" />
-                    ) : (
-                      <Ionicons name="cloud-download-outline" size={18} color={Colors.textPrimary} />
-                    )}
-                    <Text style={styles.backupBtnLabel}>Restore Backup</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
+            ) : null}
 
             {history.length > 0 ? (
               <View style={styles.header}>
@@ -620,13 +561,14 @@ export default function HistoryScreen() {
               overshootRight={false}
               containerStyle={styles.swipeableContainer}
             >
-              <TouchableOpacity
-                style={[styles.card, isExpanded && styles.cardExpanded]}
-                onPress={() => toggleExpand(item.id)}
-                activeOpacity={0.6}
-              >
+              <View style={[styles.card, isExpanded && styles.cardExpanded]}>
                 <View style={styles.cardAccent} />
                 <View style={styles.cardContent}>
+                  <TouchableOpacity
+                    style={styles.cardHeader}
+                    onPress={() => toggleExpand(item.id)}
+                    activeOpacity={0.6}
+                  >
                   <View style={styles.cardRow}>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.workoutName}>{item.workoutName}</Text>
@@ -639,9 +581,21 @@ export default function HistoryScreen() {
                       style={styles.chevron}
                     />
                   </View>
-                  <Text style={styles.durationText}>
-                    {formatDuration(item.totalDurationMs)}
-                  </Text>
+                  <View style={styles.cardMetaRow}>
+                    <Text style={styles.durationText}>
+                      {formatDuration(item.totalDurationMs)}
+                    </Text>
+                    {item.stravaActivityId != null && (
+                      <View
+                        style={styles.stravaBadge}
+                        accessibilityLabel="Uploaded to Strava"
+                      >
+                        <Ionicons name="checkmark" size={12} color={STRAVA_ORANGE} />
+                        <Text style={styles.stravaBadgeText}>Strava</Text>
+                      </View>
+                    )}
+                  </View>
+                  </TouchableOpacity>
 
                 {isExpanded && (
                   <View style={styles.expandedSection}>
@@ -762,12 +716,15 @@ export default function HistoryScreen() {
                         route={item.route}
                         splits={item.splits}
                         configuration={item.configuration}
+                        tags={item.tags}
+                        notes={item.notes}
+                        stravaActivityId={item.stravaActivityId}
                       />
                     </View>
                     </View>
                 )}
                 </View>
-              </TouchableOpacity>
+              </View>
             </ReanimatedSwipeable>
           );
         }}
@@ -846,36 +803,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },
-  backupSection: {
-    marginBottom: Spacing.md,
-  },
-  backupHint: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    marginBottom: Spacing.sm,
-  },
-  backupRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  backupBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.surface,
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.sm,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceLight,
-  },
-  backupBtnLabel: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -919,6 +846,8 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     flex: 1,
+  },
+  cardHeader: {
     padding: Spacing.md,
   },
   cardRow: {
@@ -938,16 +867,37 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textMuted,
   },
+  cardMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
   durationText: {
     fontSize: FontSize.lg,
     color: Colors.accent,
     fontWeight: '600',
-    marginTop: Spacing.xs,
     fontVariant: ['tabular-nums'],
   },
+  stravaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 2,
+    paddingHorizontal: Spacing.xs + 2,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: STRAVA_ORANGE + '55',
+    backgroundColor: STRAVA_ORANGE + '14',
+  },
+  stravaBadgeText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: STRAVA_ORANGE,
+  },
   expandedSection: {
-    marginTop: Spacing.md,
-    paddingTop: Spacing.md,
+    marginHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
     borderTopWidth: 1,
     borderTopColor: Colors.surfaceLight,
   },

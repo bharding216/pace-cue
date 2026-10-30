@@ -1,6 +1,7 @@
 /**
- * Run Details screen — shows the full results of a completed workout:
- * splits table, route map, elevation profile, awards, tags.
+ * Run Details screen — the permanent home for a completed workout:
+ * performance (stats, route, elevation, splits), reflection (editable
+ * tags and notes), achievements, and sharing (Strava, Challenge a Friend).
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -11,22 +12,43 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
+  TextInput,
   useWindowDimensions,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { CompletedWorkout, IntervalSplit, formatTime, generateId } from '../../src/workout/workoutTypes';
-import { loadHistory, loadWorkouts, loadSettings, saveWorkout } from '../../src/workout/workoutStorage';
+import {
+  CompletedWorkout,
+  IntervalSplit,
+  formatTime,
+  generateId,
+  WORKOUT_NOTES_MAX_LENGTH,
+} from '../../src/workout/workoutTypes';
+import {
+  loadHistory,
+  loadWorkouts,
+  loadSettings,
+  saveWorkout,
+  withHistoryLock,
+} from '../../src/workout/workoutStorage';
 import { setTempWorkout } from '../../src/workout/tempWorkoutCache';
 import { DEFAULT_SETTINGS } from '../../src/workout/workoutTypes';
 import type { PaceUnit } from '../../src/pace/paceTypes';
 import { RouteMap } from '../../src/components/RouteMap';
 import { ElevationProfile } from '../../src/components/ElevationProfile';
 import { TerrainSummary } from '../../src/components/TerrainSummary';
-import { TagBadges } from '../../src/components/TagPicker';
+import { TagPicker } from '../../src/components/TagPicker';
 import { analyzeElevation, aggregateByTerrain } from '../../src/pace/elevationAnalysis';
-import { computeStats, detectNewRecords, detectNewAwards } from '../../src/stats/personalRecords';
+import {
+  computeStats,
+  detectNewRecords,
+  detectNewAwards,
+  type PersonalRecord,
+  type AwardBadge,
+} from '../../src/stats/personalRecords';
 import { NewRecordsBanner } from '../../src/components/PersonalBests';
+import { ChallengeFriendCard } from '../../src/components/ChallengeFriendCard';
+import { useRunAnnotations } from '../../src/hooks/useRunAnnotations';
 import { StravaPushButton } from '../../src/strava/StravaPushButton';
 import { shareWorkoutResults } from '../../src/sharing/shareWorkout';
 import { Colors, Spacing, FontSize, BorderRadius, intervalColor } from '../../src/constants/theme';
@@ -130,6 +152,55 @@ function SplitsTable({ splits }: { splits: IntervalSplit[] }) {
   );
 }
 
+// ── Reflection ───────────────────────────────────────────────
+
+interface Annotations {
+  tags: string[];
+  notes: string;
+}
+
+/** Editable tags and notes. Mounted only once the run is loaded. */
+function ReflectionSection({
+  run,
+  onChange,
+}: {
+  run: CompletedWorkout;
+  onChange: (annotations: Annotations) => void;
+}) {
+  const { tags, notes, setTags, setNotes, flush } = useRunAnnotations(run.id, {
+    tags: run.tags,
+    notes: run.notes,
+  });
+
+  return (
+    <View style={styles.section}>
+      <TagPicker
+        selected={tags}
+        onChange={(next) => {
+          setTags(next);
+          onChange({ tags: next, notes });
+        }}
+      />
+      <Text style={styles.notesLabel}>Notes</Text>
+      <TextInput
+        style={styles.notesInput}
+        value={notes}
+        onChangeText={(text) => {
+          setNotes(text);
+          onChange({ tags, notes: text });
+        }}
+        onBlur={flush}
+        placeholder="Weather, how your legs felt, shoes, who you ran with…"
+        placeholderTextColor={Colors.textMuted}
+        multiline
+        maxLength={WORKOUT_NOTES_MAX_LENGTH}
+        textAlignVertical="top"
+        accessibilityLabel="Workout notes"
+      />
+    </View>
+  );
+}
+
 // ── Main Screen ──────────────────────────────────────────────
 
 export default function RunDetailsScreen() {
@@ -142,41 +213,27 @@ export default function RunDetailsScreen() {
 
   const chartWidth = screenWidth - Spacing.lg * 2;
 
+  const [statsRecords, setStatsRecords] = useState<PersonalRecord[]>([]);
+  const [runRecords, setRunRecords] = useState<PersonalRecord[]>([]);
+  const [runAwards, setRunAwards] = useState<AwardBadge[]>([]);
+  const [annotations, setAnnotations] = useState<Annotations>({ tags: [], notes: '' });
+
   useEffect(() => {
-    Promise.all([loadHistory(), loadSettings()]).then(([history, settings]) => {
-      const found = history.find((h) => h.id === id);
-      setRun(found ?? null);
+    // The lock waits for any write still in flight, such as the feeling
+    // picked on the workout-complete screen just before opening this page.
+    Promise.all([withHistoryLock(loadHistory), loadSettings()]).then(([history, settings]) => {
+      const found = history.find((h) => h.id === id) ?? null;
+      setRun(found);
       setPaceUnit(settings.paceUnit);
+      if (found) {
+        setAnnotations({ tags: found.tags ?? [], notes: found.notes ?? '' });
+        setStatsRecords(computeStats(history).records);
+        setRunRecords(detectNewRecords(history, found.id));
+        setRunAwards(detectNewAwards(history, found.id));
+      }
       setLoading(false);
     });
   }, [id]);
-
-  const allHistory = useMemo(() => {
-    if (!run) return [];
-    // We already loaded it; re-derive lazily isn't great but keeps it simple
-    return [];
-  }, [run]);
-
-  const { records, newRecords, newAwards } = useMemo(() => {
-    if (!run) return { records: [], newRecords: [], newAwards: [] };
-    // Load synchronously from state isn't possible, so we do a secondary load
-    return { records: [], newRecords: [], newAwards: [] };
-  }, [run]);
-
-  // Secondary load for records
-  const [statsRecords, setStatsRecords] = useState<import('../../src/stats/personalRecords').PersonalRecord[]>([]);
-  const [runRecords, setRunRecords] = useState<import('../../src/stats/personalRecords').PersonalRecord[]>([]);
-  const [runAwards, setRunAwards] = useState<import('../../src/stats/personalRecords').AwardBadge[]>([]);
-
-  useEffect(() => {
-    if (!run) return;
-    loadHistory().then((history) => {
-      const stats = computeStats(history);
-      setStatsRecords(stats.records);
-      setRunRecords(detectNewRecords(history, run.id));
-      setRunAwards(detectNewAwards(history, run.id));
-    });
-  }, [run?.id]);
 
   const elevation = useMemo(() => {
     if (!run?.route || run.route.length < 2) return null;
@@ -250,7 +307,7 @@ export default function RunDetailsScreen() {
           <Text style={styles.timeText}>Completed at {formatTimeOfDay(run.completedAt)}</Text>
         </View>
 
-        {/* Key stats */}
+        <Text style={[styles.groupTitle, styles.groupTitleFirst]}>Performance</Text>
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>
@@ -273,26 +330,6 @@ export default function RunDetailsScreen() {
             </View>
           )}
         </View>
-
-        {/* Awards from this run */}
-        {(runRecords.length > 0 || runAwards.length > 0) && (
-          <NewRecordsBanner records={runRecords} awards={runAwards} />
-        )}
-
-        {/* Tags */}
-        {run.tags && run.tags.length > 0 && (
-          <View style={styles.section}>
-            <TagBadges tags={run.tags} />
-          </View>
-        )}
-
-        {/* Notes */}
-        {run.notes ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Notes</Text>
-            <Text style={styles.notesText}>{run.notes}</Text>
-          </View>
-        ) : null}
 
         {/* Route map */}
         {run.route && run.route.length >= 2 && (
@@ -330,7 +367,43 @@ export default function RunDetailsScreen() {
           </View>
         )}
 
-        {/* Actions */}
+        <Text style={styles.groupTitle}>Reflection</Text>
+        <ReflectionSection run={run} onChange={setAnnotations} />
+
+        {(runRecords.length > 0 || runAwards.length > 0) && (
+          <>
+            <Text style={styles.groupTitle}>Achievements</Text>
+            <NewRecordsBanner records={runRecords} awards={runAwards} />
+          </>
+        )}
+
+        <Text style={styles.groupTitle}>Sharing</Text>
+        <StravaPushButton
+          completedEntryId={run.id}
+          workoutName={run.workoutName}
+          workoutId={run.workoutId}
+          completedAt={run.completedAt}
+          totalDurationMs={run.totalDurationMs}
+          totalDistanceMeters={run.totalDistanceMeters}
+          route={run.route}
+          splits={run.splits}
+          configuration={run.configuration}
+          tags={annotations.tags}
+          notes={annotations.notes}
+          stravaActivityId={run.stravaActivityId}
+        />
+
+        {run.configuration && (
+          <View style={styles.section}>
+            <ChallengeFriendCard
+              workout={run.configuration}
+              totalDurationMs={run.totalDurationMs}
+              totalDistanceMeters={run.totalDistanceMeters}
+              paceUnit={paceUnit}
+            />
+          </View>
+        )}
+
         <View style={styles.actionRow}>
           <TouchableOpacity
             style={styles.actionBtn}
@@ -357,19 +430,6 @@ export default function RunDetailsScreen() {
             <Text style={styles.actionBtnSecondaryText}>Share</Text>
           </TouchableOpacity>
         </View>
-
-        {/* Push to Strava */}
-        <StravaPushButton
-          completedEntryId={run.id}
-          workoutName={run.workoutName}
-          workoutId={run.workoutId}
-          completedAt={run.completedAt}
-          totalDurationMs={run.totalDurationMs}
-          totalDistanceMeters={run.totalDistanceMeters}
-          route={run.route}
-          splits={run.splits}
-          configuration={run.configuration}
-        />
 
         <TouchableOpacity
           style={styles.templateBtn}
@@ -518,10 +578,35 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     marginBottom: Spacing.sm,
   },
-  notesText: {
+  groupTitle: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: Colors.textMuted,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  groupTitleFirst: {
+    marginTop: 0,
+  },
+  notesLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    color: Colors.textSecondary,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+  notesInput: {
+    minHeight: 88,
+    padding: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surface,
+    color: Colors.textPrimary,
     fontSize: FontSize.sm,
     lineHeight: 20,
-    color: Colors.textSecondary,
   },
   actionRow: {
     flexDirection: 'row',

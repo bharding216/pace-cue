@@ -13,8 +13,10 @@ import {
   connectStrava,
   disconnectStrava,
   pushWorkoutToStrava,
+  setStravaAutoUpload,
   type StravaConnection,
   type PushResult,
+  type PushTrigger,
 } from './stravaService';
 import type { CompletedWorkout } from '../workout/workoutTypes';
 
@@ -34,7 +36,7 @@ export interface UseStravaReturn {
   /** Disconnect the linked Strava account. */
   disconnect: () => Promise<void>;
   /** Push a completed workout to Strava. */
-  pushWorkout: (completed: CompletedWorkout) => Promise<PushResult>;
+  pushWorkout: (completed: CompletedWorkout, trigger?: PushTrigger) => Promise<PushResult>;
   /** Re-check connection status (e.g. after navigating back). */
   refresh: () => Promise<void>;
 }
@@ -86,6 +88,21 @@ export function useStrava(): UseStravaReturn {
           athleteName: result.athleteName ?? null,
           stravaAthleteId: null,
         });
+        Alert.alert(
+          'Upload Automatically?',
+          'Automatically upload completed workouts to Strava? You can still upload runs one at a time, and change this in Settings > Account.',
+          [
+            {
+              text: 'Not Now',
+              style: 'cancel',
+              onPress: () => setStravaAutoUpload(false, 'connect_prompt').catch(() => {}),
+            },
+            {
+              text: 'Upload Automatically',
+              onPress: () => setStravaAutoUpload(true, 'connect_prompt').catch(() => {}),
+            },
+          ],
+        );
         return true;
       }
       if (result.error) {
@@ -125,10 +142,10 @@ export function useStrava(): UseStravaReturn {
   }, []);
 
   const pushWorkout = useCallback(
-    async (completed: CompletedWorkout): Promise<PushResult> => {
+    async (completed: CompletedWorkout, trigger?: PushTrigger): Promise<PushResult> => {
       setPushing(true);
       try {
-        return await pushWorkoutToStrava(completed);
+        return await pushWorkoutToStrava(completed, trigger);
       } finally {
         setPushing(false);
       }

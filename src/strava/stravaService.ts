@@ -10,6 +10,7 @@
 import * as WebBrowser from 'expo-web-browser';
 import { supabase } from '../analytics/supabaseClient';
 import { track } from '../analytics/track';
+import { updateHistoryEntry, loadSettings, saveSettings } from '../workout/workoutStorage';
 import type { CompletedWorkout, RoutePoint } from '../workout/workoutTypes';
 
 // ── Redirect URI ─────────────────────────────────────────────
@@ -257,6 +258,17 @@ function escapeXml(s: string): string {
     .replace(/'/g, '&apos;');
 }
 
+// ── Auto-upload setting ──────────────────────────────────────
+
+export async function setStravaAutoUpload(
+  enabled: boolean,
+  source: 'settings' | 'connect_prompt',
+): Promise<void> {
+  const settings = await loadSettings();
+  await saveSettings({ ...settings, stravaAutoUpload: enabled });
+  track('strava_auto_upload_toggled', { enabled, source });
+}
+
 // ── Push workout ─────────────────────────────────────────────
 
 export interface PushResult {
@@ -266,14 +278,54 @@ export interface PushResult {
   error?: string;
 }
 
+export type PushTrigger = 'auto' | 'manual';
+
+const pendingUploads = new Map<string, Promise<PushResult>>();
+
+const uploadedListeners = new Set<(entryId: string, activityId: number) => void>();
+
+/** Called after a run's Strava activity ID is saved. Returns an unsubscribe function. */
+export function onStravaUploaded(
+  listener: (entryId: string, activityId: number) => void,
+): () => void {
+  uploadedListeners.add(listener);
+  return () => uploadedListeners.delete(listener);
+}
+
+/** The upload already running for this history entry, if any. */
+export function getPendingStravaUpload(entryId: string): Promise<PushResult> | undefined {
+  return pendingUploads.get(entryId);
+}
+
+export function stravaActivityUrl(activityId: number): string {
+  return `https://www.strava.com/activities/${activityId}`;
+}
+
 /**
  * Push a completed workout to the user's Strava account.
  *
  * Builds a GPX from the route (if available), then sends everything
  * to the strava-push Edge Function which handles the Strava API call.
+ * Concurrent calls for the same entry share one upload, and the Strava
+ * activity ID is saved on the history entry once known.
  */
-export async function pushWorkoutToStrava(
+export function pushWorkoutToStrava(
   completed: CompletedWorkout,
+  trigger: PushTrigger = 'manual',
+): Promise<PushResult> {
+  const pending = pendingUploads.get(completed.id);
+  if (pending) return pending;
+
+  const upload = uploadWorkout(completed, trigger).finally(() => {
+    pendingUploads.delete(completed.id);
+  });
+  pendingUploads.set(completed.id, upload);
+  return upload;
+}
+
+async function uploadWorkout(
+  completed: CompletedWorkout,
+  trigger: PushTrigger,
 ): Promise<PushResult> {
   try {
     let gpx: string | undefined;
@@ -290,6 +342,8 @@ export async function pushWorkoutToStrava(
         totalDurationMs: completed.totalDurationMs,
         totalDistanceMeters: completed.totalDistanceMeters,
         gpx,
+        tags: completed.tags,
+        notes: completed.notes,
       },
     });
 
@@ -310,15 +364,22 @@ export async function pushWorkoutToStrava(
       return { success: false, error: message };
     }
 
-    const activityId = data?.activityId;
-    const activityUrl = activityId
-      ? `https://www.strava.com/activities/${activityId}`
-      : undefined;
+    const activityId: number | undefined = data?.activityId;
+    const activityUrl = activityId ? stravaActivityUrl(activityId) : undefined;
+
+    if (activityId) {
+      await updateHistoryEntry(completed.id, (entry) => ({
+        ...entry,
+        stravaActivityId: activityId,
+      })).catch(() => {});
+      uploadedListeners.forEach((listener) => listener(completed.id, activityId));
+    }
 
     track('strava_workout_pushed', {
       workout_id: completed.workoutId,
       has_gpx: !!gpx,
       activity_id: activityId,
+      trigger,
     });
 
     return { success: true, activityId, activityUrl };

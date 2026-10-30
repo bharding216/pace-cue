@@ -17,7 +17,6 @@ import {
   Modal,
   ScrollView,
   Switch,
-  TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -33,7 +32,8 @@ import {
   isDistanceInterval,
   formatDistanceShort,
   hasDistanceFeature,
-  WORKOUT_NOTES_MAX_LENGTH,
+  WORKOUT_TAG_GROUPS,
+  type CompletedWorkout,
 } from '../../../src/workout/workoutTypes';
 import type { PaceCueFrequency } from '../../../src/pace/paceTypes';
 import { paceCuesEnabled, distanceProgressCuesNeedGps } from '../../../src/audio/cueSchedule';
@@ -56,21 +56,36 @@ import {
 import { hapticTap } from '../../../src/audio/haptics';
 import { setDuckingEnabled, setVoiceIdentifier } from '../../../src/audio/audioManager';
 import { prepareWorkoutAudio } from '../../../src/audio/prepareVoice';
-import { TagPicker } from '../../../src/components/TagPicker';
 import { PreRunSettings } from '../../../src/components/PreRunSettings';
 import { PreRunLocationCard, BackgroundLocationCard } from '../../../src/components/LocationPermissionCards';
 import { useLocationAccess } from '../../../src/hooks/useLocationAccess';
 
-import { ChallengeFriendCard } from '../../../src/components/ChallengeFriendCard';
-import { RouteMap } from '../../../src/components/RouteMap';
-import { NewRecordsBanner } from '../../../src/components/PersonalBests';
+import { PrimaryAchievement } from '../../../src/components/PersonalBests';
 import { StravaPushButton } from '../../../src/strava/StravaPushButton';
-import { updateHistoryEntry, loadHistory } from '../../../src/workout/workoutStorage';
+import { useStrava } from '../../../src/strava/useStrava';
+import { pushWorkoutToStrava } from '../../../src/strava/stravaService';
+import { useRunAnnotations } from '../../../src/hooks/useRunAnnotations';
+import { track } from '../../../src/analytics/track';
+import { loadHistory } from '../../../src/workout/workoutStorage';
 import { useTrainingPlan } from '../../../src/contexts/TrainingPlanContext';
-import { detectNewRecords, detectNewAwards, computeStats } from '../../../src/stats/personalRecords';
+import { detectNewRecords, detectNewAwards } from '../../../src/stats/personalRecords';
 import type { PersonalRecord, AwardBadge } from '../../../src/stats/personalRecords';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const STRAVA_ORANGE = '#FC5200';
+
+const FEEL_EMOJI: Record<string, string> = {
+  Strong: '💪',
+  Good: '😊',
+  OK: '😐',
+  Tough: '😫',
+};
+
+const FEEL_TAGS: readonly string[] =
+  WORKOUT_TAG_GROUPS.find((g) => g.category === 'feel')?.tags ?? [];
+
+const FEEL_OPTIONS = FEEL_TAGS.map((tag) => ({ tag, emoji: FEEL_EMOJI[tag] ?? '•' }));
 
 export default function ActiveWorkoutScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -155,12 +170,11 @@ function ActiveWorkoutInner({
   const runner = useWorkoutRunner(workout, settings, sessionMeta);
   const { completeWorkout: completePlanWorkout } = useTrainingPlan();
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [notes, setNotes] = useState('');
   const [newRecords, setNewRecords] = useState<PersonalRecord[]>([]);
   const [newAwards, setNewAwards] = useState<AwardBadge[]>([]);
-  const [allRecords, setAllRecords] = useState<PersonalRecord[]>([]);
   const planCompletionDone = useRef(false);
+  const annotations = useRunAnnotations(runner.completedEntryId);
+  const strava = useStrava();
   const { access: locationAccess, request: requestLocation } = useLocationAccess();
   const locationAsked = useRef(false);
 
@@ -189,11 +203,8 @@ function ActiveWorkoutInner({
   useEffect(() => {
     if (state.phase !== 'finished' || !runner.completedEntryId) return;
     loadHistory().then((history) => {
-      const records = detectNewRecords(history, runner.completedEntryId!);
-      const awards = detectNewAwards(history, runner.completedEntryId!);
-      setNewRecords(records);
-      setNewAwards(awards);
-      setAllRecords(computeStats(history).records);
+      setNewRecords(detectNewRecords(history, runner.completedEntryId!));
+      setNewAwards(detectNewAwards(history, runner.completedEntryId!));
     }).catch(() => {});
   }, [state.phase, runner.completedEntryId]);
 
@@ -211,57 +222,65 @@ function ActiveWorkoutInner({
     );
   }, [state.phase, runner.completedEntryId, sessionMeta?.planWorkoutId, completePlanWorkout]);
 
-  // Tags and notes are written to the history entry together. Writes are
-  // debounced because each one rewrites the whole history in AsyncStorage,
-  // and any pending write is flushed on blur and unmount so nothing is lost.
-  const annotations = useRef({ tags: [] as string[], notes: '' });
-  const annotationSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const completedEntryIdRef = useRef(runner.completedEntryId);
-  completedEntryIdRef.current = runner.completedEntryId;
+  const finishedAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (state.phase === 'finished' && finishedAtRef.current == null) {
+      finishedAtRef.current = Date.now();
+    }
+  }, [state.phase]);
 
-  const flushAnnotations = useCallback(() => {
-    if (!annotationSaveTimer.current) return;
-    clearTimeout(annotationSaveTimer.current);
-    annotationSaveTimer.current = null;
+  const selectedFeel = annotations.tags.find((t) => FEEL_TAGS.includes(t)) ?? null;
 
-    const entryId = completedEntryIdRef.current;
-    if (!entryId) return;
-    const { tags, notes: text } = annotations.current;
-    const trimmed = text.trim();
-    updateHistoryEntry(entryId, (entry) => ({
-      ...entry,
-      tags: tags.length > 0 ? tags : undefined,
-      notes: trimmed || undefined,
-    })).catch(() => {});
-  }, []);
-
-  const scheduleAnnotationSave = useCallback(
-    (delayMs: number) => {
-      if (annotationSaveTimer.current) clearTimeout(annotationSaveTimer.current);
-      annotationSaveTimer.current = setTimeout(flushAnnotations, delayMs);
+  const handleFeelPress = useCallback(
+    (tag: string) => {
+      hapticTap();
+      const others = annotations.tags.filter((t) => !FEEL_TAGS.includes(t));
+      const cleared = selectedFeel === tag;
+      annotations.setTags(cleared ? others : [...others, tag]);
+      if (!cleared) track('post_workout_feel_selected', { tag });
     },
-    [flushAnnotations],
+    [annotations, selectedFeel],
   );
 
-  useEffect(() => flushAnnotations, [flushAnnotations]);
+  /** The saved history entry as it stands now, for uploading. */
+  const buildCompletedEntry = (): CompletedWorkout | null => {
+    if (!runner.completedEntryId) return null;
+    const distance = runner.paceState.totalDistanceMeters;
+    return {
+      id: runner.completedEntryId,
+      workoutId: workout.id,
+      workoutName: workout.name,
+      completedAt: finishedAtRef.current ?? Date.now(),
+      totalDurationMs: state.totalElapsedMs,
+      totalDistanceMeters: distance > 0 ? distance : undefined,
+      route: runner.completedRoute ?? undefined,
+      splits: runner.completedSplits ?? undefined,
+      configuration: workout,
+      tags: annotations.tags.length > 0 ? annotations.tags : undefined,
+    };
+  };
 
-  const handleTagsChange = useCallback(
-    (tags: string[]) => {
-      setSelectedTags(tags);
-      annotations.current.tags = tags;
-      scheduleAnnotationSave(300);
-    },
-    [scheduleAnnotationSave],
-  );
+  const autoUploadEnabled = settings.stravaAutoUpload && strava.isConnected;
 
-  const handleNotesChange = useCallback(
-    (text: string) => {
-      setNotes(text);
-      annotations.current.notes = text;
-      scheduleAnnotationSave(800);
-    },
-    [scheduleAnnotationSave],
-  );
+  // Auto-upload runs once, when the runner leaves this screen, so the
+  // feeling they picked is included. The ref keeps the unmount fallback
+  // pointed at the latest state.
+  const autoUploadStarted = useRef(false);
+  const startAutoUploadRef = useRef<() => void>(() => {});
+  startAutoUploadRef.current = () => {
+    if (autoUploadStarted.current || !autoUploadEnabled) return;
+    const entry = buildCompletedEntry();
+    if (!entry) return;
+    autoUploadStarted.current = true;
+    pushWorkoutToStrava(entry, 'auto').catch(() => {});
+  };
+  useEffect(() => () => startAutoUploadRef.current(), []);
+
+  const leaveFinishedScreen = useCallback(() => {
+    annotations.flush();
+    startAutoUploadRef.current();
+    router.dismissAll();
+  }, [annotations, router]);
 
   // Keep screen awake during workout
   useEffect(() => {
@@ -289,9 +308,20 @@ function ActiveWorkoutInner({
   };
 
   const handleFinishedDone = useCallback(() => {
-    router.dismissAll();
-    router.navigate('/(tabs)/training/history' as any);
-  }, [router]);
+    hapticTap();
+    track('post_workout_done', { selected_feel: selectedFeel });
+    leaveFinishedScreen();
+    router.navigate('/(tabs)' as any);
+  }, [leaveFinishedScreen, router, selectedFeel]);
+
+  const handleViewDetails = useCallback(() => {
+    const entryId = runner.completedEntryId;
+    if (!entryId) return;
+    hapticTap();
+    track('post_workout_details_opened', { selected_feel: selectedFeel });
+    leaveFinishedScreen();
+    router.push(`/run/${entryId}` as any);
+  }, [leaveFinishedScreen, router, runner.completedEntryId, selectedFeel]);
 
   // ── IDLE state ──
   if (state.phase === 'idle') {
@@ -399,6 +429,9 @@ function ActiveWorkoutInner({
           {needsGps && locationAccess && (
             <PreRunLocationCard access={locationAccess} onAllow={handleAllowLocation} />
           )}
+          {needsGps && locationAccess === 'granted' && (
+            <BackgroundLocationCard placement="preRun" />
+          )}
           <PreRunSettings
             settings={settings}
             onUpdate={onUpdateSettings}
@@ -431,21 +464,30 @@ function ActiveWorkoutInner({
 
   // ── FINISHED state ──
   if (state.phase === 'finished') {
+    const completedEntry = buildCompletedEntry();
     return (
       <ScrollView
         style={styles.container}
-        contentContainerStyle={styles.finishedContent}
+        contentContainerStyle={[
+          styles.finishedContent,
+          { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.lg },
+        ]}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        automaticallyAdjustKeyboardInsets
       >
-        <Ionicons name="trophy" size={64} color={Colors.primary} style={styles.doneIcon} />
-        <Text style={styles.doneTitle}>Workout Complete!</Text>
+        {newRecords.length > 0 || newAwards.length > 0 ? (
+          <PrimaryAchievement records={newRecords} awards={newAwards} />
+        ) : (
+          <>
+            <Ionicons
+              name="checkmark-circle"
+              size={44}
+              color={Colors.primary}
+              style={styles.doneIcon}
+            />
+            <Text style={styles.doneTitle}>Workout Complete</Text>
+          </>
+        )}
         <Text style={styles.doneWorkoutName}>{workout.name}</Text>
-
-        {/* New records and awards celebration */}
-        <NewRecordsBanner records={newRecords} awards={newAwards} />
 
         <View style={styles.doneStatBlock}>
           <Text style={styles.doneStatLabel}>Total time</Text>
@@ -469,88 +511,70 @@ function ActiveWorkoutInner({
             </View>
           )}
 
-        {/* Route map with PB markers */}
-        {runner.completedRoute && runner.completedRoute.length >= 2 && (
-          <View style={styles.routeMapSection}>
-            <RouteMap
-              route={runner.completedRoute}
-              splits={runner.completedSplits ?? undefined}
-              paceUnit={settings.paceUnit}
-              height={280}
-              records={allRecords}
-            />
+        <View style={styles.feelSection}>
+          <Text style={styles.feelTitle}>How did it feel?</Text>
+          <View style={styles.feelRow}>
+            {FEEL_OPTIONS.map(({ tag, emoji }) => {
+              const active = selectedFeel === tag;
+              return (
+                <TouchableOpacity
+                  key={tag}
+                  style={[styles.feelOption, active && styles.feelOptionActive]}
+                  onPress={() => handleFeelPress(tag)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={`Felt ${tag}`}
+                >
+                  <Text style={styles.feelEmoji}>{emoji}</Text>
+                  <Text style={[styles.feelLabel, active && styles.feelLabelActive]}>
+                    {tag}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        )}
-
-        {needsGps && <BackgroundLocationCard />}
-
-        {/* Push to Strava */}
-        <StravaPushButton
-          completedEntryId={runner.completedEntryId}
-          workoutName={workout.name}
-          workoutId={workout.id}
-          completedAt={Date.now()}
-          totalDurationMs={state.totalElapsedMs}
-          totalDistanceMeters={
-            (settings.paceTrackingEnabled ||
-              hasDistanceFeature(workout) ||
-              distanceProgressCuesNeedGps(settings)) &&
-            runner.paceState.totalDistanceMeters > 0
-              ? runner.paceState.totalDistanceMeters
-              : undefined
-          }
-          route={runner.completedRoute ?? undefined}
-          splits={runner.completedSplits ?? undefined}
-          configuration={workout}
-          allowConnect
-        />
-
-        <ChallengeFriendCard
-          workout={workout}
-          totalDurationMs={state.totalElapsedMs}
-          totalDistanceMeters={
-            (settings.paceTrackingEnabled ||
-              hasDistanceFeature(workout) ||
-              distanceProgressCuesNeedGps(settings)) &&
-            runner.paceState.totalDistanceMeters > 0
-              ? runner.paceState.totalDistanceMeters
-              : undefined
-          }
-          paceUnit={settings.paceUnit}
-        />
-
-        {/* Tags and notes */}
-        <View style={styles.tagSection}>
-          <Text style={styles.tagSectionTitle}>How did it go?</Text>
-          <Text style={styles.tagSectionHint}>
-            Optional. Saved with this run so you can look back later.
-          </Text>
-          <TagPicker selected={selectedTags} onChange={handleTagsChange} />
-
-          <Text style={styles.notesLabel}>Notes</Text>
-          <TextInput
-            style={styles.notesInput}
-            value={notes}
-            onChangeText={handleNotesChange}
-            onBlur={flushAnnotations}
-            placeholder="Weather, how your legs felt, shoes, who you ran with…"
-            placeholderTextColor={Colors.textMuted}
-            multiline
-            maxLength={WORKOUT_NOTES_MAX_LENGTH}
-            textAlignVertical="top"
-            accessibilityLabel="Workout notes"
-          />
         </View>
+
+        {autoUploadEnabled ? (
+          <View style={styles.stravaAutoRow}>
+            <Ionicons name="sync-outline" size={16} color={STRAVA_ORANGE} />
+            <Text style={styles.stravaAutoText}>Uploads to Strava when you're done</Text>
+          </View>
+        ) : (
+          completedEntry && (
+            <StravaPushButton
+              completedEntryId={completedEntry.id}
+              workoutName={completedEntry.workoutName}
+              workoutId={completedEntry.workoutId}
+              completedAt={completedEntry.completedAt}
+              totalDurationMs={completedEntry.totalDurationMs}
+              totalDistanceMeters={completedEntry.totalDistanceMeters}
+              route={completedEntry.route}
+              splits={completedEntry.splits}
+              configuration={completedEntry.configuration}
+              tags={completedEntry.tags}
+            />
+          )
+        )}
 
         <TouchableOpacity
           style={styles.doneBtn}
           onPress={handleFinishedDone}
           activeOpacity={0.8}
+          accessibilityRole="button"
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Ionicons name="time-outline" size={20} color={Colors.black} />
-            <Text style={styles.doneBtnText}>View History</Text>
-          </View>
+          <Text style={styles.doneBtnText}>Done</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.detailsLink}
+          onPress={handleViewDetails}
+          activeOpacity={0.7}
+          accessibilityRole="link"
+        >
+          <Text style={styles.detailsLinkText}>View workout details</Text>
+          <Ionicons name="chevron-forward" size={16} color={Colors.textSecondary} />
         </TouchableOpacity>
       </ScrollView>
     );
@@ -1775,70 +1799,82 @@ const styles = StyleSheet.create({
 
   // ── Finished ──
   finishedContent: {
+    flexGrow: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: Spacing.lg,
-    paddingTop: 60,
-    paddingBottom: Spacing.xxl * 2,
   },
-  routeMapSection: {
+  feelSection: {
     width: '100%',
-    marginBottom: Spacing.sm,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.md,
   },
-  tagSection: {
-    width: '100%',
-    marginTop: Spacing.md,
-    padding: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: Colors.surfaceLight,
-  },
-  tagSectionTitle: {
+  feelTitle: {
     fontSize: FontSize.md,
     fontWeight: '700',
     color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
   },
-  tagSectionHint: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
+  feelRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  feelOption: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+    backgroundColor: Colors.surface,
+    minHeight: 44,
+  },
+  feelOptionActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '22',
+  },
+  feelEmoji: {
+    fontSize: 24,
+  },
+  feelLabel: {
+    marginTop: 2,
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  feelLabelActive: {
+    color: Colors.primary,
+  },
+  stravaAutoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
     marginBottom: Spacing.md,
   },
-  notesLabel: {
-    fontSize: FontSize.xs,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    color: Colors.textSecondary,
-    marginTop: Spacing.md,
-    marginBottom: Spacing.xs,
-  },
-  notesInput: {
-    minHeight: 88,
-    padding: Spacing.sm + 2,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.surfaceLight,
-    color: Colors.textPrimary,
+  stravaAutoText: {
     fontSize: FontSize.sm,
-    lineHeight: 20,
+    fontWeight: '600',
+    color: Colors.textSecondary,
   },
   doneIcon: {
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
   doneTitle: {
     fontSize: FontSize.xxl,
     fontWeight: '900',
     color: Colors.primary,
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.xs,
   },
   doneWorkoutName: {
     fontSize: FontSize.lg,
     color: Colors.textSecondary,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.md,
   },
   doneStatBlock: {
     alignItems: 'center',
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
   doneStatLabel: {
     fontSize: FontSize.sm,
@@ -1861,15 +1897,28 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   doneBtn: {
+    width: '100%',
+    alignItems: 'center',
     backgroundColor: Colors.primary,
     paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xxl,
     borderRadius: BorderRadius.lg,
-    marginTop: Spacing.lg,
+    marginTop: Spacing.xs,
   },
   doneBtnText: {
     color: Colors.black,
     fontSize: FontSize.lg,
     fontWeight: '800',
+  },
+  detailsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: Spacing.md,
+    minHeight: 44,
+  },
+  detailsLinkText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
   },
 });

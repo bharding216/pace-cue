@@ -3,7 +3,8 @@
  *
  * Reuses WorkoutEditorForm but does NOT auto-save to the library.
  * Primary action: Start Workout (session-only, no library write).
- * Secondary: Save Changes → Update Original or Save as New.
+ * Secondary: Save to My Workouts (new) or, for an existing saved workout,
+ * update it / save as a new workout.
  *
  * Query params:
  *   - id: workout id (loaded from library or temp cache)
@@ -40,6 +41,7 @@ import { quickStartFactory, loadQuickStartDefault, saveQuickStartDefault } from 
 import { Colors, Spacing, FontSize, BorderRadius } from '../../src/constants/theme';
 import { track } from '../../src/analytics/track';
 import { prepareWorkoutAudio } from '../../src/audio/prepareVoice';
+import { hapticSuccess, hapticTap, hapticWarning } from '../../src/audio/haptics';
 
 export default function ConfigureWorkoutScreen() {
   const { id, quickStart } = useLocalSearchParams<{
@@ -114,53 +116,61 @@ export default function ConfigureWorkoutScreen() {
     router.push(`/workout/run/${w.id}`);
   }, [workout, meta, router]);
 
+  const saveAsNew = useCallback(async (w: WorkoutDefinition, isCopy: boolean) => {
+    const newId = generateId();
+    const now = Date.now();
+    await saveWorkout({ ...w, id: newId, createdAt: now, updatedAt: now });
+    track('workout_saved', { workout_id: newId, is_copy: isCopy });
+    setMeta((prev) => ({ ...prev, templateId: newId }));
+    setOriginal({ ...w, id: newId });
+  }, []);
+
+  const runSave = useCallback(async (save: () => Promise<void>) => {
+    try {
+      await save();
+      hapticSuccess();
+    } catch {
+      hapticWarning();
+      Alert.alert('Save Failed', 'Your workout could not be saved. Please try again.');
+    }
+  }, []);
+
   const handleSaveChanges = useCallback(() => {
     const w = latestRef.current ?? workout;
     if (!w) return;
     if (!w.name.trim()) {
+      hapticWarning();
       Alert.alert('Name Required', 'Give your workout a name before saving.');
       return;
     }
 
     if (meta.templateId && original) {
-      Alert.alert('Save Template', 'How would you like to save?', [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Update Original',
-          onPress: async () => {
-            await saveWorkout({ ...w, id: meta.templateId!, updatedAt: Date.now() });
-            track('workout_saved', { workout_id: meta.templateId!, is_copy: false });
-            setOriginal(w);
+      hapticTap();
+      Alert.alert(
+        'Save to My Workouts',
+        `Update your saved "${original.name}" workout, or keep it as is and save these settings as a new workout?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: `Update "${original.name}"`,
+            onPress: () =>
+              runSave(async () => {
+                await saveWorkout({ ...w, id: meta.templateId!, updatedAt: Date.now() });
+                track('workout_saved', { workout_id: meta.templateId!, is_copy: false });
+                setOriginal(w);
+              }),
           },
-        },
-        {
-          text: 'Save as New',
-          onPress: async () => {
-            const newId = generateId();
-            const now = Date.now();
-            await saveWorkout({ ...w, id: newId, createdAt: now, updatedAt: now });
-            track('workout_saved', { workout_id: newId, is_copy: true });
-            setMeta((prev) => ({ ...prev, templateId: newId }));
-            setOriginal({ ...w, id: newId });
+          {
+            text: 'Save as New Workout',
+            onPress: () => runSave(() => saveAsNew(w, true)),
           },
-        },
-      ]);
+        ],
+      );
     } else {
       // Quick Start or plan workout without a library original — save as new
-      if (!w.name.trim()) {
-        Alert.alert('Name Required', 'Give your workout a name before saving.');
-        return;
-      }
-      const newId = generateId();
-      const now = Date.now();
-      saveWorkout({ ...w, id: newId, name: w.name, createdAt: now, updatedAt: now })
-        .then(() => {
-          track('workout_saved', { workout_id: newId, is_copy: false });
-          setMeta((prev) => ({ ...prev, templateId: newId }));
-          setOriginal({ ...w, id: newId });
-        });
+      runSave(() => saveAsNew(w, false));
     }
-  }, [workout, meta, original]);
+  }, [workout, meta, original, runSave, saveAsNew]);
 
   const handleResetToSaved = useCallback(() => {
     if (original) {
@@ -174,6 +184,8 @@ export default function ConfigureWorkoutScreen() {
     const w = latestRef.current ?? workout;
     return JSON.stringify(stripMeta(w)) !== JSON.stringify(stripMeta(original));
   }, [workout, original]);
+
+  const isSaved = !!meta.templateId && !!original && !isModified;
 
   if (!workout) {
     return (
@@ -236,14 +248,25 @@ export default function ConfigureWorkoutScreen() {
                 <Text style={styles.secondaryBtnText}>Reset</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity
-              style={styles.secondaryBtn}
-              onPress={handleSaveChanges}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="download-outline" size={16} color={Colors.textSecondary} />
-              <Text style={styles.secondaryBtnText}>Save Changes</Text>
-            </TouchableOpacity>
+            {isSaved ? (
+              <View style={styles.secondaryBtn}>
+                <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
+                <Text style={[styles.secondaryBtnText, styles.savedText]}>
+                  Saved in My Workouts
+                </Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.secondaryBtn}
+                onPress={handleSaveChanges}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="bookmark-outline" size={16} color={Colors.textSecondary} />
+                <Text style={styles.secondaryBtnText}>
+                  {original ? 'Save Changes to My Workouts' : 'Save to My Workouts'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
@@ -324,5 +347,8 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: FontSize.sm,
     fontWeight: '600',
+  },
+  savedText: {
+    color: Colors.primary,
   },
 });

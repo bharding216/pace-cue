@@ -3,8 +3,8 @@
  *
  * Uses expo-location foreground watcher while the app is active, and
  * background location updates via TaskManager when backgrounded.
- * The background task feeds samples through a global event emitter
- * so the hook can pick them up when the app returns to foreground.
+ * The background task feeds samples into a module-level buffer, drained by
+ * `sync()` on every workout tick and on app resume.
  */
 
 import { useRef, useState, useCallback, useEffect } from 'react';
@@ -18,13 +18,13 @@ import {
   MAX_ACCURACY_METERS,
   createPaceState,
 } from '../pace/paceTypes';
-import { addSample, resetPaceState } from '../pace/paceTracker';
+import { addSample, expireStalePace, resetPaceState } from '../pace/paceTracker';
 
 const BACKGROUND_LOCATION_TASK = 'pace-cue-background-location';
 
 // ── Global sample buffer for background task ─────────────────────────
 // The TaskManager task runs outside React, so it pushes samples into
-// this buffer. The hook drains the buffer on each tick / app resume.
+// this buffer. The hook drains it on each workout tick and on app resume.
 let backgroundSampleBuffer: GpsSample[] = [];
 
 /** Define the background location task at module scope (required by TaskManager). */
@@ -53,6 +53,16 @@ export interface PaceTrackerResult {
   paceState: PaceState;
   isTracking: boolean;
   permissionStatus: 'undetermined' | 'granted' | 'denied';
+  /** Latest pace state, current even between renders. */
+  getPaceState: () => PaceState;
+  /**
+   * Ingest samples buffered by the background task and clear a pace whose
+   * newest sample has aged out of the window. Call on every workout tick,
+   * since the background buffer is otherwise only drained on app resume.
+   */
+  sync: () => PaceState;
+  /** Whether a pace has been computed at any point since the last reset. */
+  hasHadPace: () => boolean;
   /** Full unpruned GPS track accumulated during the workout. */
   getFullTrack: () => GpsSample[];
   start: () => Promise<void>;
@@ -77,32 +87,52 @@ export function usePaceTracker(
   const foregroundSubRef = useRef<Location.LocationSubscription | null>(null);
   const trackingRef = useRef(false);
   const fullTrackRef = useRef<GpsSample[]>([]);
+  /** Newest sample timestamp ingested. The foreground watcher and background task can both deliver the same fixes. */
+  const lastSampleAtRef = useRef(0);
+  const hadPaceRef = useRef(false);
 
-  /** Process a single location object into pace state. */
-  const processSample = useCallback((sample: GpsSample) => {
-    if (sample.accuracy <= MAX_ACCURACY_METERS) {
-      fullTrackRef.current.push(sample);
-    }
-    const next = addSample(paceStateRef.current, sample, windowRef.current);
+  const commit = useCallback((next: PaceState) => {
+    if (next === paceStateRef.current) return;
+    if (next.currentPaceMps != null) hadPaceRef.current = true;
     paceStateRef.current = next;
     setPaceState(next);
   }, []);
 
-  /** Drain any background samples that accumulated while backgrounded. */
+  /** Fold samples into the pace state, skipping any not newer than the last one ingested. */
+  const ingest = useCallback(
+    (samples: GpsSample[]) => {
+      let state = paceStateRef.current;
+      for (const sample of samples) {
+        if (sample.timestamp <= lastSampleAtRef.current) continue;
+        lastSampleAtRef.current = sample.timestamp;
+        if (sample.accuracy <= MAX_ACCURACY_METERS) {
+          fullTrackRef.current.push(sample);
+        }
+        state = addSample(state, sample, windowRef.current);
+      }
+      commit(state);
+    },
+    [commit],
+  );
+
+  const processSample = useCallback((sample: GpsSample) => ingest([sample]), [ingest]);
+
+  /** Drain any samples the background task buffered. */
   const drainBackgroundBuffer = useCallback(() => {
     if (backgroundSampleBuffer.length === 0) return;
-    const buffered = [...backgroundSampleBuffer];
+    const buffered = backgroundSampleBuffer.sort((a, b) => a.timestamp - b.timestamp);
     backgroundSampleBuffer = [];
-    let state = paceStateRef.current;
-    for (const sample of buffered) {
-      if (sample.accuracy <= MAX_ACCURACY_METERS) {
-        fullTrackRef.current.push(sample);
-      }
-      state = addSample(state, sample, windowRef.current);
-    }
-    paceStateRef.current = state;
-    setPaceState(state);
-  }, []);
+    ingest(buffered);
+  }, [ingest]);
+
+  const sync = useCallback(() => {
+    drainBackgroundBuffer();
+    commit(expireStalePace(paceStateRef.current, Date.now(), windowRef.current));
+    return paceStateRef.current;
+  }, [drainBackgroundBuffer, commit]);
+
+  const getPaceState = useCallback(() => paceStateRef.current, []);
+  const hasHadPace = useCallback(() => hadPaceRef.current, []);
 
   /** Start GPS tracking. */
   const start = useCallback(async () => {
@@ -199,6 +229,8 @@ export function usePaceTracker(
     setPaceState(fresh);
     backgroundSampleBuffer = [];
     fullTrackRef.current = [];
+    lastSampleAtRef.current = 0;
+    hadPaceRef.current = false;
   }, []);
 
   /** Return a snapshot of the full GPS track accumulated during this workout. */
@@ -228,6 +260,9 @@ export function usePaceTracker(
     paceState,
     isTracking,
     permissionStatus,
+    getPaceState,
+    sync,
+    hasHadPace,
     getFullTrack,
     start,
     stop,

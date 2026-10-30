@@ -35,6 +35,12 @@ export async function hapticWorkoutComplete(): Promise<void> {
   } catch {}
 }
 
+export async function hapticSuccess(): Promise<void> {
+  try {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } catch {}
+}
+
 export async function hapticTap(): Promise<void> {
   try {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

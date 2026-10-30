@@ -104,7 +104,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Colors.background,
-    paddingTop: Spacing.xxl * 3,
   },
   emptyTitle: {
     fontSize: FontSize.xl,
